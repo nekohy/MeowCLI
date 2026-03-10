@@ -15,6 +15,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
+  SQLC_VERSION: latest
 
 defaults:
   run:
@@ -38,6 +39,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
+
+      - name: Install sqlc
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Set build metadata
         run: |
@@ -101,6 +107,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
+            SQLC_VERSION=${{ env.SQLC_VERSION }}
             VERSION=${{ github.ref_name }}
             COMMIT=${{ env.SHORT_SHA }}
             BUILD_TIME=${{ env.BUILD_TIME }}

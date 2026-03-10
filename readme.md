@@ -71,11 +71,14 @@ http://127.0.0.1:3000/admin
 
 - Go 1.25+
 - Node.js 22+
-- （可选）[sqlc](https://sqlc.dev/) — 修改 SQL 后重新生成代码
+- [sqlc](https://sqlc.dev/) — `internal/db/*` 不入库，首次构建前需要生成代码
 
 ### 本地开发
 
 ```bash
+# 生成SQL代码
+make sqlc
+
 # 仅启动后端（不编译前端）
 make serve
 
@@ -104,6 +107,8 @@ make clean         # 清理构建产物
 git tag v0.1.0
 git push origin v0.1.0
 ```
+
+Release workflow 与 Docker 构建都会自动安装 `sqlc` 并生成 `internal/db/*`。
 
 CI 会自动完成：生成 6 个平台发布二进制 → 生成 checksum → 创建 GitHub Release → 构建并推送 Docker 镜像到 GHCR
 
