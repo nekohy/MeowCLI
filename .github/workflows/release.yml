@@ -12,25 +12,13 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  # ── Build cross-platform binaries ────────────────────────
-  build-binaries:
+  # ── Build binaries & create GitHub Release ───────────────
+  release:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-          - goos: linux
-            goarch: arm64
-          - goos: darwin
-            goarch: amd64
-          - goos: darwin
-            goarch: arm64
-          - goos: windows
-            goarch: amd64
-
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -47,55 +35,32 @@ jobs:
           npm ci --prefix web --ignore-scripts
           npm run --prefix web build:ssg
 
-      - name: Build binary
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
+      - name: Cross-compile binaries
         run: |
           VERSION=${GITHUB_REF_NAME}
           COMMIT=${GITHUB_SHA::7}
           BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-          EXT="" && [ "$GOOS" = "windows" ] && EXT=".exe"
-          go build -ldflags "\
-            -s -w \
+          LDFLAGS="-s -w \
             -X 'MeowCLI/internal/app.Version=${VERSION}' \
             -X 'MeowCLI/internal/app.Commit=${COMMIT}' \
-            -X 'MeowCLI/internal/app.BuildTime=${BUILD_TIME}'" \
-            -o meowcli-${GOOS}-${GOARCH}${EXT} .
+            -X 'MeowCLI/internal/app.BuildTime=${BUILD_TIME}'"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: meowcli-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: meowcli-*
+          mkdir -p dist
+          for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os=${platform%/*}; arch=${platform#*/}
+            ext=""; [ "$os" = "windows" ] && ext=".exe"
+            echo ">> Building ${os}/${arch}"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
+              go build -ldflags "$LDFLAGS" -o "dist/meowcli-${os}-${arch}${ext}" .
+          done
 
-  # ── Create GitHub Release ────────────────────────────────
-  release:
-    needs: build-binaries
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: Generate checksums
-        run: |
-          cd artifacts
-          sha256sum meowcli-* > checksums-sha256.txt
+          cd dist && sha256sum meowcli-* > checksums-sha256.txt
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            artifacts/meowcli-*
-            artifacts/checksums-sha256.txt
+          files: dist/*
 
   # ── Build & push Docker image ────────────────────────────
   docker:
