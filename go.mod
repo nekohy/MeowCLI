@@ -1,4 +1,4 @@
-module MeowCLI
+module github.com/nekohy/MeowCLI
 
 go 1.25.0
 

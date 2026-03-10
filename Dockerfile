@@ -25,9 +25,9 @@ COPY --from=frontend /src/web/dist ./web/dist
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags "\
       -s -w \
-      -X 'MeowCLI/internal/app.Version=${VERSION}' \
-      -X 'MeowCLI/internal/app.Commit=${COMMIT}' \
-      -X 'MeowCLI/internal/app.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'" \
+      -X 'github.com/nekohy/MeowCLI/internal/app.Version=${VERSION}' \
+      -X 'github.com/nekohy/MeowCLI/internal/app.Commit=${COMMIT}' \
+      -X 'github.com/nekohy/MeowCLI/internal/app.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'" \
     -o /out/meowcli .
 
 # ── Stage 3: Minimal runtime ────────────────────────────────

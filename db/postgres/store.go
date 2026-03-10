@@ -7,8 +7,8 @@ import (
 	"io/fs"
 	"sort"
 
-	sqlcpostgres "MeowCLI/internal/db/postgres"
-	db "MeowCLI/internal/store"
+	sqlcpostgres "github.com/nekohy/MeowCLI/internal/db/postgres"
+	db "github.com/nekohy/MeowCLI/internal/store"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

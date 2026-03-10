@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	sqlcsqlite "MeowCLI/internal/db/sqlite"
-	db "MeowCLI/internal/store"
+	sqlcsqlite "github.com/nekohy/MeowCLI/internal/db/sqlite"
+	db "github.com/nekohy/MeowCLI/internal/store"
 )
 
 func (s *Store) UpsertQuota(ctx context.Context, arg db.UpsertQuotaParams) error {

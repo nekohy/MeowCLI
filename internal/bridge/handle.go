@@ -1,10 +1,10 @@
 package bridge
 
 import (
-	"MeowCLI/api"
-	storedb "MeowCLI/internal/store"
-	"MeowCLI/utils"
 	"errors"
+	"github.com/nekohy/MeowCLI/api"
+	storedb "github.com/nekohy/MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/utils"
 	"io"
 	"net/http"
 	"slices"

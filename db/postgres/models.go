@@ -3,8 +3,8 @@ package postgres
 import (
 	"context"
 
-	sqlcpostgres "MeowCLI/internal/db/postgres"
-	db "MeowCLI/internal/store"
+	sqlcpostgres "github.com/nekohy/MeowCLI/internal/db/postgres"
+	db "github.com/nekohy/MeowCLI/internal/store"
 )
 
 func (s *Store) ReverseInfoFromModel(ctx context.Context, alias string) (db.ReverseInfoFromModelRow, error) {

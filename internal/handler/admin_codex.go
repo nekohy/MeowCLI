@@ -1,10 +1,10 @@
 package handler
 
 import (
-	db "MeowCLI/internal/store"
-	"MeowCLI/utils"
 	"context"
 	"fmt"
+	db "github.com/nekohy/MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/utils"
 	"net/http"
 	"strconv"
 	"strings"

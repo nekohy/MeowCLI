@@ -1,15 +1,15 @@
 package handler
 
 import (
-	"MeowCLI/api/codex"
-	"MeowCLI/internal/auth"
-	"MeowCLI/internal/settings"
-	db "MeowCLI/internal/store"
-	"MeowCLI/utils"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nekohy/MeowCLI/api/codex"
+	"github.com/nekohy/MeowCLI/internal/auth"
+	"github.com/nekohy/MeowCLI/internal/settings"
+	db "github.com/nekohy/MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/utils"
 	"net/http"
 	"strings"
 	"sync"

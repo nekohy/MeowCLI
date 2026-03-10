@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"MeowCLI/utils"
 	"context"
+	"github.com/nekohy/MeowCLI/utils"
 	"net/http"
 
 	"github.com/gin-gonic/gin"

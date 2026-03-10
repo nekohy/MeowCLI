@@ -1,9 +1,9 @@
 package api
 
 import (
-	"MeowCLI/utils"
 	"context"
 	"fmt"
+	"github.com/nekohy/MeowCLI/utils"
 	"net/http"
 )
 

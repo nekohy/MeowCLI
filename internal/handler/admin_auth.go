@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"MeowCLI/internal/auth"
-	db "MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/internal/auth"
+	db "github.com/nekohy/MeowCLI/internal/store"
 
 	"github.com/gin-gonic/gin"
 )

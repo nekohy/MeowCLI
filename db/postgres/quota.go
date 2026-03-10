@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	sqlcpostgres "MeowCLI/internal/db/postgres"
-	db "MeowCLI/internal/store"
+	sqlcpostgres "github.com/nekohy/MeowCLI/internal/db/postgres"
+	db "github.com/nekohy/MeowCLI/internal/store"
 )
 
 func (s *Store) UpsertQuota(ctx context.Context, arg db.UpsertQuotaParams) error {

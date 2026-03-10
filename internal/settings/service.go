@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	db "MeowCLI/internal/store"
+	db "github.com/nekohy/MeowCLI/internal/store"
 )
 
 const (

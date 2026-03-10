@@ -1,8 +1,8 @@
 package handler
 
 import (
-	db "MeowCLI/internal/store"
 	"context"
+	db "github.com/nekohy/MeowCLI/internal/store"
 )
 
 type LogRow = db.LogRow

@@ -1,7 +1,7 @@
 package handler
 
 import (
-	webui "MeowCLI/web"
+	webui "github.com/nekohy/MeowCLI/web"
 	"io/fs"
 	"net/http"
 	"strings"

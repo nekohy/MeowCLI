@@ -1,10 +1,10 @@
 package router
 
 import (
-	"MeowCLI/internal/auth"
-	"MeowCLI/internal/bridge"
-	"MeowCLI/internal/handler"
-	"MeowCLI/utils"
+	"github.com/nekohy/MeowCLI/internal/auth"
+	"github.com/nekohy/MeowCLI/internal/bridge"
+	"github.com/nekohy/MeowCLI/internal/handler"
+	"github.com/nekohy/MeowCLI/utils"
 	"net/http"
 
 	"github.com/gin-gonic/gin"

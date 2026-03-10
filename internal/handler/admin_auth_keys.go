@@ -1,7 +1,7 @@
 package handler
 
 import (
-	db "MeowCLI/internal/store"
+	db "github.com/nekohy/MeowCLI/internal/store"
 	"net/http"
 	"strings"
 

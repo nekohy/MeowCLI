@@ -1,18 +1,18 @@
 package codex
 
 import (
-	CodexAPI "MeowCLI/api/codex"
 	"context"
 	"errors"
 	"fmt"
+	CodexAPI "github.com/nekohy/MeowCLI/api/codex"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"MeowCLI/internal/settings"
-	db "MeowCLI/internal/store"
-	"MeowCLI/utils"
+	"github.com/nekohy/MeowCLI/internal/settings"
+	db "github.com/nekohy/MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/maypok86/otter/v2"
 	"github.com/rs/zerolog/log"

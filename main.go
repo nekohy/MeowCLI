@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"MeowCLI/internal/app"
+	"github.com/nekohy/MeowCLI/internal/app"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"

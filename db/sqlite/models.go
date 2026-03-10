@@ -3,8 +3,8 @@ package sqlite
 import (
 	"context"
 
-	sqlcsqlite "MeowCLI/internal/db/sqlite"
-	db "MeowCLI/internal/store"
+	sqlcsqlite "github.com/nekohy/MeowCLI/internal/db/sqlite"
+	db "github.com/nekohy/MeowCLI/internal/store"
 )
 
 func (s *Store) ReverseInfoFromModel(ctx context.Context, alias string) (db.ReverseInfoFromModelRow, error) {

@@ -1,11 +1,11 @@
 package codex
 
 import (
-	"MeowCLI/api"
-	codexutils "MeowCLI/api/codex/utils"
-	"MeowCLI/internal/settings"
-	"MeowCLI/utils"
 	"context"
+	"github.com/nekohy/MeowCLI/api"
+	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
+	"github.com/nekohy/MeowCLI/internal/settings"
+	"github.com/nekohy/MeowCLI/utils"
 	"net/http"
 	"net/url"
 	"strings"

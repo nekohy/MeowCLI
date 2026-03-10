@@ -1,9 +1,9 @@
 package codex
 
 import (
-	"MeowCLI/api/codex/utils"
 	"context"
 	"fmt"
+	"github.com/nekohy/MeowCLI/api/codex/utils"
 	"time"
 )
 

@@ -1,8 +1,8 @@
 package codex
 
 import (
-	"MeowCLI/api"
 	"errors"
+	"github.com/nekohy/MeowCLI/api"
 )
 
 // ParseAPIError 解包 resty 的 APIError，便于上层按状态码分类处理

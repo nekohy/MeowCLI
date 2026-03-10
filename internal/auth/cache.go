@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 
-	db "MeowCLI/internal/store"
+	db "github.com/nekohy/MeowCLI/internal/store"
 )
 
 type keySnapshot struct {

@@ -1,5 +1,5 @@
 APP_NAME    := meowcli
-MODULE      := MeowCLI
+MODULE      := github.com/nekohy/MeowCLI
 WEB_DIR     := web
 BUILD_DIR   := build
 
@@ -14,27 +14,23 @@ LDFLAGS     := -s -w \
 
 GO          := go
 GOFLAGS     ?=
+PLATFORMS   := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
-# ── Phony targets ───────────────────────────────────────────
-.PHONY: all build build-all frontend-install frontend-build \
-        dev dev-admin serve clean lint test sqlc \
-        cross docker
+.PHONY: all build build-all frontend serve dev-admin lint test sqlc cross docker clean
 
 # ── Default ─────────────────────────────────────────────────
 all: build-all
 
 # ── Frontend ────────────────────────────────────────────────
-frontend-install:
-	npm --prefix $(WEB_DIR) install
-
-frontend-build: frontend-install
+frontend:
+	npm --prefix $(WEB_DIR) ci --ignore-scripts
 	npm --prefix $(WEB_DIR) run build:ssg
 
 # ── Go build ────────────────────────────────────────────────
 build:
 	$(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME) .
 
-build-all: frontend-build build
+build-all: frontend build
 
 # ── Dev ─────────────────────────────────────────────────────
 serve:
@@ -43,23 +39,14 @@ serve:
 dev-admin:
 	npm --prefix $(WEB_DIR) run dev
 
-# ── Quality ─────────────────────────────────────────────────
-lint:
-	golangci-lint run ./...
-
-test:
-	$(GO) test ./... -v -count=1
-
 # ── Codegen ─────────────────────────────────────────────────
 sqlc:
 	sqlc generate
 
 # ── Cross-compilation ──────────────────────────────────────
-PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
-
-cross: frontend-build
+cross: frontend
 	@for platform in $(PLATFORMS); do \
-		os=$${platform%/*}; arch=$${platform#*/}; \
+		os=$$(echo $$platform | cut -d/ -f1); arch=$$(echo $$platform | cut -d/ -f2); \
 		ext=""; [ "$$os" = "windows" ] && ext=".exe"; \
 		echo ">> Building $$os/$$arch"; \
 		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 \
@@ -68,11 +55,8 @@ cross: frontend-build
 	done
 
 # ── Docker ──────────────────────────────────────────────────
-DOCKER_IMAGE ?= meowcli
-DOCKER_TAG   ?= $(VERSION)
-
 docker:
-	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) \
+	docker build -t $(APP_NAME):$(VERSION) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) .
 

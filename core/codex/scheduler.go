@@ -1,11 +1,11 @@
 package codex
 
 import (
-	codexclient "MeowCLI/api/codex"
-	codexAPI "MeowCLI/api/codex/utils"
 	"context"
 	"errors"
 	"fmt"
+	codexclient "github.com/nekohy/MeowCLI/api/codex"
+	codexAPI "github.com/nekohy/MeowCLI/api/codex/utils"
 	"math"
 	"net/http"
 	"sort"
@@ -13,9 +13,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"MeowCLI/internal/settings"
-	db "MeowCLI/internal/store"
-	"MeowCLI/utils"
+	"github.com/nekohy/MeowCLI/internal/settings"
+	db "github.com/nekohy/MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/rs/zerolog/log"
 )

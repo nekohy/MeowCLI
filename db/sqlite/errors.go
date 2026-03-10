@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	db "MeowCLI/internal/store"
+	db "github.com/nekohy/MeowCLI/internal/store"
 )
 
 func wrapError(err error) error {

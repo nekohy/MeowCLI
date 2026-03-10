@@ -1,13 +1,13 @@
 package bridge
 
 import (
-	"MeowCLI/api"
-	"MeowCLI/internal/settings"
-	"MeowCLI/utils"
 	"bufio"
 	"bytes"
 	"context"
 	"errors"
+	"github.com/nekohy/MeowCLI/api"
+	"github.com/nekohy/MeowCLI/internal/settings"
+	"github.com/nekohy/MeowCLI/utils"
 	"io"
 	"net/http"
 	"time"

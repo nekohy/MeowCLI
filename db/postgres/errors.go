@@ -3,7 +3,7 @@ package postgres
 import (
 	"errors"
 
-	db "MeowCLI/internal/store"
+	db "github.com/nekohy/MeowCLI/internal/store"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"

@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 
-	sqlcsqlite "MeowCLI/internal/db/sqlite"
-	db "MeowCLI/internal/store"
+	sqlcsqlite "github.com/nekohy/MeowCLI/internal/db/sqlite"
+	db "github.com/nekohy/MeowCLI/internal/store"
 )
 
 func (s *Store) beginImmediateAuthKeyConn(ctx context.Context) (*sql.Conn, *sqlcsqlite.Queries, error) {

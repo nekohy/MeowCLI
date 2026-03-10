@@ -65,6 +65,47 @@ http://127.0.0.1:3000/admin
 - 目前无格式转换，完整透传
 - 我不会写前端，所以前端是纯AI的（包括你现在看的readme.md，我懒得写）
 - 
+## 开发指南
+
+### 环境要求
+
+- Go 1.25+
+- Node.js 22+
+- （可选）[sqlc](https://sqlc.dev/) — 修改 SQL 后重新生成代码
+
+### 本地开发
+
+```bash
+# 仅启动后端（不编译前端）
+make serve
+
+# 启动前端开发服务器（Nuxt HMR）
+make dev-admin
+
+# 完整构建（前端 SSG + Go 二进制）
+make build-all
+```
+
+### 常用命令
+
+```bash
+make sqlc          # 重新生成 sqlc 代码
+make cross         # 交叉编译所有平台
+make docker        # 构建 Docker 镜像
+make clean         # 清理构建产物
+```
+
+### 发布流程
+
+打 tag 推送后 GitHub Actions 自动构建并发布：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+CI 会自动完成：交叉编译 6 个平台二进制 → 生成 checksum → 创建 GitHub Release → 构建并推送 Docker 镜像到 GHCR
+
 ## 项目结构
 
 ```text

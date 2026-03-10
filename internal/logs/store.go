@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"MeowCLI/internal/settings"
-	db "MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/internal/settings"
+	db "github.com/nekohy/MeowCLI/internal/store"
 )
 
 type Store struct {

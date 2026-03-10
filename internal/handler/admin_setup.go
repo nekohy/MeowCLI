@@ -1,11 +1,11 @@
 package handler
 
 import (
-	"MeowCLI/internal/auth"
-	db "MeowCLI/internal/store"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"github.com/nekohy/MeowCLI/internal/auth"
+	db "github.com/nekohy/MeowCLI/internal/store"
 	"net/http"
 	"strings"
 
