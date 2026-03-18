@@ -67,6 +67,7 @@ func (c *Client) HandlerType() utils.HandlerType {
 func (c *Client) APIType() []utils.APIType {
 	return []utils.APIType{
 		utils.APIResponses,
+		utils.APIResponsesCompact,
 	}
 }
 

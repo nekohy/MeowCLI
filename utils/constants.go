@@ -32,6 +32,7 @@ type APIType string
 
 const (
 	APIResponses          APIType = "responses"
+	APIResponsesCompact   APIType = "responses_compact"
 	APICompletion         APIType = "completion"
 	APIGemini             APIType = "gemini"
 	APIResponsesWebsocket APIType = "responses_websocket"

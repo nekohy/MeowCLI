@@ -130,7 +130,7 @@ func defaultHandlerOverview() []handlerOverview {
 			Label:               "Codex CLI",
 			Summary:             "Codex池",
 			Status:              "available",
-			SupportedAPI:        []utils.APIType{utils.APIResponses},
+			SupportedAPI:        []utils.APIType{utils.APIResponses, utils.APIResponsesCompact},
 			SupportsCredentials: true,
 			CredentialEndpoint:  "/admin/api/codex",
 			CredentialFields: []credentialField{

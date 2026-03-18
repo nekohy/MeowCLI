@@ -82,7 +82,7 @@ async function openHandler(key: string, supportsCredentials: boolean) {
       <EmptyState
         v-else
         title="暂无请求日志"
-        description="开始通过 /v1/responses 调用后，这里会显示最近的请求记录。"
+        description="这里会显示最近的请求记录"
       />
     </SectionCard>
   </div>

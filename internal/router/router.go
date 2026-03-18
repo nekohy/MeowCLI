@@ -22,6 +22,7 @@ func Setup(r *gin.Engine, deps Deps) {
 	// /v1 with API auth (admin + user)
 	v1 := r.Group("/v1", handler.APIAuthMiddleware(deps.AuthCache))
 	v1.POST("/responses", deps.Bridge.Route(utils.APIResponses))
+	v1.POST("/responses/compact", deps.Bridge.Route(utils.APIResponsesCompact))
 
 	// Admin
 	admin := r.Group("/admin")
