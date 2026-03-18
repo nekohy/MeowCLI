@@ -32,7 +32,7 @@ type Organizations struct {
 
 // CodexAuthInfo 包含 Codex 特有的认证相关信息
 type CodexAuthInfo struct {
-	ChatgptAccountID               string          `json:"chatgpt_account_id"`
+	ChatgptAccountUserID           string          `json:"chatgpt_account_user_id"` // 是acc_id+user_id拼接的，原生
 	ChatgptPlanType                string          `json:"chatgpt_plan_type"`
 	ChatgptSubscriptionActiveUntil *string         `json:"chatgpt_subscription_active_until"`
 	Groups                         []any           `json:"groups"`
@@ -70,9 +70,27 @@ func base64URLDecode(data string) ([]byte, error) {
 	return base64.URLEncoding.DecodeString(data)
 }
 
-// GetAccountID 从 JWT 声明中提取 ChatGPT 账户 ID
-func (c *JWTClaims) GetAccountID() string {
-	return c.CodexAuthInfo.ChatgptAccountID
+// GetAccountUserID 从 JWT 声明中提取 account-scoped user id
+func (c *JWTClaims) GetAccountUserID() string {
+	return strings.TrimSpace(c.CodexAuthInfo.ChatgptAccountUserID)
+}
+
+// GetCredentialID 返回默认持久化/调度使用的凭据 ID
+func (c *JWTClaims) GetCredentialID() string {
+	return c.GetAccountUserID()
+}
+
+// AccountIDFromCredentialID 从默认 credential id 中提取 account id
+func AccountIDFromCredentialID(credentialID string) string {
+	credentialID = strings.TrimSpace(credentialID)
+	if credentialID == "" {
+		return ""
+	}
+	idx := strings.LastIndex(credentialID, "__")
+	if idx < 0 || idx+2 >= len(credentialID) {
+		return credentialID
+	}
+	return strings.TrimSpace(credentialID[idx+2:])
 }
 
 // GetPlanType 从 JWT 声明中提取 chatgpt_plan_type

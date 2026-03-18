@@ -3,7 +3,8 @@ package codex
 import (
 	"context"
 	"fmt"
-	"github.com/nekohy/MeowCLI/api/codex/utils"
+	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
+	"github.com/nekohy/MeowCLI/utils"
 	"time"
 )
 
@@ -21,19 +22,19 @@ type rateLimitWindow struct {
 	ResetAt            int64 `json:"reset_at"`
 }
 
-func (c *Client) FetchQuota(ctx context.Context, credentialID, accessToken string) (*utils.Quota, error) {
+func (c *Client) FetchQuota(ctx context.Context, credentialID, accessToken string) (*codexutils.Quota, error) {
 	var usage usageResponse
 	_, err := c.client.R().
 		SetContext(ctx).
 		SetHeader("Authorization", "Bearer "+accessToken).
-		SetHeader("Chatgpt-Account-Id", credentialID).
+		SetHeader("Chatgpt-Account-Id", utils.AccountIDFromCredentialID(credentialID)).
 		SetResult(&usage).
-		Get(utils.UsageURL)
+		Get(codexutils.UsageURL)
 	if err != nil {
 		return nil, fmt.Errorf("fetch quota: %w", err)
 	}
 
-	q := &utils.Quota{Quota5h: 1.0, Quota7d: 1.0}
+	q := &codexutils.Quota{Quota5h: 1.0, Quota7d: 1.0}
 	for _, w := range []*rateLimitWindow{
 		usage.RateLimit.PrimaryWindow,
 		usage.RateLimit.SecondaryWindow,

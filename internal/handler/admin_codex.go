@@ -141,10 +141,7 @@ func (a *AdminHandler) createFromTokenData(ctx context.Context, accessToken, ref
 		return "", fmt.Errorf("access_token is expired")
 	}
 
-	accountID := accessClaims.GetAccountID()
-	if accountID == "" {
-		return "", fmt.Errorf("could not extract chatgpt_account_id from token")
-	}
+	credentialID := accessClaims.GetCredentialID()
 
 	planType := "unknown"
 	if pt := accessClaims.GetPlanType(); pt != "" {
@@ -163,13 +160,20 @@ func (a *AdminHandler) createFromTokenData(ctx context.Context, accessToken, ref
 			if until := idClaims.GetSubscriptionActiveUntil(); !until.IsZero() {
 				planExpired = until
 			}
-			if accountID == "" {
-				accountID = idClaims.GetAccountID()
+			if credentialID == "" {
+				credentialID = idClaims.GetCredentialID()
 			}
 			if email == "" {
 				email = idClaims.GetEmail()
 			}
 		}
+	}
+	if credentialID == "" {
+		return "", fmt.Errorf("could not extract chatgpt account user id from token")
+	}
+	accountID := utils.AccountIDFromCredentialID(credentialID)
+	if accountID == "" {
+		return "", fmt.Errorf("could not extract chatgpt account id from token")
 	}
 
 	if a.currentSettings().CodexDeleteFreeAccounts && strings.EqualFold(planType, "free") {
@@ -177,11 +181,16 @@ func (a *AdminHandler) createFromTokenData(ctx context.Context, accessToken, ref
 	}
 
 	if email != "" {
-		log.Info().Str("account_id", accountID).Str("email", email).Str("plan", planType).Msg("creating credential")
+		log.Info().
+			Str("credential_id", credentialID).
+			Str("account_id", accountID).
+			Str("email", email).
+			Str("plan", planType).
+			Msg("creating credential")
 	}
 
 	_, err = a.store.CreateCodex(ctx, db.CreateCodexParams{
-		ID:           accountID,
+		ID:           credentialID,
 		Status:       "enabled",
 		AccessToken:  accessToken,
 		Expired:      expired,
@@ -192,7 +201,7 @@ func (a *AdminHandler) createFromTokenData(ctx context.Context, accessToken, ref
 	if err != nil {
 		return "", err
 	}
-	return accountID, nil
+	return credentialID, nil
 }
 
 func (a *AdminHandler) BatchUpdateStatus(c *gin.Context) {

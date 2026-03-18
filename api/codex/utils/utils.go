@@ -19,7 +19,5 @@ type CodexTokenData struct {
 	IDToken      string
 	AccessToken  string
 	RefreshToken string
-	AccountID    string
-	Email        string
 	Expire       string // RFC 3339
 }

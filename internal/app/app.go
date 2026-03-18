@@ -147,7 +147,7 @@ func (a *codexSchedulerAdapter) AuthHeaders(ctx context.Context, credID string) 
 	}
 	h := make(http.Header)
 	h.Set("Authorization", "Bearer "+token)
-	h.Set("Chatgpt-Account-Id", credID)
+	h.Set("Chatgpt-Account-Id", utils.AccountIDFromCredentialID(credID))
 	return h, nil
 }
 
