@@ -7,9 +7,10 @@ import (
 )
 
 const (
-	DefaultRefreshBefore = 30 * time.Second
-	DefaultPollInterval  = 200 * time.Millisecond
-	DefaultMaxRetries    = 3
+	DefaultRefreshBefore     = 30 * time.Second
+	DefaultPollInterval      = 200 * time.Millisecond
+	DefaultMaxRetries        = 3
+	HeaderPlanTypePreference = "X-Meow-Plan-Type"
 )
 
 type HandlerType string

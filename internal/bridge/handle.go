@@ -2,15 +2,16 @@ package bridge
 
 import (
 	"errors"
-	"github.com/nekohy/MeowCLI/api"
-	storedb "github.com/nekohy/MeowCLI/internal/store"
-	"github.com/nekohy/MeowCLI/utils"
 	"io"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nekohy/MeowCLI/api"
+	storedb "github.com/nekohy/MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
@@ -70,7 +71,7 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 	var lastRelayErr relayError
 	var haveLastRelayErr bool
 	for attempt := 0; attempt < h.maxAttempts(); attempt++ {
-		credID, err := sched.Pick(ctx, "")
+		credID, err := sched.Pick(ctx, c.Request.Header)
 		if err != nil {
 			if haveLastRelayErr {
 				break
@@ -89,6 +90,7 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 		}
 
 		headers := c.Request.Header.Clone()
+		headers.Del(utils.HeaderPlanTypePreference)
 		for k, vs := range authHeaders {
 			headers[k] = vs
 		}

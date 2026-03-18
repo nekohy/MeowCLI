@@ -70,7 +70,7 @@ func Run(ctx context.Context, cfg Config) error {
 	h := bridge.NewHandler(
 		&modelStoreAdapter{store: store},
 		map[utils.HandlerType]bridge.CredentialScheduler{
-			utils.HandlerCodex: &codexSchedulerAdapter{s: codexScheduler},
+			utils.HandlerCodex: codexScheduler,
 		},
 		codexClient,
 	)
@@ -129,38 +129,6 @@ func openStore(ctx context.Context, cfg Config) (db.Store, error) {
 	default:
 		return nil, fmt.Errorf("unsupported db type %q", cfg.DBType)
 	}
-}
-
-// codexSchedulerAdapter 适配 coreCodex.Scheduler → bridge.CredentialScheduler（codex 凭据池）
-type codexSchedulerAdapter struct {
-	s *coreCodex.Scheduler
-}
-
-func (a *codexSchedulerAdapter) Pick(ctx context.Context, planType string) (string, error) {
-	return a.s.Pick(ctx, planType)
-}
-
-func (a *codexSchedulerAdapter) AuthHeaders(ctx context.Context, credID string) (http.Header, error) {
-	token, err := a.s.GetAccessToken(ctx, credID)
-	if err != nil {
-		return nil, err
-	}
-	h := make(http.Header)
-	h.Set("Authorization", "Bearer "+token)
-	h.Set("Chatgpt-Account-Id", utils.AccountIDFromCredentialID(credID))
-	return h, nil
-}
-
-func (a *codexSchedulerAdapter) RecordSuccess(ctx context.Context, id string, code int32) {
-	a.s.RecordSuccess(ctx, id, code)
-}
-
-func (a *codexSchedulerAdapter) RecordFailure(ctx context.Context, id string, code int32, text string, retry time.Duration) {
-	a.s.RecordFailure(ctx, id, code, text, retry)
-}
-
-func (a *codexSchedulerAdapter) HandleUnauthorized(ctx context.Context, id string, code int32, text string) bool {
-	return a.s.HandleUnauthorized(ctx, id, code, text)
 }
 
 // modelStoreAdapter 适配 db.Store → bridge.ModelStore

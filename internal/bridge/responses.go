@@ -5,12 +5,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/nekohy/MeowCLI/api"
-	"github.com/nekohy/MeowCLI/internal/settings"
-	"github.com/nekohy/MeowCLI/utils"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/nekohy/MeowCLI/api"
+	"github.com/nekohy/MeowCLI/internal/settings"
+	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,7 +23,7 @@ type ModelStore interface {
 
 // CredentialScheduler 提供凭证调度与状态记录（每个 HandlerType 独立一个）
 type CredentialScheduler interface {
-	Pick(ctx context.Context, planType string) (credentialID string, err error)
+	Pick(ctx context.Context, headers http.Header) (credentialID string, err error)
 	// AuthHeaders 返回该凭证的认证头（如 Authorization, Account-Id 等），由各类型自行实现
 	AuthHeaders(ctx context.Context, credentialID string) (http.Header, error)
 	RecordSuccess(ctx context.Context, credentialID string, statusCode int32)
@@ -77,10 +78,7 @@ func (h *Handler) resolveModel(ctx context.Context, alias string) (*modelInfo, e
 }
 
 func (h *Handler) maxRetries() int {
-	if h == nil || h.settings == nil {
-		return settings.DefaultSnapshot().RelayMaxRetries
-	}
-	return h.settings.Snapshot().RelayMaxRetries
+	return h.settingsSnapshot().RelayMaxRetries
 }
 
 func (h *Handler) maxAttempts() int {
@@ -89,6 +87,13 @@ func (h *Handler) maxAttempts() int {
 		retries = 0
 	}
 	return retries + 1
+}
+
+func (h *Handler) settingsSnapshot() settings.Snapshot {
+	if h == nil || h.settings == nil {
+		return settings.DefaultSnapshot()
+	}
+	return h.settings.Snapshot()
 }
 
 func (h *Handler) streamSSE(c *gin.Context, resp *http.Response, backend api.Backend, alias string) error {

@@ -4,26 +4,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nekohy/MeowCLI/internal/settings"
-	db "github.com/nekohy/MeowCLI/internal/store"
 	"net/http"
 	"net/url"
 	"strings"
+
+	corecodex "github.com/nekohy/MeowCLI/core/codex"
+	"github.com/nekohy/MeowCLI/internal/settings"
+	db "github.com/nekohy/MeowCLI/internal/store"
 
 	"github.com/gin-gonic/gin"
 )
 
 type settingsUpdateRequest struct {
-	GlobalProxy              *string `json:"global_proxy"`
-	CodexProxy               *string `json:"codex_proxy"`
-	CodexDeleteFreeAccounts  *bool   `json:"codex_delete_free_accounts"`
-	RefreshBeforeSeconds     *int    `json:"refresh_before_seconds"`
-	PollIntervalMilliseconds *int    `json:"poll_interval_milliseconds"`
-	QuotaSyncIntervalSeconds *int    `json:"quota_sync_interval_seconds"`
-	ThrottleBaseSeconds      *int    `json:"throttle_base_seconds"`
-	ThrottleMaxSeconds       *int    `json:"throttle_max_seconds"`
-	RelayMaxRetries          *int    `json:"relay_max_retries"`
-	LogsRetentionSeconds     *int    `json:"logs_retention_seconds"`
+	AllowUserPlanTypeHeader      *bool   `json:"allow_user_plan_type_header"`
+	GlobalProxy                  *string `json:"global_proxy"`
+	CodexProxy                   *string `json:"codex_proxy"`
+	CodexDeleteFreeAccounts      *bool   `json:"codex_delete_free_accounts"`
+	CodexAllowUserPlanTypeHeader *bool   `json:"codex_allow_user_plan_type_header"`
+	CodexPreferredPlanTypes      *string `json:"codex_preferred_plan_types"`
+	RefreshBeforeSeconds         *int    `json:"refresh_before_seconds"`
+	PollIntervalMilliseconds     *int    `json:"poll_interval_milliseconds"`
+	QuotaSyncIntervalSeconds     *int    `json:"quota_sync_interval_seconds"`
+	ThrottleBaseSeconds          *int    `json:"throttle_base_seconds"`
+	ThrottleMaxSeconds           *int    `json:"throttle_max_seconds"`
+	RelayMaxRetries              *int    `json:"relay_max_retries"`
+	LogsRetentionSeconds         *int    `json:"logs_retention_seconds"`
 }
 
 func (a *AdminHandler) GetSettings(c *gin.Context) {
@@ -71,6 +76,9 @@ func (a *AdminHandler) UpdateSettings(c *gin.Context) {
 func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (settings.Snapshot, error) {
 	next := base
 
+	if req.AllowUserPlanTypeHeader != nil {
+		next.AllowUserPlanTypeHeader = *req.AllowUserPlanTypeHeader
+	}
 	if req.GlobalProxy != nil {
 		next.GlobalProxy = strings.TrimSpace(*req.GlobalProxy)
 	}
@@ -79,6 +87,12 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 	}
 	if req.CodexDeleteFreeAccounts != nil {
 		next.CodexDeleteFreeAccounts = *req.CodexDeleteFreeAccounts
+	}
+	if req.CodexAllowUserPlanTypeHeader != nil {
+		next.CodexAllowUserPlanTypeHeader = *req.CodexAllowUserPlanTypeHeader
+	}
+	if req.CodexPreferredPlanTypes != nil {
+		next.CodexPreferredPlanTypes = corecodex.NormalizePlanTypeList(*req.CodexPreferredPlanTypes)
 	}
 	if err := applyPositiveSetting("refresh_before_seconds", req.RefreshBeforeSeconds, &next.RefreshBeforeSeconds); err != nil {
 		return settings.Snapshot{}, err
@@ -111,6 +125,7 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 	if next.ThrottleMaxSeconds < next.ThrottleBaseSeconds {
 		return settings.Snapshot{}, fmt.Errorf("throttle_max_seconds must be greater than or equal to throttle_base_seconds")
 	}
+	next.CodexPreferredPlanTypes = corecodex.NormalizePlanTypeList(next.CodexPreferredPlanTypes)
 
 	return next.Normalize(), nil
 }
@@ -153,7 +168,7 @@ func (a *AdminHandler) deleteFreeCodexAccounts(ctx context.Context, snapshot set
 
 	deleted := make([]string, 0)
 	for _, row := range rows {
-		if !strings.EqualFold(strings.TrimSpace(row.PlanType), "free") {
+		if !corecodex.IsFreePlanType(row.PlanType) {
 			continue
 		}
 		if err := a.store.DeleteCodex(ctx, row.ID); err != nil {

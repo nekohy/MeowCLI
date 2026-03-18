@@ -11,16 +11,19 @@ import (
 )
 
 const (
-	KeyGlobalProxy              = "global_proxy"
-	KeyCodexProxy               = "codex_proxy"
-	KeyCodexDeleteFreeAccounts  = "codex_delete_free_accounts"
-	KeyRefreshBeforeSeconds     = "refresh_before_seconds"
-	KeyPollIntervalMilliseconds = "poll_interval_milliseconds"
-	KeyQuotaSyncIntervalSeconds = "quota_sync_interval_seconds"
-	KeyThrottleBaseSeconds      = "throttle_base_seconds"
-	KeyThrottleMaxSeconds       = "throttle_max_seconds"
-	KeyRelayMaxRetries          = "relay_max_retries"
-	KeyLogsRetentionSeconds     = "logs_retention_seconds"
+	KeyAllowUserPlanTypeHeader      = "allow_user_plan_type_header"
+	KeyGlobalProxy                  = "global_proxy"
+	KeyCodexProxy                   = "codex_proxy"
+	KeyCodexDeleteFreeAccounts      = "codex_delete_free_accounts"
+	KeyCodexAllowUserPlanTypeHeader = "codex_allow_user_plan_type_header"
+	KeyCodexPreferredPlanTypes      = "codex_preferred_plan_types"
+	KeyRefreshBeforeSeconds         = "refresh_before_seconds"
+	KeyPollIntervalMilliseconds     = "poll_interval_milliseconds"
+	KeyQuotaSyncIntervalSeconds     = "quota_sync_interval_seconds"
+	KeyThrottleBaseSeconds          = "throttle_base_seconds"
+	KeyThrottleMaxSeconds           = "throttle_max_seconds"
+	KeyRelayMaxRetries              = "relay_max_retries"
+	KeyLogsRetentionSeconds         = "logs_retention_seconds"
 )
 
 const (
@@ -32,16 +35,19 @@ const (
 )
 
 type Snapshot struct {
-	GlobalProxy              string `json:"global_proxy"`
-	CodexProxy               string `json:"codex_proxy"`
-	CodexDeleteFreeAccounts  bool   `json:"codex_delete_free_accounts"`
-	RefreshBeforeSeconds     int    `json:"refresh_before_seconds"`
-	PollIntervalMilliseconds int    `json:"poll_interval_milliseconds"`
-	QuotaSyncIntervalSeconds int    `json:"quota_sync_interval_seconds"`
-	ThrottleBaseSeconds      int    `json:"throttle_base_seconds"`
-	ThrottleMaxSeconds       int    `json:"throttle_max_seconds"`
-	RelayMaxRetries          int    `json:"relay_max_retries"`
-	LogsRetentionSeconds     int    `json:"logs_retention_seconds"`
+	AllowUserPlanTypeHeader      bool   `json:"allow_user_plan_type_header"`
+	GlobalProxy                  string `json:"global_proxy"`
+	CodexProxy                   string `json:"codex_proxy"`
+	CodexDeleteFreeAccounts      bool   `json:"codex_delete_free_accounts"`
+	CodexAllowUserPlanTypeHeader bool   `json:"codex_allow_user_plan_type_header"`
+	CodexPreferredPlanTypes      string `json:"codex_preferred_plan_types"`
+	RefreshBeforeSeconds         int    `json:"refresh_before_seconds"`
+	PollIntervalMilliseconds     int    `json:"poll_interval_milliseconds"`
+	QuotaSyncIntervalSeconds     int    `json:"quota_sync_interval_seconds"`
+	ThrottleBaseSeconds          int    `json:"throttle_base_seconds"`
+	ThrottleMaxSeconds           int    `json:"throttle_max_seconds"`
+	RelayMaxRetries              int    `json:"relay_max_retries"`
+	LogsRetentionSeconds         int    `json:"logs_retention_seconds"`
 }
 
 type Provider interface {
@@ -62,16 +68,19 @@ type Service struct {
 
 func DefaultSnapshot() Snapshot {
 	return Snapshot{
-		GlobalProxy:              "",
-		CodexProxy:               "",
-		CodexDeleteFreeAccounts:  false,
-		RefreshBeforeSeconds:     30,
-		PollIntervalMilliseconds: 200,
-		QuotaSyncIntervalSeconds: 15 * 60,
-		ThrottleBaseSeconds:      60,
-		ThrottleMaxSeconds:       30 * 60,
-		RelayMaxRetries:          3,
-		LogsRetentionSeconds:     defaultLogsRetentionSeconds,
+		AllowUserPlanTypeHeader:      false,
+		GlobalProxy:                  "",
+		CodexProxy:                   "",
+		CodexDeleteFreeAccounts:      false,
+		CodexAllowUserPlanTypeHeader: false,
+		CodexPreferredPlanTypes:      "",
+		RefreshBeforeSeconds:         30,
+		PollIntervalMilliseconds:     200,
+		QuotaSyncIntervalSeconds:     15 * 60,
+		ThrottleBaseSeconds:          60,
+		ThrottleMaxSeconds:           30 * 60,
+		RelayMaxRetries:              3,
+		LogsRetentionSeconds:         defaultLogsRetentionSeconds,
 	}
 }
 
@@ -156,6 +165,7 @@ func (s Snapshot) Normalize() Snapshot {
 
 	s.GlobalProxy = strings.TrimSpace(s.GlobalProxy)
 	s.CodexProxy = strings.TrimSpace(s.CodexProxy)
+	s.CodexPreferredPlanTypes = strings.TrimSpace(s.CodexPreferredPlanTypes)
 
 	if s.RefreshBeforeSeconds <= 0 {
 		s.RefreshBeforeSeconds = defaults.RefreshBeforeSeconds
@@ -231,20 +241,28 @@ func (s Snapshot) LogsRetention() time.Duration {
 
 func (s Snapshot) asMap() map[string]string {
 	return map[string]string{
-		KeyGlobalProxy:              s.GlobalProxy,
-		KeyCodexProxy:               s.CodexProxy,
-		KeyCodexDeleteFreeAccounts:  strconv.FormatBool(s.CodexDeleteFreeAccounts),
-		KeyRefreshBeforeSeconds:     strconv.Itoa(s.RefreshBeforeSeconds),
-		KeyPollIntervalMilliseconds: strconv.Itoa(s.PollIntervalMilliseconds),
-		KeyQuotaSyncIntervalSeconds: strconv.Itoa(s.QuotaSyncIntervalSeconds),
-		KeyThrottleBaseSeconds:      strconv.Itoa(s.ThrottleBaseSeconds),
-		KeyThrottleMaxSeconds:       strconv.Itoa(s.ThrottleMaxSeconds),
-		KeyRelayMaxRetries:          strconv.Itoa(s.RelayMaxRetries),
-		KeyLogsRetentionSeconds:     strconv.Itoa(s.LogsRetentionSeconds),
+		KeyAllowUserPlanTypeHeader:      strconv.FormatBool(s.AllowUserPlanTypeHeader),
+		KeyGlobalProxy:                  s.GlobalProxy,
+		KeyCodexProxy:                   s.CodexProxy,
+		KeyCodexDeleteFreeAccounts:      strconv.FormatBool(s.CodexDeleteFreeAccounts),
+		KeyCodexAllowUserPlanTypeHeader: strconv.FormatBool(s.CodexAllowUserPlanTypeHeader),
+		KeyCodexPreferredPlanTypes:      s.CodexPreferredPlanTypes,
+		KeyRefreshBeforeSeconds:         strconv.Itoa(s.RefreshBeforeSeconds),
+		KeyPollIntervalMilliseconds:     strconv.Itoa(s.PollIntervalMilliseconds),
+		KeyQuotaSyncIntervalSeconds:     strconv.Itoa(s.QuotaSyncIntervalSeconds),
+		KeyThrottleBaseSeconds:          strconv.Itoa(s.ThrottleBaseSeconds),
+		KeyThrottleMaxSeconds:           strconv.Itoa(s.ThrottleMaxSeconds),
+		KeyRelayMaxRetries:              strconv.Itoa(s.RelayMaxRetries),
+		KeyLogsRetentionSeconds:         strconv.Itoa(s.LogsRetentionSeconds),
 	}
 }
 
 func applyValues(target *Snapshot, values map[string]string) {
+	if value, ok := valueForKeys(values, KeyAllowUserPlanTypeHeader); ok {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			target.AllowUserPlanTypeHeader = parsed
+		}
+	}
 	if value, ok := valueForKeys(values, KeyGlobalProxy); ok {
 		target.GlobalProxy = strings.TrimSpace(value)
 	}
@@ -255,6 +273,14 @@ func applyValues(target *Snapshot, values map[string]string) {
 		if parsed, err := strconv.ParseBool(value); err == nil {
 			target.CodexDeleteFreeAccounts = parsed
 		}
+	}
+	if value, ok := valueForKeys(values, KeyCodexAllowUserPlanTypeHeader); ok {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			target.CodexAllowUserPlanTypeHeader = parsed
+		}
+	}
+	if value, ok := valueForKeys(values, KeyCodexPreferredPlanTypes); ok {
+		target.CodexPreferredPlanTypes = value
 	}
 	if parsed, ok := intValueForKeys(values, KeyRefreshBeforeSeconds); ok {
 		target.RefreshBeforeSeconds = parsed

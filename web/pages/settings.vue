@@ -3,8 +3,10 @@ import { adminApi } from '~/composables/useAdminApi'
 import {
   apiTypesText,
   DEFAULT_SETTINGS_FORM,
+  joinPlanTypeInput,
   settingsToForm,
   settingsToPayload,
+  splitPlanTypeInput,
   statusText,
   toneForStatus,
 } from '~/lib/admin'
@@ -19,6 +21,19 @@ const admin = useAdminApp()
 const loading = ref(false)
 const actionBusy = ref(false)
 const form = ref<SettingsForm>({ ...DEFAULT_SETTINGS_FORM })
+const availablePlanTypes = computed(() => admin.activeHandler.value?.plan_list || [])
+const selectedPlanTypes = computed(() => new Set(splitPlanTypeInput(form.value.codex_preferred_plan_types)))
+
+function togglePreferredPlanType(planType: string) {
+  const next = splitPlanTypeInput(form.value.codex_preferred_plan_types)
+  const index = next.indexOf(planType)
+  if (index >= 0) {
+    next.splice(index, 1)
+  } else {
+    next.push(planType)
+  }
+  form.value.codex_preferred_plan_types = joinPlanTypeInput(next)
+}
 
 async function loadSettings() {
   if (!admin.token.value) {
@@ -91,6 +106,11 @@ watch(
 
     <SectionCard title="系统级参数" eyebrow="全局">
       <div class="form-grid">
+        <label class="form-field form-field-checkbox">
+          <span>全局允许用户自定义 PlanType</span>
+          <input v-model="form.allow_user_plan_type_header" type="checkbox">
+          <small>总开关；关闭后所有处理器都会忽略 X-Meow-Plan-Type 请求头。</small>
+        </label>
         <label class="form-field">
           <span>全局代理</span>
           <input v-model="form.global_proxy" type="url" placeholder="http://127.0.0.1:7890">
@@ -163,12 +183,33 @@ watch(
       </div>
 
       <template v-if="admin.activeHandler.value?.key === 'codex'">
-        <p class="table-subtitle">代理与账号清理</p>
+        <p class="table-subtitle">代理、套餐优先级与账号清理</p>
         <div class="form-grid">
           <label class="form-field">
             <span>Codex 代理</span>
             <input v-model="form.codex_proxy" type="url" placeholder="http://127.0.0.1:7890">
             <small>只影响 Codex CLI 相关请求；留空时继承全局代理。</small>
+          </label>
+          <label class="form-field">
+            <span>内置 PlanType 优先级</span>
+            <input v-model="form.codex_preferred_plan_types" type="text" placeholder="free,plus,team,pro">
+            <div v-if="availablePlanTypes.length" class="chip-row">
+              <button
+                v-for="planType in availablePlanTypes"
+                :key="planType"
+                type="button"
+                :class="['chip', { 'is-active': selectedPlanTypes.has(planType) }]"
+                @click="togglePreferredPlanType(planType)"
+              >
+                {{ planType }}
+              </button>
+            </div>
+            <small>使用英文逗号分隔；保存时后端会自动规范化为小写去重列表。</small>
+          </label>
+          <label class="form-field form-field-checkbox">
+            <span>允许用户自定义 PlanType</span>
+            <input v-model="form.codex_allow_user_plan_type_header" type="checkbox">
+            <small>当前处理器的细粒度开关；还需要上方全局总开关同时开启才会生效。</small>
           </label>
           <label class="form-field form-field-checkbox">
             <span>自动删除 Free 凭据</span>

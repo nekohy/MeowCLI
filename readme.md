@@ -48,6 +48,16 @@ http://127.0.0.1:3000/admin
 - 日志只保存在内存中，服务重启后会清空
 - 日志保留时间可以在设置页调整
 
+### 指定优先 planType
+
+调用 `/v1/responses` 或 `/v1/responses/compact` 时，可通过请求头 `X-Meow-Plan-Type` 指定优先套餐类型。
+
+- 支持单个值：`X-Meow-Plan-Type: pro`
+- 支持逗号分隔的优先级列表：`X-Meow-Plan-Type: pro,plus,free`
+- 仅当全局 `allow_user_plan_type_header` 和对应 provider 的“允许用户自定义 PlanType”都开启后才会生效
+- 系统还可单独配置“内置 PlanType 优先级”，当用户未传 header 或 header 未命中可用凭据时，会先按该优先级回退，再回到默认评分结果
+- Codex 内部稳定编码固定为 `free=0`、`plus=1`、`team=2`、`pro=3`，管理台会自动反向显示为套餐名
+
 ## 配置方式
 
 ### 环境变量

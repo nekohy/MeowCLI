@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	corecodex "github.com/nekohy/MeowCLI/core/codex"
 	"github.com/nekohy/MeowCLI/utils"
 	"net/http"
 
@@ -30,6 +31,7 @@ type handlerOverview struct {
 	Summary                 string            `json:"summary"`
 	Status                  string            `json:"status"`
 	SupportedAPI            []utils.APIType   `json:"supported_api_types"`
+	PlanList                []string          `json:"plan_list,omitempty"`
 	SupportsCredentials     bool              `json:"supports_credentials"`
 	CredentialEndpoint      string            `json:"credential_endpoint,omitempty"`
 	CredentialFields        []credentialField `json:"credential_fields,omitempty"`
@@ -131,6 +133,7 @@ func defaultHandlerOverview() []handlerOverview {
 			Summary:             "Codex池",
 			Status:              "available",
 			SupportedAPI:        []utils.APIType{utils.APIResponses, utils.APIResponsesCompact},
+			PlanList:            corecodex.PlanList(),
 			SupportsCredentials: true,
 			CredentialEndpoint:  "/admin/api/codex",
 			CredentialFields: []credentialField{

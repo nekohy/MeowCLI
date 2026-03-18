@@ -3,12 +3,14 @@ package handler
 import (
 	"context"
 	"fmt"
-	db "github.com/nekohy/MeowCLI/internal/store"
-	"github.com/nekohy/MeowCLI/utils"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	corecodex "github.com/nekohy/MeowCLI/core/codex"
+	db "github.com/nekohy/MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
@@ -36,6 +38,20 @@ type batchCreateResult struct {
 type batchError struct {
 	Input string `json:"input"`
 	Error string `json:"error"`
+}
+
+type codexListItem struct {
+	ID             string    `json:"id"`
+	Status         string    `json:"status"`
+	Expired        time.Time `json:"expired"`
+	PlanType       string    `json:"plan_type"`
+	PlanExpired    time.Time `json:"plan_expired"`
+	Quota5h        float64   `json:"quota_5h"`
+	Quota7d        float64   `json:"quota_7d"`
+	Reset5h        time.Time `json:"reset_5h"`
+	Reset7d        time.Time `json:"reset_7d"`
+	ThrottledUntil time.Time `json:"throttled_until"`
+	SyncedAt       time.Time `json:"synced_at"`
 }
 
 func (a *AdminHandler) ListCodex(c *gin.Context) {
@@ -68,7 +84,7 @@ func (a *AdminHandler) ListCodex(c *gin.Context) {
 		"total":     total,
 		"page":      page,
 		"page_size": pageSize,
-		"data":      rows,
+		"data":      serializeCodexRows(rows),
 	})
 }
 
@@ -176,9 +192,10 @@ func (a *AdminHandler) createFromTokenData(ctx context.Context, accessToken, ref
 		return "", fmt.Errorf("could not extract chatgpt account id from token")
 	}
 
-	if a.currentSettings().CodexDeleteFreeAccounts && strings.EqualFold(planType, "free") {
+	if a.currentSettings().CodexDeleteFreeAccounts && corecodex.IsFreePlanType(planType) {
 		return "", fmt.Errorf("free plan credential is blocked by current settings")
 	}
+	planType = corecodex.NormalizePlanType(planType)
 
 	if email != "" {
 		log.Info().
@@ -275,6 +292,26 @@ func (a *AdminHandler) refreshCredentials(ctx context.Context) {
 	if a.credRefresh != nil {
 		_ = a.credRefresh.RefreshAvailable(ctx)
 	}
+}
+
+func serializeCodexRows(rows []db.ListCodexRow) []codexListItem {
+	items := make([]codexListItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, codexListItem{
+			ID:             row.ID,
+			Status:         row.Status,
+			Expired:        row.Expired,
+			PlanType:       corecodex.NormalizePlanType(row.PlanType),
+			PlanExpired:    row.PlanExpired,
+			Quota5h:        row.Quota5h,
+			Quota7d:        row.Quota7d,
+			Reset5h:        row.Reset5h,
+			Reset7d:        row.Reset7d,
+			ThrottledUntil: row.ThrottledUntil,
+			SyncedAt:       row.SyncedAt,
+		})
+	}
+	return items
 }
 
 func maskToken(token string) string {

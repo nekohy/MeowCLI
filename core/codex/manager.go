@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	CodexAPI "github.com/nekohy/MeowCLI/api/codex"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -365,5 +364,5 @@ func (m *Manager) shouldDeleteFreeCredential(planType string) bool {
 	if !m.settingsSnapshot().CodexDeleteFreeAccounts {
 		return false
 	}
-	return strings.EqualFold(strings.TrimSpace(planType), "free")
+	return IsFreePlanType(planType)
 }

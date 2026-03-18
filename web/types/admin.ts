@@ -41,6 +41,7 @@ export interface HandlerOverview {
   summary: string
   status: string
   supported_api_types: string[]
+  plan_list?: string[]
   supports_credentials: boolean
   credential_endpoint?: string
   credential_fields?: CredentialField[]
@@ -73,9 +74,12 @@ export interface OverviewResponse {
 }
 
 export interface SettingsSnapshot {
+  allow_user_plan_type_header: boolean
   global_proxy: string
   codex_proxy: string
   codex_delete_free_accounts: boolean
+  codex_allow_user_plan_type_header: boolean
+  codex_preferred_plan_types: string
   refresh_before_seconds: number
   poll_interval_milliseconds: number
   quota_sync_interval_seconds: number
@@ -86,9 +90,12 @@ export interface SettingsSnapshot {
 }
 
 export interface SettingsForm {
+  allow_user_plan_type_header: boolean
   global_proxy: string
   codex_proxy: string
   codex_delete_free_accounts: boolean
+  codex_allow_user_plan_type_header: boolean
+  codex_preferred_plan_types: string
   refresh_before_seconds: string
   poll_interval_milliseconds: string
   quota_sync_interval_seconds: string
@@ -110,7 +117,7 @@ export interface CodexItem {
   quota_7d: number
   reset_5h: string
   reset_7d: string
-  plan_type: string
+  plan_type: string | null
   plan_expired: string
 }
 

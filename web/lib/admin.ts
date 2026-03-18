@@ -54,9 +54,12 @@ export const NAV_ITEMS: NavItem[] = [
 ]
 
 export const DEFAULT_SETTINGS_FORM: SettingsForm = {
+  allow_user_plan_type_header: false,
   global_proxy: '',
   codex_proxy: '',
   codex_delete_free_accounts: false,
+  codex_allow_user_plan_type_header: false,
+  codex_preferred_plan_types: '',
   refresh_before_seconds: '30',
   poll_interval_milliseconds: '200',
   quota_sync_interval_seconds: '900',
@@ -77,6 +80,8 @@ const ROLE_LABELS: Record<string, string> = {
   admin: '管理员',
   user: '普通成员',
 }
+
+const PLAN_TYPE_SPLIT_RE = /[,\s;]+/
 
 export function normalizeTheme(value?: string | null): ThemeMode {
   return value === 'dark' ? 'dark' : 'light'
@@ -191,11 +196,51 @@ export function apiTypesText(types?: string[]) {
   return types?.join(' / ') || '未声明'
 }
 
+export function normalizePlanType(value?: string | null) {
+  if (!value) {
+    return ''
+  }
+  const text = value.trim()
+  if (!text) {
+    return ''
+  }
+  return text.toLowerCase()
+}
+
+export function planTypeText(value?: string | null) {
+  return normalizePlanType(value) || '-'
+}
+
+export function splitPlanTypeInput(value?: string | null) {
+  if (!value) {
+    return []
+  }
+
+  const planTypes: string[] = []
+  const seen = new Set<string>()
+  for (const part of value.split(PLAN_TYPE_SPLIT_RE)) {
+    const planType = normalizePlanType(part)
+    if (!planType || seen.has(planType)) {
+      continue
+    }
+    seen.add(planType)
+    planTypes.push(planType)
+  }
+  return planTypes
+}
+
+export function joinPlanTypeInput(planTypes: string[]) {
+  return splitPlanTypeInput(planTypes.join(',')).join(',')
+}
+
 export function settingsToForm(data?: Partial<SettingsSnapshot>): SettingsForm {
   return {
+    allow_user_plan_type_header: Boolean(data?.allow_user_plan_type_header),
     global_proxy: data?.global_proxy || '',
     codex_proxy: data?.codex_proxy || '',
     codex_delete_free_accounts: Boolean(data?.codex_delete_free_accounts),
+    codex_allow_user_plan_type_header: Boolean(data?.codex_allow_user_plan_type_header),
+    codex_preferred_plan_types: data?.codex_preferred_plan_types?.trim() || '',
     refresh_before_seconds: String(data?.refresh_before_seconds ?? DEFAULT_SETTINGS_FORM.refresh_before_seconds),
     poll_interval_milliseconds: String(data?.poll_interval_milliseconds ?? DEFAULT_SETTINGS_FORM.poll_interval_milliseconds),
     quota_sync_interval_seconds: String(data?.quota_sync_interval_seconds ?? DEFAULT_SETTINGS_FORM.quota_sync_interval_seconds),
@@ -208,9 +253,12 @@ export function settingsToForm(data?: Partial<SettingsSnapshot>): SettingsForm {
 
 export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
   return {
+    allow_user_plan_type_header: Boolean(form.allow_user_plan_type_header),
     global_proxy: form.global_proxy.trim(),
     codex_proxy: form.codex_proxy.trim(),
     codex_delete_free_accounts: Boolean(form.codex_delete_free_accounts),
+    codex_allow_user_plan_type_header: Boolean(form.codex_allow_user_plan_type_header),
+    codex_preferred_plan_types: form.codex_preferred_plan_types.trim(),
     refresh_before_seconds: Number(form.refresh_before_seconds),
     poll_interval_milliseconds: Number(form.poll_interval_milliseconds),
     quota_sync_interval_seconds: Number(form.quota_sync_interval_seconds),

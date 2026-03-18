@@ -6,6 +6,8 @@ import {
   formatTime,
   isUnsynced,
   isZeroTime,
+  normalizePlanType,
+  planTypeText,
   statusText,
   toneForStatus,
 } from '~/lib/admin'
@@ -43,7 +45,8 @@ const filteredRows = computed(() => {
     return rows.value
   }
   return rows.value.filter((item) => (
-    [item.id, item.status, item.plan_type].some((value) => String(value || '').toLowerCase().includes(query))
+    [item.id, item.status, normalizePlanType(item.plan_type)]
+      .some((value) => String(value || '').toLowerCase().includes(query))
   ))
 })
 
@@ -356,7 +359,7 @@ watch(
                   </AdminBadge>
                 </td>
                 <td>
-                  <div class="table-title">{{ item.plan_type || '-' }}</div>
+                  <div class="table-title">{{ planTypeText(item.plan_type) }}</div>
                   <div class="table-subtitle">{{ formatTime(item.plan_expired) }}</div>
                 </td>
                 <td>{{ renderQuotaValue(item, 'quota_5h', 'reset_5h') }}</td>

@@ -45,14 +45,15 @@ type throttleState struct {
 
 // availableSnapshot 缓存 ListAvailableCodex 的查询结果
 type availableSnapshot struct {
-	rows []availableRow
+	rows           []availableRow
+	bestByPlanType map[int]int
 }
 
 // availableRow 缓存中的单条凭证，Score 由 calcScore 计算用于排序选择
 type availableRow struct {
-	ID       string
-	PlanType string
-	Score    float64
+	ID           string
+	PlanTypeCode int
+	Score        float64
 }
 
 // Scheduler 根据配额比率和重置时间优先级选择最佳可用凭证，
@@ -69,16 +70,22 @@ type Scheduler struct {
 	checking         map[string]struct{}
 	verifyCredential func(string)
 	available        atomic.Pointer[availableSnapshot]
+	planTypes        *planTypeCodec
 }
 
 // NewScheduler 创建一个连接到指定存储和令牌管理器的调度器
 func NewScheduler(store SchedulerStore, manager *Manager) *Scheduler {
+	var fetcher QuotaFetcher
+	if manager != nil {
+		fetcher = manager.codexAPI
+	}
 	return &Scheduler{
-		store:    store,
-		manager:  manager,
-		fetcher:  manager.codexAPI,
-		throttle: make(map[string]*throttleState),
-		checking: make(map[string]struct{}),
+		store:     store,
+		manager:   manager,
+		fetcher:   fetcher,
+		throttle:  make(map[string]*throttleState),
+		checking:  make(map[string]struct{}),
+		planTypes: newPlanTypeCodec(),
 	}
 }
 
@@ -163,19 +170,30 @@ func (s *Scheduler) syncAllQuotas(ctx context.Context) {
 	}
 }
 
-// Pick 根据优先级评分选择最佳可用凭证
-// planType 非空时仅在该类型中筛选，为空则在所有凭证中选择
-func (s *Scheduler) Pick(ctx context.Context, planType string) (string, error) {
-	rows, err := s.listAvailable(ctx)
+// Pick 根据优先级评分选择最佳可用凭证。
+// 请求头和设置里的 plan type 偏好会先被转换为内部 int code，再进入缓存调度。
+func (s *Scheduler) Pick(ctx context.Context, headers http.Header) (string, error) {
+	return s.pickPreferred(ctx, s.preferredPlanTypeCodes(headers))
+}
+
+func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int) (string, error) {
+	snap, err := s.listAvailable(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	for _, r := range rows {
-		if r.Score < 0 {
+	for _, code := range preferredCodes {
+		idx, ok := snap.bestByPlanType[code]
+		if !ok {
 			continue
 		}
-		if planType != "" && r.PlanType != planType {
+		if idx >= 0 && idx < len(snap.rows) {
+			return snap.rows[idx].ID, nil
+		}
+	}
+
+	for _, r := range snap.rows {
+		if r.Score < 0 {
 			continue
 		}
 		return r.ID, nil
@@ -187,20 +205,28 @@ func (s *Scheduler) Pick(ctx context.Context, planType string) (string, error) {
 // listAvailable 返回内存缓存中的可用凭证列表
 // 缓存由 RefreshAvailable 初始化，由 UpdateQuota / removeFromAvailable 等事件驱动更新，
 // 不再使用 TTL 过期机制
-func (s *Scheduler) listAvailable(ctx context.Context) ([]availableRow, error) {
+func (s *Scheduler) listAvailable(ctx context.Context) (*availableSnapshot, error) {
 	if snap := s.available.Load(); snap != nil {
 		if s.hasExpiredThrottle(time.Now()) {
-			rows, err := s.RefreshAvailable(ctx)
-			if err == nil {
-				return rows, nil
+			if _, err := s.RefreshAvailable(ctx); err == nil {
+				if refreshed := s.available.Load(); refreshed != nil {
+					return refreshed, nil
+				}
+			} else {
+				log.Error().Err(err).Msg("scheduler: refresh available after throttle expiry")
 			}
-			log.Error().Err(err).Msg("scheduler: refresh available after throttle expiry")
 		}
-		return snap.rows, nil
+		return snap, nil
 	}
 
 	// 首次调用时缓存为空，从 DB 加载
-	return s.RefreshAvailable(ctx)
+	if _, err := s.RefreshAvailable(ctx); err != nil {
+		return nil, err
+	}
+	if snap := s.available.Load(); snap != nil {
+		return snap, nil
+	}
+	return buildAvailableSnapshot(nil), nil
 }
 
 // RefreshAvailable 从 DB 重新加载所有可用凭证并刷新内存缓存
@@ -212,6 +238,7 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 	}
 
 	config := s.settingsSnapshot()
+	planTypes := s.planTypeCodec()
 	rows := make([]availableRow, 0, len(dbRows))
 	for _, r := range dbRows {
 		if r.SyncedAt.IsZero() {
@@ -221,9 +248,9 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 			continue
 		}
 		rows = append(rows, availableRow{
-			ID:       r.ID,
-			PlanType: r.PlanType,
-			Score:    calcScore(r.Quota5h, r.Quota7d, r.Reset5h, r.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()),
+			ID:           r.ID,
+			PlanTypeCode: planTypes.code(r.PlanType),
+			Score:        calcScore(r.Quota5h, r.Quota7d, r.Reset5h, r.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()),
 		})
 	}
 
@@ -231,7 +258,7 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 		return rows[i].Score > rows[j].Score
 	})
 
-	s.available.Store(&availableSnapshot{rows: rows})
+	s.available.Store(buildAvailableSnapshot(rows))
 	s.pruneExpiredThrottles(time.Now())
 	return rows, nil
 }
@@ -261,7 +288,7 @@ func (s *Scheduler) updateAvailableQuota(id string, q *codexAPI.Quota) {
 		return updated[i].Score > updated[j].Score
 	})
 
-	s.available.Store(&availableSnapshot{rows: updated})
+	s.available.Store(buildAvailableSnapshot(updated))
 }
 
 // removeFromAvailable 从缓存中移除指定凭证（被节流时调用）
@@ -281,7 +308,63 @@ func (s *Scheduler) removeFromAvailable(id string) {
 		}
 	}
 
-	s.available.Store(&availableSnapshot{rows: filtered})
+	s.available.Store(buildAvailableSnapshot(filtered))
+}
+
+func buildAvailableSnapshot(rows []availableRow) *availableSnapshot {
+	bestByPlanType := make(map[int]int, len(rows))
+	for i, row := range rows {
+		if row.Score < 0 {
+			continue
+		}
+		if _, ok := bestByPlanType[row.PlanTypeCode]; ok {
+			continue
+		}
+		bestByPlanType[row.PlanTypeCode] = i
+	}
+	return &availableSnapshot{
+		rows:           rows,
+		bestByPlanType: bestByPlanType,
+	}
+}
+
+func (s *Scheduler) AuthHeaders(ctx context.Context, credentialID string) (http.Header, error) {
+	token, err := s.GetAccessToken(ctx, credentialID)
+	if err != nil {
+		return nil, err
+	}
+
+	headers := make(http.Header)
+	headers.Set("Authorization", "Bearer "+token)
+	headers.Set("Chatgpt-Account-Id", utils.AccountIDFromCredentialID(credentialID))
+	return headers, nil
+}
+
+func (s *Scheduler) planTypeCodec() *planTypeCodec {
+	if s.planTypes == nil {
+		s.planTypes = newPlanTypeCodec()
+	}
+	return s.planTypes
+}
+
+func mergePlanTypeCodes(groups ...[]int) []int {
+	var merged []int
+	seen := make(map[int]struct{})
+
+	for _, group := range groups {
+		for _, code := range group {
+			if code == planTypeCodeAny {
+				continue
+			}
+			if _, ok := seen[code]; ok {
+				continue
+			}
+			seen[code] = struct{}{}
+			merged = append(merged, code)
+		}
+	}
+
+	return merged
 }
 
 // calcScore 根据配额比率和重置时间计算综合优先级评分
