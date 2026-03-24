@@ -3,7 +3,6 @@ package codex
 import (
 	"net/http"
 	"strings"
-	"sync"
 	"unicode"
 
 	"github.com/nekohy/MeowCLI/utils"
@@ -113,12 +112,11 @@ const (
 	planTypeCodePro
 	planTypeCodeBusiness
 	planTypeCodeEnterprise
-	planTypeCodeUnknown
 )
 
-const planTypeCodeDynamicStart = planTypeCodeUnknown + 1
+const planTypeCodeUnknown = 999
 
-var defaultPlanTypeCodes = map[string]int{
+var planTypeCodes = map[string]int{
 	planTypeFree:       planTypeCodeFree,
 	planTypePlus:       planTypeCodePlus,
 	planTypeTeam:       planTypeCodeTeam,
@@ -128,47 +126,19 @@ var defaultPlanTypeCodes = map[string]int{
 	planTypeUnknown:    planTypeCodeUnknown,
 }
 
-type planTypeCodec struct {
-	mu    sync.RWMutex
-	codes map[string]int
-	next  int
-}
+type planTypeCodec struct{}
 
-func newPlanTypeCodec() *planTypeCodec {
-	codec := &planTypeCodec{
-		codes: make(map[string]int, len(defaultPlanTypeCodes)),
-		next:  planTypeCodeDynamicStart,
-	}
-	for planType, code := range defaultPlanTypeCodes {
-		codec.codes[planType] = code
-	}
-	return codec
-}
+func newPlanTypeCodec() *planTypeCodec { return &planTypeCodec{} }
 
 func (c *planTypeCodec) code(planType string) int {
 	normalized := NormalizePlanType(planType)
 	if normalized == "" {
 		return planTypeCodeAny
 	}
-
-	c.mu.RLock()
-	code, ok := c.codes[normalized]
-	c.mu.RUnlock()
-	if ok {
+	if code, ok := planTypeCodes[normalized]; ok {
 		return code
 	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if code, ok = c.codes[normalized]; ok {
-		return code
-	}
-
-	code = c.next
-	c.codes[normalized] = code
-	c.next++
-	return code
+	return planTypeCodeUnknown
 }
 
 func (c *planTypeCodec) codesFor(planTypes []string) []int {

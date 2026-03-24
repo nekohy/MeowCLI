@@ -2,21 +2,32 @@
 defineProps<{
   title?: string
   eyebrow?: string
-  className?: string
+  icon?: string
+  description?: string
 }>()
 </script>
 
 <template>
-  <section :class="['section-card', className]">
-    <header v-if="title || eyebrow || $slots.actions" class="section-head">
-      <div>
-        <div v-if="eyebrow" class="eyebrow">{{ eyebrow }}</div>
-        <h2 v-if="title">{{ title }}</h2>
+  <VCard color="surface-container" variant="flat">
+    <VCardItem v-if="title || eyebrow || description || $slots.actions" class="section-card-head">
+      <div class="section-card-leading">
+        <VAvatar v-if="icon" size="40" color="secondary-container" rounded="lg">
+          <VIcon :icon="icon" color="secondary" size="18" />
+        </VAvatar>
+        <div class="section-card-copy">
+          <VCardSubtitle v-if="eyebrow" class="section-card-eyebrow">{{ eyebrow }}</VCardSubtitle>
+          <VCardTitle v-if="title" class="section-card-title">{{ title }}</VCardTitle>
+          <div v-if="description" class="section-card-description text-medium-emphasis">{{ description }}</div>
+        </div>
       </div>
-      <div v-if="$slots.actions" class="section-actions">
-        <slot name="actions" />
-      </div>
-    </header>
-    <slot />
-  </section>
+      <template #append>
+        <div v-if="$slots.actions">
+          <slot name="actions" />
+        </div>
+      </template>
+    </VCardItem>
+    <VCardText class="section-card-body" :class="{ 'pt-0': title || eyebrow || description || $slots.actions }">
+      <slot />
+    </VCardText>
+  </VCard>
 </template>

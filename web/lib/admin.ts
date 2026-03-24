@@ -7,57 +7,67 @@ import type {
 } from '~/types/admin'
 
 export const THEME_STORAGE_KEY = 'meowcli-admin-theme'
+const THEME_META_COLORS: Record<ThemeMode, string> = {
+  light: '#EEF2EC',
+  dark: '#0F1511',
+}
 
 export const NAV_ITEMS: NavItem[] = [
   {
     key: 'dashboard',
     to: '/',
+    icon: 'mdi-view-dashboard-outline',
     label: '总览',
-    eyebrow: '运行状态',
-    description: '查看处理器状态、凭据规模与最近请求。',
+    eyebrow: '运行',
   },
   {
     key: 'settings',
     to: '/settings',
+    icon: 'mdi-cog-outline',
     label: '设置',
-    eyebrow: '运行参数',
-    description: '调整代理、刷新节奏、重试退避和日志保留时间。',
+    eyebrow: '策略',
   },
   {
     key: 'credentials',
     to: '/credentials',
+    icon: 'mdi-key-outline',
     label: '凭据',
-    eyebrow: 'CLI 令牌池',
-    description: '集中管理导入令牌、状态切换和配额同步。',
+    eyebrow: '凭据池',
   },
   {
     key: 'models',
     to: '/models',
+    icon: 'mdi-compare-horizontal',
     label: '模型',
-    eyebrow: '别名映射',
-    description: '维护外部模型别名与上游模型的映射关系。',
+    eyebrow: '映射',
   },
   {
     key: 'logs',
     to: '/logs',
+    icon: 'mdi-text-box-outline',
     label: '日志',
-    eyebrow: '请求记录',
-    description: '排查内存中的近期请求、状态码与错误输出。',
+    eyebrow: '诊断',
   },
   {
     key: 'keys',
     to: '/keys',
+    icon: 'mdi-shield-key-outline',
     label: '密钥',
-    eyebrow: '访问控制',
-    description: '管理后台和 API 的访问密钥。',
+    eyebrow: '访问',
   },
+]
+
+
+export const PAGE_SIZE_OPTIONS = [
+  { title: '25 条 / 页', value: 25 },
+  { title: '50 条 / 页', value: 50 },
+  { title: '100 条 / 页', value: 100 },
 ]
 
 export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   allow_user_plan_type_header: false,
   global_proxy: '',
   codex_proxy: '',
-  codex_delete_free_accounts: false,
   codex_allow_user_plan_type_header: false,
   codex_preferred_plan_types: '',
   refresh_before_seconds: '30',
@@ -115,6 +125,35 @@ export function applyTheme(theme: ThemeMode) {
 
   const meta = document.querySelector('meta[name="color-scheme"]')
   meta?.setAttribute('content', normalized === 'dark' ? 'dark light' : 'light dark')
+
+  const themeMeta = document.querySelector('meta[name="theme-color"]')
+  themeMeta?.setAttribute('content', THEME_META_COLORS[normalized])
+}
+
+export async function copyText(value: string) {
+  if (!import.meta.client) {
+    return false
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value)
+      return true
+    }
+
+    const helper = document.createElement('textarea')
+    helper.value = value
+    helper.setAttribute('readonly', 'true')
+    helper.style.position = 'fixed'
+    helper.style.opacity = '0'
+    document.body.appendChild(helper)
+    helper.select()
+    document.execCommand('copy')
+    document.body.removeChild(helper)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function formatTime(value?: string | null) {
@@ -167,6 +206,25 @@ export function toneForStatus(status?: string | null): UiTone {
   }
 }
 
+export function colorForTone(tone?: UiTone) {
+  switch (tone) {
+    case 'success':
+      return 'success'
+    case 'danger':
+      return 'error'
+    case 'warning':
+      return 'warning'
+    case 'accent':
+      return 'tertiary'
+    case 'muted':
+      return 'surface-variant'
+    case 'secondary':
+      return 'secondary'
+    default:
+      return 'primary'
+  }
+}
+
 export function safeStringify(value: unknown) {
   try {
     return JSON.stringify(value)
@@ -192,6 +250,12 @@ export function isZeroTime(value?: string | null) {
   return isUnsynced(value)
 }
 
+export function isPastTime(value?: string | null) {
+  if (!value || isZeroTime(value)) return true
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) || date.getTime() <= Date.now()
+}
+
 export function apiTypesText(types?: string[]) {
   return types?.join(' / ') || '未声明'
 }
@@ -208,7 +272,8 @@ export function normalizePlanType(value?: string | null) {
 }
 
 export function planTypeText(value?: string | null) {
-  return normalizePlanType(value) || '-'
+  const normalized = normalizePlanType(value)
+  return normalized && normalized !== 'unknown' ? normalized : '-'
 }
 
 export function splitPlanTypeInput(value?: string | null) {
@@ -238,7 +303,6 @@ export function settingsToForm(data?: Partial<SettingsSnapshot>): SettingsForm {
     allow_user_plan_type_header: Boolean(data?.allow_user_plan_type_header),
     global_proxy: data?.global_proxy || '',
     codex_proxy: data?.codex_proxy || '',
-    codex_delete_free_accounts: Boolean(data?.codex_delete_free_accounts),
     codex_allow_user_plan_type_header: Boolean(data?.codex_allow_user_plan_type_header),
     codex_preferred_plan_types: data?.codex_preferred_plan_types?.trim() || '',
     refresh_before_seconds: String(data?.refresh_before_seconds ?? DEFAULT_SETTINGS_FORM.refresh_before_seconds),
@@ -256,7 +320,6 @@ export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
     allow_user_plan_type_header: Boolean(form.allow_user_plan_type_header),
     global_proxy: form.global_proxy.trim(),
     codex_proxy: form.codex_proxy.trim(),
-    codex_delete_free_accounts: Boolean(form.codex_delete_free_accounts),
     codex_allow_user_plan_type_header: Boolean(form.codex_allow_user_plan_type_header),
     codex_preferred_plan_types: form.codex_preferred_plan_types.trim(),
     refresh_before_seconds: Number(form.refresh_before_seconds),

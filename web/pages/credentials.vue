@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
 import {
-  apiTypesText,
+  PAGE_SIZE_OPTIONS,
   formatPercent,
   formatTime,
+  isPastTime,
   isUnsynced,
   isZeroTime,
   normalizePlanType,
@@ -18,6 +19,7 @@ definePageMeta({
 })
 
 const admin = useAdminApp()
+const confirm = useConfirmDialog()
 
 const rows = ref<CodexItem[]>([])
 const total = ref(0)
@@ -25,6 +27,8 @@ const page = ref(1)
 const pageSize = ref(25)
 const loading = ref(false)
 const search = ref('')
+const statusFilter = ref<'all' | 'enabled' | 'disabled' | 'unsynced'>('all')
+const planFilter = ref('all')
 const selectedIds = ref<string[]>([])
 const actionBusy = ref(false)
 
@@ -32,64 +36,88 @@ const importOpen = ref(false)
 const importTokens = ref('')
 const importError = ref('')
 
-const confirmOpen = ref(false)
-const confirmTitle = ref('')
-const confirmMessage = ref('')
-const confirmText = ref('确认')
-const confirmVariant = ref<'secondary' | 'danger'>('danger')
-let confirmAction: null | (() => Promise<void>) = null
+const importLines = computed(() => (
+  importTokens.value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+))
 
 const filteredRows = computed(() => {
   const query = search.value.trim().toLowerCase()
-  if (!query) {
-    return rows.value
-  }
-  return rows.value.filter((item) => (
-    [item.id, item.status, normalizePlanType(item.plan_type)]
+  return rows.value.filter((item) => {
+    if (statusFilter.value === 'enabled' && item.status !== 'enabled') {
+      return false
+    }
+    if (statusFilter.value === 'disabled' && item.status !== 'disabled') {
+      return false
+    }
+    if (statusFilter.value === 'unsynced' && !isUnsynced(item.synced_at)) {
+      return false
+    }
+
+    const planType = normalizePlanType(item.plan_type)
+    if (planFilter.value !== 'all' && planType !== planFilter.value) {
+      return false
+    }
+
+    if (!query) {
+      return true
+    }
+
+    return [item.id, item.status, planType, item.access_token, item.refresh_token]
       .some((value) => String(value || '').toLowerCase().includes(query))
-  ))
+  })
+})
+
+const summaryTiles = computed(() => [
+  {
+    label: '当前页',
+    value: rows.value.length,
+    helper: '本次已加载的凭据数',
+    icon: 'mdi-file-document-outline',
+  },
+  {
+    label: '可用',
+    value: rows.value.filter((item) => item.status === 'enabled').length,
+    helper: '启用且可参与调度',
+    icon: 'mdi-check-circle-outline',
+  },
+  {
+    label: '未同步',
+    value: rows.value.filter((item) => isUnsynced(item.synced_at)).length,
+    helper: '需要重新同步额度',
+    icon: 'mdi-sync-alert',
+  },
+  {
+    label: '已选择',
+    value: selectedIds.value.length,
+    icon: 'mdi-checkbox-multiple-marked-outline',
+  },
+])
+
+const availablePlanTypes = computed(() => {
+  const planTypes = new Set<string>()
+  rows.value.forEach((item) => {
+    const planType = normalizePlanType(item.plan_type)
+    if (planType) {
+      planTypes.add(planType)
+    }
+  })
+  return ['all', ...planTypes]
 })
 
 const selectedSet = computed(() => new Set(selectedIds.value))
-const allVisibleSelected = computed(() => filteredRows.value.length > 0 && filteredRows.value.every((item) => selectedSet.value.has(item.id)))
+const allVisibleSelected = computed(() => (
+  filteredRows.value.length > 0 && filteredRows.value.every((item) => selectedSet.value.has(item.id))
+))
 const maxPage = computed(() => Math.max(1, Math.ceil((total.value || 0) / (pageSize.value || 25))))
+const pageSizeOptions = PAGE_SIZE_OPTIONS
 
 function closeImportModal() {
   importOpen.value = false
   importTokens.value = ''
   importError.value = ''
-}
-
-function openConfirm(options: {
-  title: string
-  message: string
-  confirmText: string
-  confirmVariant?: 'secondary' | 'danger'
-  action: () => Promise<void>
-}) {
-  confirmTitle.value = options.title
-  confirmMessage.value = options.message
-  confirmText.value = options.confirmText
-  confirmVariant.value = options.confirmVariant || 'danger'
-  confirmAction = options.action
-  confirmOpen.value = true
-}
-
-function closeConfirm() {
-  if (actionBusy.value) {
-    return
-  }
-  confirmOpen.value = false
-  confirmAction = null
-}
-
-async function submitConfirm() {
-  if (!confirmAction || actionBusy.value) {
-    return
-  }
-  const action = confirmAction
-  closeConfirm()
-  await action()
 }
 
 function toggleSelectAll() {
@@ -106,8 +134,45 @@ function toggleSelectOne(id: string) {
     : [...selectedIds.value, id]
 }
 
+function quotaPercentValue(item: CodexItem, quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
+  if (isUnsynced(item.synced_at)) {
+    return null
+  }
+  if (item[quotaKey] === 1 && isZeroTime(item[resetKey])) {
+    return null
+  }
+  return Math.max(0, Math.min(100, Math.round((item[quotaKey] || 0) * 100)))
+}
+
+function quotaTone(percent: number | null) {
+  if (percent === null) {
+    return 'secondary'
+  }
+  if (percent >= 65) {
+    return 'success'
+  }
+  if (percent >= 30) {
+    return 'warning'
+  }
+  return 'danger'
+}
+
+function renderQuotaValue(item: CodexItem, quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
+  if (isUnsynced(item.synced_at)) {
+    return '未同步'
+  }
+  if (item[quotaKey] === 1 && isZeroTime(item[resetKey])) {
+    return '不适用'
+  }
+  return formatPercent(item[quotaKey])
+}
+
 async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.value) {
   if (!admin.token.value || !admin.activeHandler.value?.supports_credentials) {
+    rows.value = []
+    total.value = 0
+    page.value = 1
+    selectedIds.value = []
     return
   }
 
@@ -128,24 +193,22 @@ async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.va
 
 async function createCredential() {
   actionBusy.value = true
-  try {
-    const lines = importTokens.value
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
+  importError.value = ''
 
-    if (lines.length === 0) {
+  try {
+    if (importLines.value.length === 0) {
       importError.value = '请至少输入一行令牌'
-      actionBusy.value = false
       return
     }
 
-    const result = await adminApi.batchCreateCodex(admin.token.value, { tokens: lines })
-
+    const result = await adminApi.batchCreateCodex(admin.token.value, { tokens: importLines.value })
     const createdCount = result.created?.length || 0
     const errorCount = result.errors?.length || 0
+
     if (errorCount > 0) {
-      const details = result.errors.map((e: { input: string; error: string }) => `${e.input}：${e.error}`).join('\n')
+      const details = result.errors
+        .map((entry: { input: string; error: string }) => `${entry.input}：${entry.error}`)
+        .join('\n')
       importError.value = `${errorCount} 条失败：\n${details}`
       if (createdCount > 0) {
         admin.notify(`导入完成：${createdCount} 条成功，${errorCount} 条失败`, 'warning')
@@ -172,9 +235,9 @@ function batchSetStatus(status: string) {
     return
   }
 
-  openConfirm({
+  confirm.show({
     title: `批量${statusText(status)}凭据`,
-    message: `确认将 ${ids.length} 个凭据设为“${statusText(status)}”吗？`,
+    message: `确认将 ${ids.length} 个凭据设为"${statusText(status)}"吗？`,
     confirmText: `确认${statusText(status)}`,
     confirmVariant: 'secondary',
     action: async () => {
@@ -183,11 +246,12 @@ function batchSetStatus(status: string) {
         const result = await adminApi.batchUpdateCodexStatus(admin.token.value, { ids, status })
         const updatedCount = result.updated?.length || 0
         const errorCount = result.errors?.length || 0
-        if (errorCount > 0) {
-          admin.notify(`处理完成：${updatedCount} 条成功，${errorCount} 条失败`, 'warning')
-        } else {
-          admin.notify(`已更新 ${updatedCount} 条凭据`)
-        }
+        admin.notify(
+          errorCount > 0
+            ? `处理完成：${updatedCount} 条成功，${errorCount} 条失败`
+            : `已更新 ${updatedCount} 条凭据`,
+          errorCount > 0 ? 'warning' : 'success',
+        )
         await Promise.all([
           admin.loadOverview(admin.token.value, true),
           loadCredentials(page.value, pageSize.value),
@@ -207,7 +271,7 @@ function batchDelete() {
     return
   }
 
-  openConfirm({
+  confirm.show({
     title: '批量删除凭据',
     message: `确认删除 ${ids.length} 个凭据吗？此操作不可撤销。`,
     confirmText: '确认删除',
@@ -217,11 +281,12 @@ function batchDelete() {
         const result = await adminApi.batchDeleteCodex(admin.token.value, { ids })
         const deletedCount = result.deleted?.length || 0
         const errorCount = result.errors?.length || 0
-        if (errorCount > 0) {
-          admin.notify(`删除完成：${deletedCount} 条成功，${errorCount} 条失败`, 'warning')
-        } else {
-          admin.notify(`已删除 ${deletedCount} 条凭据`)
-        }
+        admin.notify(
+          errorCount > 0
+            ? `删除完成：${deletedCount} 条成功，${errorCount} 条失败`
+            : `已删除 ${deletedCount} 条凭据`,
+          errorCount > 0 ? 'warning' : 'success',
+        )
         await Promise.all([
           admin.loadOverview(admin.token.value, true),
           loadCredentials(1, pageSize.value),
@@ -233,16 +298,6 @@ function batchDelete() {
       }
     },
   })
-}
-
-function renderQuotaValue(item: typeof rows.value[number], quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
-  if (isUnsynced(item.synced_at)) {
-    return '未同步'
-  }
-  if (item[quotaKey] === 1 && isZeroTime(item[resetKey])) {
-    return '不适用'
-  }
-  return formatPercent(item[quotaKey])
 }
 
 onMounted(() => {
@@ -259,176 +314,316 @@ watch(
     }
   },
 )
+
+watch(
+  () => admin.selectedHandler.value,
+  () => {
+    statusFilter.value = 'all'
+    planFilter.value = 'all'
+    search.value = ''
+    if (admin.authReady.value) {
+      void loadCredentials(1, pageSize.value)
+    }
+  },
+)
 </script>
 
 <template>
   <div class="page-grid">
     <PageHeader
-      eyebrow="CLI 令牌池"
+      eyebrow="令牌池"
       title="凭据管理"
-      :description="admin.activeHandler.value ? `${admin.activeHandler.value.label} 当前共有 ${admin.activeHandler.value.credentials_total || 0} 个凭据。` : '导入、筛选和批量处理各 CLI 的凭据。'"
+      icon="mdi-key-chain-variant"
     >
+      <template #meta>
+        <AdminBadge tone="secondary" icon="mdi-counter">
+          总量 {{ total }}
+        </AdminBadge>
+        <AdminBadge v-if="selectedIds.length" tone="accent" icon="mdi-checkbox-multiple-marked-outline">
+          已选 {{ selectedIds.length }}
+        </AdminBadge>
+      </template>
       <template #actions>
-        <AdminButton variant="secondary" :disabled="loading" @click="loadCredentials(page, pageSize)">
-          {{ loading ? '刷新中...' : '刷新列表' }}
-        </AdminButton>
-        <AdminButton v-if="admin.activeHandler.value?.supports_credentials" @click="importOpen = true">
+        <AdminButton
+          v-if="admin.activeHandler.value?.supports_credentials"
+          prepend-icon="mdi-import"
+          @click="importOpen = true"
+        >
           导入凭据
         </AdminButton>
       </template>
     </PageHeader>
 
-    <SectionCard title="处理器" eyebrow="切换">
-      <div class="chip-row">
-        <button
-          v-for="handler in admin.handlers.value"
-          :key="handler.key"
-          type="button"
-          :class="['chip', { 'is-active': admin.selectedHandler.value === handler.key }]"
-          @click="admin.selectedHandler.value = handler.key"
-        >
-          {{ handler.label }}
-        </button>
-      </div>
+    <SectionCard
+      title="凭据列表"
+      :eyebrow="admin.activeHandler.value?.label || '当前处理器'"
+      icon="mdi-table-large"
+    >
+      <div class="d-grid ga-5">
+        <template v-if="admin.activeHandler.value?.supports_credentials">
+          <div class="summary-grid">
+            <MetricCard
+              v-for="tile in summaryTiles"
+              :key="tile.label"
+              :label="tile.label"
+              :value="tile.value"
+              :helper="tile.helper"
+              :icon="tile.icon"
+              :color="tile.color"
+            />
+          </div>
 
-      <div v-if="admin.activeHandler.value" class="handler-summary">
-        <div>
-          <h3>{{ admin.activeHandler.value.label }}</h3>
-          <p>{{ admin.activeHandler.value.summary || '暂无说明' }}</p>
-        </div>
-        <div class="handler-summary-meta">
-          <AdminBadge :tone="toneForStatus(admin.activeHandler.value.status)">
-            {{ statusText(admin.activeHandler.value.status) }}
-          </AdminBadge>
-          <span>接口 {{ apiTypesText(admin.activeHandler.value.supported_api_types) }}</span>
-          <span>{{ admin.activeHandler.value.credentials_total || 0 }} 个凭据</span>
-          <span>{{ admin.activeHandler.value.models_total || 0 }} 个模型</span>
-        </div>
-      </div>
-    </SectionCard>
+          <div class="toolbar-panel">
+            <div class="filter-toolbar">
+              <VTextField
+                v-model="search"
+                class="filter-grow"
+                label="搜索"
+                placeholder="ID / 状态 / 套餐 / Token"
+                prepend-inner-icon="mdi-magnify"
+                clearable
+              />
+              <VSelect
+                v-model="pageSize"
+                class="filter-select"
+                label="每页条数"
+                :items="pageSizeOptions"
+                @update:model-value="(value) => loadCredentials(1, Number(value))"
+              />
+            </div>
 
-    <SectionCard title="凭据列表" :eyebrow="admin.activeHandler.value?.label || '当前处理器'">
-      <template #actions>
-        <div class="toolbar-inline">
-          <input v-model="search" class="search-input" placeholder="搜索凭据 ID / 状态 / 套餐">
-          <select
-            class="select-input"
-            :value="pageSize"
-            @change="loadCredentials(1, Number(($event.target as HTMLSelectElement).value))"
+            <VChipGroup v-model="statusFilter" mandatory color="primary">
+              <VChip value="all" filter>全部状态</VChip>
+              <VChip value="enabled" filter>启用</VChip>
+              <VChip value="disabled" filter>停用</VChip>
+              <VChip value="unsynced" filter>未同步</VChip>
+            </VChipGroup>
+
+            <VChipGroup v-model="planFilter" mandatory color="secondary">
+              <VChip value="all" filter>全部套餐</VChip>
+              <VChip
+                v-for="plan in availablePlanTypes.filter((item) => item !== 'all')"
+                :key="plan"
+                :value="plan"
+                filter
+              >
+                {{ plan }}
+              </VChip>
+            </VChipGroup>
+          </div>
+
+          <div v-if="selectedIds.length" class="selection-bar">
+            <div class="text-body-1">已选择 {{ selectedIds.length }} 条凭据</div>
+            <div class="d-flex flex-wrap ga-2">
+              <AdminButton variant="secondary" size="sm" @click="batchSetStatus('enabled')">批量启用</AdminButton>
+              <AdminButton variant="secondary" size="sm" @click="batchSetStatus('disabled')">批量停用</AdminButton>
+              <AdminButton variant="danger" size="sm" @click="batchDelete">批量删除</AdminButton>
+            </div>
+          </div>
+
+          <div v-if="filteredRows.length" class="d-grid ga-4">
+            <div class="d-flex align-center justify-space-between flex-wrap ga-3">
+              <VCheckboxBtn
+                :model-value="allVisibleSelected"
+                label="选中所有筛选结果"
+                @update:model-value="toggleSelectAll"
+              />
+              <div class="text-body-2 text-medium-emphasis">
+                共 {{ total }} 条，当前第 {{ page }} / {{ maxPage }} 页
+              </div>
+            </div>
+
+            <div class="stack-list">
+              <VCard
+                v-for="item in filteredRows"
+                :key="item.id"
+                color="surface-container"
+                variant="flat"
+              >
+                <VCardText class="stack-card-body">
+                  <div class="stack-card-top">
+                    <div class="d-flex align-start ga-3" style="min-width: 0">
+                      <VCheckboxBtn
+                        :model-value="selectedSet.has(item.id)"
+                        @update:model-value="() => toggleSelectOne(item.id)"
+                      />
+                      <div class="stack-card-copy">
+                        <div class="stack-card-title">{{ item.id }}</div>
+                        <div class="stack-card-meta">
+                          <AdminBadge :tone="toneForStatus(item.status)">
+                            {{ statusText(item.status) }}
+                          </AdminBadge>
+                          <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
+                            {{ planTypeText(item.plan_type) }}
+                          </AdminBadge>
+                          <AdminBadge
+                            :tone="isUnsynced(item.synced_at) ? 'warning' : 'success'"
+                            subtle
+                            icon="mdi-sync"
+                          >
+                            {{ isUnsynced(item.synced_at) ? '待同步' : '已同步' }}
+                          </AdminBadge>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="quota-grid">
+                    <div class="quota-card">
+                      <div class="quota-row">
+                        <div class="quota-label text-medium-emphasis">5 小时额度</div>
+                        <AdminBadge :tone="quotaTone(quotaPercentValue(item, 'quota_5h', 'reset_5h'))" subtle>
+                          {{ renderQuotaValue(item, 'quota_5h', 'reset_5h') }}
+                        </AdminBadge>
+                      </div>
+                      <VProgressLinear
+                        :model-value="quotaPercentValue(item, 'quota_5h', 'reset_5h') ?? 0"
+                        :color="quotaTone(quotaPercentValue(item, 'quota_5h', 'reset_5h'))"
+                        rounded
+                        height="10"
+                      />
+                      <div class="quota-caption text-medium-emphasis">
+                        重置时间 {{ formatTime(item.reset_5h) }}
+                      </div>
+                    </div>
+
+                    <div class="quota-card">
+                      <div class="quota-row">
+                        <div class="quota-label text-medium-emphasis">7 天额度</div>
+                        <AdminBadge :tone="quotaTone(quotaPercentValue(item, 'quota_7d', 'reset_7d'))" subtle>
+                          {{ renderQuotaValue(item, 'quota_7d', 'reset_7d') }}
+                        </AdminBadge>
+                      </div>
+                      <VProgressLinear
+                        :model-value="quotaPercentValue(item, 'quota_7d', 'reset_7d') ?? 0"
+                        :color="quotaTone(quotaPercentValue(item, 'quota_7d', 'reset_7d'))"
+                        rounded
+                        height="10"
+                      />
+                      <div class="quota-caption text-medium-emphasis">
+                        重置时间 {{ formatTime(item.reset_7d) }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="detail-grid">
+                    <div class="detail-block">
+                      <div class="detail-label text-medium-emphasis">账号到期</div>
+                      <div class="detail-value">{{ formatTime(item.expired) }}</div>
+                    </div>
+                    <div class="detail-block">
+                      <div class="detail-label text-medium-emphasis">套餐到期</div>
+                      <div class="detail-value">{{ formatTime(item.plan_expired) }}</div>
+                    </div>
+                    <div class="detail-block">
+                      <div class="detail-label text-medium-emphasis">最近同步</div>
+                      <div class="detail-value">{{ isUnsynced(item.synced_at) ? '未同步' : formatTime(item.synced_at) }}</div>
+                    </div>
+                    <div class="detail-block">
+                      <div class="detail-label text-medium-emphasis">退避截止</div>
+                      <div class="detail-value">{{ isPastTime(item.throttled_until) ? '-' : formatTime(item.throttled_until) }}</div>
+                    </div>
+                  </div>
+                </VCardText>
+              </VCard>
+            </div>
+          </div>
+
+          <EmptyState
+            v-else
+            title="当前筛选没有结果"
+            description="换一个处理器、清空筛选，或者先导入新凭据。"
+            icon="mdi-key-plus"
           >
-            <option :value="25">25 条 / 页</option>
-            <option :value="50">50 条 / 页</option>
-            <option :value="100">100 条 / 页</option>
-          </select>
-        </div>
-      </template>
+            <template #action>
+              <AdminButton prepend-icon="mdi-import" @click="importOpen = true">导入凭据</AdminButton>
+            </template>
+          </EmptyState>
 
-      <template v-if="admin.activeHandler.value?.supports_credentials">
-        <div v-if="selectedIds.length" class="batch-bar">
-          <span>已选择 {{ selectedIds.length }} 条</span>
-          <AdminButton variant="ghost" size="sm" :disabled="actionBusy" @click="batchSetStatus('enabled')">批量启用</AdminButton>
-          <AdminButton variant="ghost" size="sm" :disabled="actionBusy" @click="batchSetStatus('disabled')">批量停用</AdminButton>
-          <AdminButton variant="danger" size="sm" :disabled="actionBusy" @click="batchDelete">批量删除</AdminButton>
-        </div>
-
-        <div v-if="filteredRows.length" class="table-shell">
-          <table>
-            <thead>
-              <tr>
-                <th><input type="checkbox" :checked="allVisibleSelected" @change="toggleSelectAll"></th>
-                <th>账户</th>
-                <th>状态</th>
-                <th>套餐</th>
-                <th>5 小时配额</th>
-                <th>7 天配额</th>
-                <th>同步状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in filteredRows" :key="item.id">
-                <td>
-                  <input type="checkbox" :checked="selectedSet.has(item.id)" @change="toggleSelectOne(item.id)">
-                </td>
-                <td>
-                  <div class="table-title">{{ item.id }}</div>
-                  <div class="table-subtitle">到期 {{ formatTime(item.expired) }}</div>
-                </td>
-                <td>
-                  <AdminBadge :tone="toneForStatus(item.status)">
-                    {{ statusText(item.status) }}
-                  </AdminBadge>
-                </td>
-                <td>
-                  <div class="table-title">{{ planTypeText(item.plan_type) }}</div>
-                  <div class="table-subtitle">{{ formatTime(item.plan_expired) }}</div>
-                </td>
-                <td>{{ renderQuotaValue(item, 'quota_5h', 'reset_5h') }}</td>
-                <td>{{ renderQuotaValue(item, 'quota_7d', 'reset_7d') }}</td>
-                <td>
-                  <template v-if="isUnsynced(item.synced_at)">
-                    <span class="text-muted">未同步</span>
-                  </template>
-                  <template v-else>
-                    <div class="table-title">{{ formatTime(item.synced_at) }}</div>
-                    <div class="table-subtitle">退避到 {{ formatTime(item.throttled_until) }}</div>
-                  </template>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+          <div class="pagination-bar">
+            <div class="text-body-2 text-medium-emphasis">
+              共 {{ total }} 条，当前第 {{ page }} / {{ maxPage }} 页
+            </div>
+            <VPagination
+              :model-value="page"
+              :length="maxPage"
+              density="comfortable"
+              total-visible="7"
+              @update:model-value="(value) => loadCredentials(Number(value), pageSize)"
+            />
+          </div>
+        </template>
 
         <EmptyState
           v-else
-          title="当前处理器还没有凭据"
-          description="导入令牌后，就可以在这里查看配额与同步状态。"
-        >
-          <template #action>
-            <AdminButton @click="importOpen = true">导入凭据</AdminButton>
-          </template>
-        </EmptyState>
-
-        <div class="pager">
-          <AdminButton variant="ghost" size="sm" :disabled="page <= 1 || loading" @click="loadCredentials(Math.max(1, page - 1), pageSize)">
-            上一页
-          </AdminButton>
-          <span>第 {{ page }} / {{ maxPage }} 页</span>
-          <AdminButton variant="ghost" size="sm" :disabled="page >= maxPage || loading" @click="loadCredentials(Math.min(maxPage, page + 1), pageSize)">
-            下一页
-          </AdminButton>
-        </div>
-      </template>
-
-      <EmptyState
-        v-else
-        title="该处理器暂不支持凭据导入"
-        description="可以切换到其他处理器继续管理，或前往模型页面查看能力映射。"
-      />
+          title="该处理器暂不支持凭据导入"
+          description="可以切换到其他处理器，或前往模型页面查看映射能力。"
+          icon="mdi-key-remove"
+        />
+      </div>
     </SectionCard>
 
-    <ModalDialog :open="importOpen" :title="admin.activeHandler.value ? `导入 ${admin.activeHandler.value.label} 凭据` : '导入凭据'" @close="closeImportModal">
-      <div class="form-grid">
-        <label class="form-field">
-          <span>令牌列表<small>一行一个</small></span>
-          <textarea v-model="importTokens" rows="8" placeholder="每行填写一个 Refresh Token 或 Access Token" />
-          <small>自动识别 Refresh Token 或 Access Token。</small>
-        </label>
-        <div v-if="importError" class="form-error" style="white-space: pre-wrap">{{ importError }}</div>
+    <ModalDialog
+      :open="importOpen"
+      :title="admin.activeHandler.value ? `导入 ${admin.activeHandler.value.label} 凭据` : '导入凭据'"
+      description="一行一个令牌，支持 Refresh Token 或 Access Token。"
+      max-width="720"
+      @close="closeImportModal"
+    >
+      <div class="d-grid ga-4">
+        <VTextarea
+          v-model="importTokens"
+          rows="8"
+          label="令牌列表"
+          placeholder="每行填写一个令牌"
+          prepend-inner-icon="mdi-text-box-plus-outline"
+        />
+
+        <div class="d-flex flex-wrap ga-2">
+          <AdminBadge tone="secondary" subtle icon="mdi-counter">
+            待导入 {{ importLines.length }} 条
+          </AdminBadge>
+          <AdminBadge tone="neutral" subtle icon="mdi-information-outline">
+            自动识别令牌类型
+          </AdminBadge>
+        </div>
+
+        <VAlert
+          v-if="importError"
+          type="error"
+          variant="tonal"
+          density="comfortable"
+          :text="importError"
+          style="white-space: pre-wrap"
+        />
       </div>
       <template #footer>
         <AdminButton variant="ghost" @click="closeImportModal">取消</AdminButton>
-        <AdminButton :disabled="actionBusy" @click="createCredential">
-          {{ actionBusy ? '导入中...' : '开始导入' }}
+        <AdminButton
+          prepend-icon="mdi-arrow-up-bold-circle-outline"
+          :loading="actionBusy"
+          @click="createCredential"
+        >
+          开始导入
         </AdminButton>
       </template>
     </ModalDialog>
 
-    <ModalDialog :open="confirmOpen" :title="confirmTitle" @close="closeConfirm">
-      <p>{{ confirmMessage }}</p>
+    <ModalDialog
+      :open="confirm.open.value"
+      :title="confirm.title.value"
+      description="操作会立即提交到后台。"
+      @close="confirm.close()"
+    >
+      <p class="text-body-1">{{ confirm.message.value }}</p>
       <template #footer>
-        <AdminButton variant="ghost" :disabled="actionBusy" @click="closeConfirm">取消</AdminButton>
-        <AdminButton :variant="confirmVariant === 'secondary' ? 'secondary' : 'danger'" :disabled="actionBusy" @click="submitConfirm">
-          {{ confirmText }}
+        <AdminButton variant="ghost" :disabled="actionBusy" @click="confirm.close()">取消</AdminButton>
+        <AdminButton
+          :variant="confirm.variant.value"
+          :loading="actionBusy"
+          @click="confirm.submit()"
+        >
+          {{ confirm.text.value }}
         </AdminButton>
       </template>
     </ModalDialog>

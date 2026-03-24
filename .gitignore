@@ -9,3 +9,4 @@ web/.output/
 /web/dist/
 *.db
 *.exe
+/.claude

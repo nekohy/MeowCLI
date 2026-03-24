@@ -127,7 +127,7 @@ export const adminApi = {
     return apiRequest<SettingsSnapshot>('/settings', { token })
   },
   updateSettings(token: string, payload: SettingsSnapshot) {
-    return apiRequest<{ settings: SettingsSnapshot; deleted_free_accounts: string[] }>('/settings', {
+    return apiRequest<{ settings: SettingsSnapshot }>('/settings', {
       token,
       method: 'PUT',
       body: payload,

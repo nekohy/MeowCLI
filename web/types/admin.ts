@@ -20,9 +20,10 @@ export type NavKey =
 export interface NavItem {
   key: NavKey
   to: string
+  icon: string
   label: string
   eyebrow: string
-  description: string
+  description?: string
 }
 
 export interface CredentialField {
@@ -38,7 +39,6 @@ export interface CredentialField {
 export interface HandlerOverview {
   key: string
   label: string
-  summary: string
   status: string
   supported_api_types: string[]
   plan_list?: string[]
@@ -77,7 +77,6 @@ export interface SettingsSnapshot {
   allow_user_plan_type_header: boolean
   global_proxy: string
   codex_proxy: string
-  codex_delete_free_accounts: boolean
   codex_allow_user_plan_type_header: boolean
   codex_preferred_plan_types: string
   refresh_before_seconds: number
@@ -93,7 +92,6 @@ export interface SettingsForm {
   allow_user_plan_type_header: boolean
   global_proxy: string
   codex_proxy: string
-  codex_delete_free_accounts: boolean
   codex_allow_user_plan_type_header: boolean
   codex_preferred_plan_types: string
   refresh_before_seconds: string

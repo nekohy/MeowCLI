@@ -14,20 +14,30 @@ defineEmits<{
 const nextLabel = computed(() => (
   props.theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'
 ))
+
+const currentIcon = computed(() => (
+  props.theme === 'dark' ? 'mdi-white-balance-sunny' : 'mdi-weather-night'
+))
+
+const currentLabel = computed(() => (
+  props.theme === 'dark' ? '深色' : '浅色'
+))
 </script>
 
 <template>
-  <button
-    type="button"
-    class="theme-toggle"
-    :data-theme="theme"
-    :aria-label="nextLabel"
-    :title="nextLabel"
-    @click="$emit('toggle')"
-  >
-    <span class="theme-toggle-track">
-      <span class="theme-toggle-thumb" />
-    </span>
-    <span class="theme-toggle-copy">{{ theme === 'dark' ? '深色' : '浅色' }}</span>
-  </button>
+  <VTooltip :text="nextLabel" location="bottom">
+    <template #activator="{ props: tooltipProps }">
+      <VBtn
+        v-bind="tooltipProps"
+        :prepend-icon="currentIcon"
+        variant="text"
+        color="secondary"
+        class="text-none"
+        size="default"
+        @click="$emit('toggle')"
+      >
+        {{ currentLabel }}
+      </VBtn>
+    </template>
+  </VTooltip>
 </template>

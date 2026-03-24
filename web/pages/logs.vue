@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
-import { formatTime } from '~/lib/admin'
+import { PAGE_SIZE_OPTIONS, formatTime } from '~/lib/admin'
 import type { LogItem } from '~/types/admin'
 
 definePageMeta({
@@ -16,11 +16,18 @@ const pageSize = ref(25)
 const loading = ref(false)
 const search = ref('')
 const handlerFilter = ref('all')
+const severityFilter = ref<'all' | 'errors' | 'success'>('all')
 
 const filteredItems = computed(() => {
   const query = search.value.trim().toLowerCase()
   return items.value.filter((item) => {
     if (handlerFilter.value !== 'all' && item.handler !== handlerFilter.value) {
+      return false
+    }
+    if (severityFilter.value === 'errors' && item.status_code < 400) {
+      return false
+    }
+    if (severityFilter.value === 'success' && item.status_code >= 400) {
       return false
     }
     if (!query) {
@@ -31,7 +38,37 @@ const filteredItems = computed(() => {
   })
 })
 
+const summaryTiles = computed(() => [
+  {
+    label: '本页日志',
+    value: items.value.length,
+    helper: '当前页拉取到的记录数',
+    icon: 'mdi-file-document-outline',
+  },
+  {
+    label: '错误请求',
+    value: items.value.filter((item) => item.status_code >= 400).length,
+    helper: 'HTTP 400 及以上',
+    icon: 'mdi-alert-circle-outline',
+  },
+  {
+    label: '筛选结果',
+    value: filteredItems.value.length,
+    helper: '应用当前搜索与过滤后',
+    icon: 'mdi-filter-check-outline',
+  },
+])
+
 const maxPage = computed(() => Math.max(1, Math.ceil((total.value || 0) / (pageSize.value || 25))))
+const pageSizeOptions = PAGE_SIZE_OPTIONS
+
+function previewLog(text: string) {
+  const line = text
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .find(Boolean)
+  return line ? line.slice(0, 140) : '无详细文本'
+}
 
 async function loadLogs(nextPage = page.value, nextPageSize = pageSize.value) {
   loading.value = true
@@ -67,84 +104,128 @@ watch(
 <template>
   <div class="page-grid">
     <PageHeader
-      eyebrow="请求记录"
-      title="日志排查"
-      description="按页查看内存中的近期请求、状态码和错误信息，服务重启后会清空。"
+      eyebrow="监控"
+      title="诊断日志"
+      icon="mdi-text-box-search-outline"
     >
-      <template #actions>
-        <AdminButton variant="secondary" :disabled="loading" @click="loadLogs(page, pageSize)">
-          {{ loading ? '刷新中...' : '刷新当前页' }}
-        </AdminButton>
+      <template #meta>
+        <AdminBadge tone="secondary" icon="mdi-counter">
+          {{ total }} 条记录
+        </AdminBadge>
+        <AdminBadge tone="danger" icon="mdi-alert-circle-outline">
+          {{ items.filter((item) => item.status_code >= 400).length }} 错误
+        </AdminBadge>
       </template>
     </PageHeader>
 
-    <SectionCard title="筛选" eyebrow="当前页">
-      <template #actions>
-        <div class="toolbar-inline">
-          <input v-model="search" class="search-input" placeholder="筛选处理器 / 凭据 / 文本 / 状态码">
-          <select
-            class="select-input"
-            :value="pageSize"
-            @change="loadLogs(1, Number(($event.target as HTMLSelectElement).value))"
-          >
-            <option :value="25">25 条 / 页</option>
-            <option :value="50">50 条 / 页</option>
-            <option :value="100">100 条 / 页</option>
-          </select>
+    <SectionCard
+      title="数据筛选"
+      eyebrow="筛选"
+      icon="mdi-filter-variant"
+    >
+      <div class="d-grid ga-5">
+        <div class="summary-grid">
+          <MetricCard
+            v-for="tile in summaryTiles"
+            :key="tile.label"
+            :label="tile.label"
+            :value="tile.value"
+            :helper="tile.helper"
+            :icon="tile.icon"
+            :color="tile.color"
+          />
         </div>
-      </template>
-      <div class="chip-row">
-        <button type="button" :class="['chip', { 'is-active': handlerFilter === 'all' }]" @click="handlerFilter = 'all'">
-          全部
-        </button>
-        <button
-          v-for="handler in admin.handlers.value"
-          :key="handler.key"
-          type="button"
-          :class="['chip', { 'is-active': handlerFilter === handler.key }]"
-          @click="handlerFilter = handler.key"
-        >
-          {{ handler.label }}
-        </button>
+
+        <div class="toolbar-panel">
+          <div class="filter-toolbar">
+            <VTextField
+              v-model="search"
+              class="filter-grow"
+              label="搜索"
+              placeholder="处理器 / 凭据 / 状态码"
+              prepend-inner-icon="mdi-magnify"
+              clearable
+            />
+          </div>
+
+          <VChipGroup v-model="severityFilter" mandatory color="primary">
+            <VChip value="all" filter size="small">全部结果</VChip>
+            <VChip value="errors" filter size="small">错误请求</VChip>
+            <VChip value="success" filter size="small">成功请求</VChip>
+          </VChipGroup>
+
+          <VChipGroup v-model="handlerFilter" mandatory color="secondary">
+            <VChip value="all" filter size="small">全部服务</VChip>
+            <VChip
+              v-for="handler in admin.handlers.value"
+              :key="handler.key"
+              :value="handler.key"
+              filter
+              size="small"
+            >
+              {{ handler.label }}
+            </VChip>
+          </VChipGroup>
+        </div>
       </div>
     </SectionCard>
 
-    <SectionCard title="日志列表" eyebrow="分页">
-      <template #actions>
-        <div class="pager">
-          <AdminButton variant="ghost" size="sm" :disabled="page <= 1 || loading" @click="loadLogs(Math.max(1, page - 1), pageSize)">
-            上一页
-          </AdminButton>
-          <span>第 {{ page }} / {{ maxPage }} 页</span>
-          <AdminButton variant="ghost" size="sm" :disabled="page >= maxPage || loading" @click="loadLogs(Math.min(maxPage, page + 1), pageSize)">
-            下一页
-          </AdminButton>
-        </div>
-      </template>
-
-      <div v-if="filteredItems.length" class="log-list">
-        <article
-          v-for="item in filteredItems"
-          :key="`${item.handler}-${item.credential_id}-${item.created_at}-${item.status_code}`"
-          class="log-item"
-        >
-          <div class="log-meta">
-            <AdminBadge :tone="item.status_code < 400 ? 'success' : 'danger'">
-              {{ item.status_code }}
-            </AdminBadge>
-            <span>{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
-            <span>{{ item.credential_id || '未记录凭据' }}</span>
-            <span>{{ formatTime(item.created_at) }}</span>
+    <SectionCard
+      title="日志列表"
+      eyebrow="记录"
+      icon="mdi-format-list-bulleted"
+    >
+      <div class="d-grid ga-5">
+        <div class="pagination-bar">
+          <div class="text-caption text-medium-emphasis">
+            第 {{ page }} / {{ maxPage }} 页 (共 {{ total }} 条)
           </div>
-          <div class="log-text">{{ item.text }}</div>
-        </article>
-      </div>
+          <VPagination
+            :model-value="page"
+            :length="maxPage"
+            density="comfortable"
+            total-visible="5"
+            @update:model-value="(value) => loadLogs(Number(value), pageSize)"
+          />
+        </div>
 
-      <EmptyState
-        v-else
-        title="这一页没有匹配的日志"
-        description="可以切换页码、清空筛选，或等待新的请求进入。"
-      />
+        <VExpansionPanels
+          v-if="filteredItems.length"
+          variant="accordion"
+          class="log-panels"
+        >
+          <VExpansionPanel
+            v-for="item in filteredItems"
+            :key="`${item.handler}-${item.credential_id}-${item.created_at}-${item.status_code}`"
+            elevation="0"
+            border
+          >
+            <VExpansionPanelTitle>
+              <div class="activity-title">
+                <div class="activity-topline">
+                  <AdminBadge :tone="item.status_code < 400 ? 'success' : 'danger'">
+                    {{ item.status_code }}
+                  </AdminBadge>
+                  <span class="font-weight-medium">{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
+                  <span class="text-medium-emphasis">{{ item.credential_id || '未记录凭据' }}</span>
+                  <span class="text-medium-emphasis">{{ formatTime(item.created_at) }}</span>
+                </div>
+                <div class="activity-preview">{{ previewLog(item.text) }}</div>
+              </div>
+            </VExpansionPanelTitle>
+            <VExpansionPanelText>
+              <pre class="log-text">{{ item.text }}</pre>
+            </VExpansionPanelText>
+          </VExpansionPanel>
+        </VExpansionPanels>
+
+        <EmptyState
+          v-else
+          title="这一页没有匹配的日志"
+          description="可以切换页码、调整筛选，或等待新的请求进入。"
+          icon="mdi-text-box-remove-outline"
+        />
+      </div>
     </SectionCard>
   </div>
 </template>

@@ -28,7 +28,6 @@ type overviewSummary struct {
 type handlerOverview struct {
 	Key                     utils.HandlerType `json:"key"`
 	Label                   string            `json:"label"`
-	Summary                 string            `json:"summary"`
 	Status                  string            `json:"status"`
 	SupportedAPI            []utils.APIType   `json:"supported_api_types"`
 	PlanList                []string          `json:"plan_list,omitempty"`
@@ -129,7 +128,6 @@ func defaultHandlerOverview() []handlerOverview {
 		{
 			Key:                 utils.HandlerCodex,
 			Label:               "Codex CLI",
-			Summary:             "Codex池",
 			Status:              "available",
 			SupportedAPI:        []utils.APIType{utils.APIResponses, utils.APIResponsesCompact},
 			PlanList:            corecodex.PlanList(),

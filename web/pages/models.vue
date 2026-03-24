@@ -3,11 +3,18 @@ import { adminApi } from '~/composables/useAdminApi'
 import { safeStringify, statusText, toneForStatus } from '~/lib/admin'
 import type { ModelItem } from '~/types/admin'
 
+function hasExtra(extra: unknown): boolean {
+  if (!extra) return false
+  if (typeof extra === 'object' && Object.keys(extra as object).length === 0) return false
+  return true
+}
+
 definePageMeta({
   navKey: 'models',
 })
 
 const admin = useAdminApp()
+const confirm = useConfirmDialog()
 
 const items = ref<ModelItem[]>([])
 const loading = ref(false)
@@ -23,11 +30,6 @@ const modalHandler = ref('codex')
 const modalExtra = ref('{}')
 const modalError = ref('')
 
-const confirmOpen = ref(false)
-const confirmTitle = ref('')
-const confirmMessage = ref('')
-let confirmAction: null | (() => Promise<void>) = null
-
 const filteredItems = computed(() => {
   const query = search.value.trim().toLowerCase()
   return items.value.filter((item) => {
@@ -41,6 +43,10 @@ const filteredItems = computed(() => {
       .some((value) => String(value || '').toLowerCase().includes(query))
   })
 })
+
+function modelsForHandler(handlerKey: string) {
+  return items.value.filter((item) => item.handler === handlerKey).length
+}
 
 async function loadModels() {
   loading.value = true
@@ -63,7 +69,7 @@ function openCreateModal() {
   modalOpen.value = true
 }
 
-function openEditModal(item: typeof items.value[number]) {
+function openEditModal(item: ModelItem) {
   modalMode.value = 'edit'
   modalAlias.value = item.alias
   modalOrigin.value = item.origin
@@ -80,6 +86,8 @@ function closeModal() {
 
 async function saveModel() {
   actionBusy.value = true
+  modalError.value = ''
+
   try {
     let extra: Record<string, unknown> = {}
     try {
@@ -116,35 +124,27 @@ async function saveModel() {
   }
 }
 
-function openDeleteConfirm(item: typeof items.value[number]) {
-  confirmTitle.value = '删除模型映射'
-  confirmMessage.value = `确认删除模型映射“${item.alias}”吗？`
-  confirmAction = async () => {
-    actionBusy.value = true
-    try {
-      await adminApi.deleteModel(admin.token.value, item.alias)
-      admin.notify('模型映射已删除')
-      await Promise.all([
-        admin.loadOverview(admin.token.value, true),
-        loadModels(),
-      ])
-    } catch (error) {
-      admin.notify(error instanceof Error ? error.message : '删除模型映射失败', 'danger')
-    } finally {
-      actionBusy.value = false
-    }
-  }
-  confirmOpen.value = true
-}
-
-async function submitConfirm() {
-  if (!confirmAction || actionBusy.value) {
-    return
-  }
-  const action = confirmAction
-  confirmOpen.value = false
-  confirmAction = null
-  await action()
+function openDeleteConfirm(item: ModelItem) {
+  confirm.show({
+    title: '删除模型映射',
+    message: `确认删除模型映射"${item.alias}"吗？`,
+    confirmText: '确认删除',
+    action: async () => {
+      actionBusy.value = true
+      try {
+        await adminApi.deleteModel(admin.token.value, item.alias)
+        admin.notify('模型映射已删除')
+        await Promise.all([
+          admin.loadOverview(admin.token.value, true),
+          loadModels(),
+        ])
+      } catch (error) {
+        admin.notify(error instanceof Error ? error.message : '删除模型映射失败', 'danger')
+      } finally {
+        actionBusy.value = false
+      }
+    },
+  })
 }
 
 onMounted(() => {
@@ -166,116 +166,178 @@ watch(
 <template>
   <div class="page-grid">
     <PageHeader
-      eyebrow="别名映射"
-      title="模型管理"
-      description="把对外暴露的模型别名映射到上游模型，便于统一路由。"
+      eyebrow="模型"
+      title="模型映射"
+      icon="mdi-compare-horizontal"
     >
+      <template #meta>
+        <AdminBadge tone="secondary" icon="mdi-shape-outline">
+          {{ items.length }} 映射
+        </AdminBadge>
+      </template>
       <template #actions>
-        <AdminButton variant="secondary" :disabled="loading" @click="loadModels">
-          {{ loading ? '刷新中...' : '刷新列表' }}
-        </AdminButton>
-        <AdminButton @click="openCreateModal">新建映射</AdminButton>
+        <AdminButton prepend-icon="mdi-plus" @click="openCreateModal">新建映射</AdminButton>
       </template>
     </PageHeader>
 
-    <SectionCard title="筛选" eyebrow="浏览">
-      <template #actions>
-        <input v-model="search" class="search-input" placeholder="搜索别名 / 上游模型 / 附加参数">
-      </template>
-      <div class="chip-row">
-        <button type="button" :class="['chip', { 'is-active': handlerFilter === 'all' }]" @click="handlerFilter = 'all'">
-          全部
-        </button>
-        <button
-          v-for="handler in admin.handlers.value"
-          :key="handler.key"
-          type="button"
-          :class="['chip', { 'is-active': handlerFilter === handler.key }]"
-          @click="handlerFilter = handler.key"
-        >
-          {{ handler.label }}
-        </button>
-      </div>
-    </SectionCard>
+    <SectionCard
+      title="映射列表"
+      :eyebrow="`${filteredItems.length} 个结果`"
+      icon="mdi-format-list-bulleted-square"
+    >
+      <div class="toolbar-panel mb-4">
+        <VTextField
+          v-model="search"
+          label="搜索"
+          placeholder="别名 / 上游模型"
+          prepend-inner-icon="mdi-magnify"
+          clearable
+        />
 
-    <SectionCard title="映射列表" :eyebrow="`${filteredItems.length} 条结果`">
-      <div v-if="filteredItems.length" class="table-shell">
-        <table>
-          <thead>
-            <tr>
-              <th>别名</th>
-              <th>上游模型</th>
-              <th>处理器</th>
-              <th>附加参数</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in filteredItems" :key="item.alias">
-              <td>{{ item.alias }}</td>
-              <td>{{ item.origin }}</td>
-              <td>
-                <AdminBadge :tone="toneForStatus(admin.handlerLookup.value.get(item.handler)?.status || 'planned')">
-                  {{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}
-                </AdminBadge>
-              </td>
-              <td><code class="code-inline">{{ safeStringify(item.extra) }}</code></td>
-              <td class="table-actions">
-                <AdminButton variant="ghost" size="sm" @click="openEditModal(item)">编辑</AdminButton>
-                <AdminButton variant="danger" size="sm" :disabled="actionBusy" @click="openDeleteConfirm(item)">删除</AdminButton>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="d-flex flex-wrap ga-2 align-center">
+          <VChipGroup v-model="handlerFilter" mandatory color="primary">
+            <VChip value="all" filter size="small">全部</VChip>
+            <VChip
+              v-for="handler in admin.handlers.value"
+              :key="handler.key"
+              :value="handler.key"
+              filter
+              size="small"
+            >
+              {{ handler.label }} ({{ modelsForHandler(handler.key) }})
+            </VChip>
+          </VChipGroup>
+        </div>
       </div>
+
+      <div v-if="filteredItems.length" class="model-grid">
+        <VCard
+          v-for="item in filteredItems"
+          :key="item.alias"
+          class="interactive-card"
+          color="surface-container"
+          variant="flat"
+        >
+          <VCardText class="pa-5 d-grid ga-4">
+            <div class="d-flex justify-space-between align-start">
+              <div style="min-width: 0">
+                <div class="text-h6 font-weight-bold mb-1">{{ item.alias }}</div>
+                <div class="d-flex align-center ga-2 text-caption text-medium-emphasis">
+                  <span class="text-truncate" style="max-width: 280px">{{ item.origin }}</span>
+                  <VIcon icon="mdi-chevron-right" size="16" />
+                  <span class="text-primary font-weight-bold">{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
+                </div>
+              </div>
+              <AdminBadge :tone="toneForStatus(admin.handlerLookup.value.get(item.handler)?.status || 'planned')" subtle>
+                {{ statusText(admin.handlerLookup.value.get(item.handler)?.status || 'planned') }}
+              </AdminBadge>
+            </div>
+
+            <VSheet v-if="hasExtra(item.extra)" color="surface-container-high" rounded="lg" class="pa-3">
+              <div class="text-caption text-medium-emphasis mb-2 d-flex align-center ga-1">
+                <VIcon icon="mdi-code-json" size="14" />
+                <span>JSON</span>
+              </div>
+              <code class="text-caption d-block" style="white-space: pre-wrap; overflow: auto; max-height: 80px">{{ safeStringify(item.extra) }}</code>
+            </VSheet>
+
+            <div class="d-flex ga-2">
+              <AdminButton
+                variant="secondary"
+                size="sm"
+                prepend-icon="mdi-pencil-outline"
+                @click="openEditModal(item)"
+              >
+                编辑
+              </AdminButton>
+              <AdminButton
+                variant="danger"
+                size="sm"
+                prepend-icon="mdi-delete-outline"
+                @click="openDeleteConfirm(item)"
+              >
+                删除
+              </AdminButton>
+            </div>
+          </VCardText>
+        </VCard>
+      </div>
+
       <EmptyState
         v-else
-        title="没有符合条件的映射"
-        description="调整筛选条件，或先创建新的模型别名。"
+        title="无匹配映射"
+        description="调整筛选或新建映射。"
+        icon="mdi-link-off"
       />
     </SectionCard>
 
-    <ModalDialog :open="modalOpen" :title="modalMode === 'edit' ? '编辑模型映射' : '新建模型映射'" @close="closeModal">
-      <div class="form-grid">
-        <label class="form-field">
-          <span>模型别名</span>
-          <input v-model="modalAlias" :disabled="modalMode === 'edit'">
-          <small>创建后别名不可修改。</small>
-        </label>
-        <label class="form-field">
-          <span>上游模型</span>
-          <input v-model="modalOrigin">
-          <small>实际请求上游时使用的模型名称。</small>
-        </label>
-        <label class="form-field">
-          <span>处理器</span>
-          <select v-model="modalHandler" class="select-input">
-            <option v-for="handler in admin.handlers.value" :key="handler.key" :value="handler.key">
-              {{ handler.label }}（{{ statusText(handler.status) }}）
-            </option>
-          </select>
-          <small>决定这条映射交给哪个处理器。</small>
-        </label>
-        <label class="form-field">
-          <span>附加参数 JSON</span>
-          <textarea v-model="modalExtra" rows="5" />
-          <small>用于保存额外的路由参数，默认可留空对象。</small>
-        </label>
-        <div v-if="modalError" class="form-error">{{ modalError }}</div>
+    <ModalDialog
+      :open="modalOpen"
+      :title="modalMode === 'edit' ? '编辑模型映射' : '新建模型映射'"
+      :icon="modalMode === 'edit' ? 'mdi-pencil-outline' : 'mdi-plus'"
+      max-width="640"
+      @close="closeModal"
+    >
+      <div class="d-grid ga-7 pt-2">
+        <VTextField
+          v-model="modalAlias"
+          label="别名"
+          placeholder="gpt-4-meow"
+          prepend-inner-icon="mdi-tag-outline"
+          :disabled="modalMode === 'edit'"
+        />
+        <VTextField
+          v-model="modalOrigin"
+          label="上游模型"
+          placeholder="gpt-4-0125-preview"
+          prepend-inner-icon="mdi-cloud-outline"
+        />
+        <VSelect
+          v-model="modalHandler"
+          label="目标处理器"
+          prepend-inner-icon="mdi-cpu-64-bit"
+          :items="admin.handlers.value.map((handler) => ({
+            title: `${handler.label} (${statusText(handler.status)})`,
+            value: handler.key,
+          }))"
+        />
+        <VTextarea
+          v-model="modalExtra"
+          rows="4"
+          label="附加参数"
+          placeholder="{}"
+          prepend-inner-icon="mdi-code-json"
+        />
+        <VAlert
+          v-if="modalError"
+          type="error"
+          variant="tonal"
+          density="comfortable"
+          :text="modalError"
+        />
       </div>
       <template #footer>
         <AdminButton variant="ghost" @click="closeModal">取消</AdminButton>
-        <AdminButton :disabled="actionBusy" @click="saveModel">
-          {{ actionBusy ? '保存中...' : '保存' }}
+        <AdminButton
+          prepend-icon="mdi-content-save-check-outline"
+          :loading="actionBusy"
+          @click="saveModel"
+        >
+          {{ modalMode === 'edit' ? '更新映射' : '创建映射' }}
         </AdminButton>
       </template>
     </ModalDialog>
 
-    <ModalDialog :open="confirmOpen" :title="confirmTitle" @close="confirmOpen = false">
-      <p>{{ confirmMessage }}</p>
+    <ModalDialog
+      :open="confirm.open.value"
+      :title="confirm.title.value"
+      icon="mdi-delete-outline"
+      @close="confirm.close()"
+    >
+      <p class="text-body-1">{{ confirm.message.value }}</p>
       <template #footer>
-        <AdminButton variant="ghost" :disabled="actionBusy" @click="confirmOpen = false">取消</AdminButton>
-        <AdminButton variant="danger" :disabled="actionBusy" @click="submitConfirm">确认删除</AdminButton>
+        <AdminButton variant="ghost" :disabled="actionBusy" @click="confirm.close()">取消</AdminButton>
+        <AdminButton variant="danger" :loading="actionBusy" @click="confirm.submit()">确认删除</AdminButton>
       </template>
     </ModalDialog>
   </div>

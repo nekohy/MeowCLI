@@ -1,88 +1,140 @@
 <script setup lang="ts">
-import { apiTypesText, formatTime, statusText, toneForStatus } from '~/lib/admin'
+import { formatTime, statusText, toneForStatus } from '~/lib/admin'
 
 const admin = useAdminApp()
 const router = useRouter()
 
 const summary = computed(() => admin.overview.value.summary)
 const recentLogs = computed(() => admin.overview.value.recent_logs)
+const onlineHandlers = computed(() => (
+  admin.handlers.value.filter((item) => item.status === 'enabled' || item.status === 'available').length
+))
+
+function previewLog(text: string) {
+  const line = text
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .find(Boolean)
+
+  return line ? line.slice(0, 120) : '无详细文本'
+}
 
 async function openHandler(key: string, supportsCredentials: boolean) {
   admin.selectedHandler.value = key
   await router.push(supportsCredentials ? '/credentials' : '/models')
+}
+
+async function openPage(path: string) {
+  await router.push(path)
 }
 </script>
 
 <template>
   <div class="page-grid">
     <PageHeader
-      eyebrow="运行概览"
-      title="控制台状态"
-      description="集中查看凭据、模型映射、访问密钥与最近请求。"
+      eyebrow="控制台"
+      title="运行概览"
+      icon="mdi-view-dashboard"
     >
-      <template #actions>
-        <AdminButton variant="secondary" :disabled="admin.booting.value" @click="admin.loadOverview(admin.token.value)">
-          {{ admin.booting.value ? '刷新中...' : '刷新总览' }}
-        </AdminButton>
+      <template #meta>
+        <AdminBadge tone="success" icon="mdi-check-circle">
+          在线服务 {{ onlineHandlers }}
+        </AdminBadge>
+        <AdminBadge tone="secondary" icon="mdi-history">
+          历史记录 {{ summary.logs_total || 0 }}
+        </AdminBadge>
       </template>
     </PageHeader>
 
-    <section class="metric-grid">
-      <MetricCard label="启用凭据" :value="summary.credentials_enabled" helper="当前可参与调度的账户" />
-      <MetricCard label="全部凭据" :value="summary.credentials_total" helper="包含已停用和待同步账户" />
-      <MetricCard label="模型映射" :value="summary.models_total" helper="对外别名总数" />
-      <MetricCard label="访问密钥" :value="summary.auth_keys_total" helper="后台与 API 使用同一套密钥体系" />
-    </section>
+    <div class="summary-grid">
+      <MetricCard
+        label="在线处理器"
+        :value="onlineHandlers"
+        helper="活跃组件"
+        icon="mdi-server"
+      />
+      <MetricCard
+        label="就绪凭据"
+        :value="summary.credentials_enabled"
+        helper="令牌池状态"
+        icon="mdi-shield-check"
+      />
+      <MetricCard
+        label="总计凭据"
+        :value="summary.credentials_total"
+        helper="全部导入"
+        icon="mdi-key-chain"
+      />
+      <MetricCard
+        label="映射规则"
+        :value="summary.models_total"
+        helper="模型映射"
+        icon="mdi-vector-link"
+      />
+      <MetricCard
+        label="访问密钥"
+        :value="summary.auth_keys_total"
+        helper="权限控制"
+        icon="mdi-shield-lock"
+      />
+    </div>
 
-    <SectionCard title="处理器能力" eyebrow="路由与调度">
-      <div class="card-grid">
-        <button
-          v-for="handler in admin.handlers.value"
-          :key="handler.key"
-          type="button"
-          class="capability-card"
-          @click="openHandler(handler.key, handler.supports_credentials)"
-        >
-          <div class="capability-top">
-            <div>
-              <div class="capability-title">{{ handler.label }}</div>
-              <div class="capability-summary">{{ handler.summary || '暂无说明' }}</div>
-            </div>
-            <AdminBadge :tone="toneForStatus(handler.status)">
-              {{ statusText(handler.status) }}
-            </AdminBadge>
-          </div>
-          <div class="capability-meta">
-            <span>接口 {{ apiTypesText(handler.supported_api_types) }}</span>
-            <span>{{ handler.models_total || 0 }} 个模型</span>
-            <span>{{ handler.credentials_total || 0 }} 个凭据</span>
-          </div>
-        </button>
-      </div>
+    <SectionCard
+      title="服务处理器"
+      eyebrow="组件"
+      icon="mdi-cpu-64-bit"
+    >
+      <HandlerSwitchGrid
+        :handlers="admin.handlers.value"
+        :selected="admin.selectedHandler.value"
+        @select="openHandler($event, admin.handlerLookup.value.get($event)?.supports_credentials ?? false)"
+      />
     </SectionCard>
 
-    <SectionCard title="最近请求" eyebrow="诊断">
-      <div v-if="recentLogs.length" class="log-list">
-        <article
+    <SectionCard
+      title="实时诊断"
+      eyebrow="日志"
+      icon="mdi-pulse"
+    >
+      <VExpansionPanels
+        v-if="recentLogs.length"
+        variant="accordion"
+        class="log-panels"
+      >
+        <VExpansionPanel
           v-for="item in recentLogs"
           :key="`${item.handler}-${item.credential_id}-${item.created_at}-${item.status_code}`"
-          class="log-item"
+          elevation="0"
+          border
+          class="mb-2"
         >
-          <div class="log-meta">
-            <AdminBadge :tone="item.status_code < 400 ? 'success' : 'danger'">
-              {{ item.status_code }}
-            </AdminBadge>
-            <span>{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
-            <span>{{ item.credential_id || '未记录凭据' }}</span>
-            <span>{{ formatTime(item.created_at) }}</span>
-          </div>
-          <div class="log-text">{{ item.text }}</div>
-        </article>
-      </div>
+          <VExpansionPanelTitle class="py-3">
+            <div class="activity-title w-100">
+              <div class="d-flex align-center ga-3 mb-1">
+                <AdminBadge :tone="item.status_code < 400 ? 'success' : 'danger'">
+                  {{ item.status_code }}
+                </AdminBadge>
+                <span class="text-subtitle-2 font-weight-bold">{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
+                <span class="text-caption text-medium-emphasis d-none d-sm-inline">{{ item.credential_id || 'SYSTEM' }}</span>
+                <VSpacer />
+                <span class="text-caption text-medium-emphasis">{{ formatTime(item.created_at) }}</span>
+              </div>
+              <div class="text-caption text-medium-emphasis text-truncate" style="opacity: 0.7">{{ previewLog(item.text) }}</div>
+            </div>
+          </VExpansionPanelTitle>
+          <VExpansionPanelText>
+            <VSheet color="surface-container-high" rounded="lg" class="pa-3 mt-2">
+              <pre class="log-text">{{ item.text }}</pre>
+            </VSheet>
+          </VExpansionPanelText>
+        </VExpansionPanel>
+      </VExpansionPanels>
+
       <EmptyState
         v-else
         title="暂无请求日志"
-        description="这里会显示最近的请求记录"
+        description="请求到达后会自动出现在这里。"
+        icon="mdi-file-document-outline"
       />
     </SectionCard>
   </div>
