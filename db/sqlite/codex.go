@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"strings"
 
 	sqlcsqlite "github.com/nekohy/MeowCLI/internal/db/sqlite"
 	db "github.com/nekohy/MeowCLI/internal/store"
@@ -13,6 +14,15 @@ func (s *Store) CountEnabledCodex(ctx context.Context) (int64, error) {
 
 func (s *Store) CountCodex(ctx context.Context) (int64, error) {
 	return s.queries.CountCodex(ctx)
+}
+
+func (s *Store) CountCodexFiltered(ctx context.Context, filter db.CredentialFilterParams) (int64, error) {
+	return s.queries.CountCodexFiltered(ctx, sqlcsqlite.CountCodexFilteredParams{
+		Search:       sqliteCodexSearchPattern(filter.Search),
+		Status:       strings.TrimSpace(filter.Status),
+		PlanType:     strings.ToLower(strings.TrimSpace(filter.PlanType)),
+		UnsyncedOnly: sqliteBool(filter.UnsyncedOnly),
+	})
 }
 
 func (s *Store) GetCodex(ctx context.Context, id string) (db.Codex, error) {
@@ -67,8 +77,12 @@ func (s *Store) ListCodex(ctx context.Context) ([]db.ListCodexRow, error) {
 
 func (s *Store) ListCodexPaged(ctx context.Context, arg db.ListCodexPagedParams) ([]db.ListCodexRow, error) {
 	rows, err := s.queries.ListCodexPaged(ctx, sqlcsqlite.ListCodexPagedParams{
-		Limit:  int64(arg.Limit),
-		Offset: int64(arg.Offset),
+		Search:       sqliteCodexSearchPattern(arg.Search),
+		Status:       strings.TrimSpace(arg.Status),
+		PlanType:     strings.ToLower(strings.TrimSpace(arg.PlanType)),
+		UnsyncedOnly: sqliteBool(arg.UnsyncedOnly),
+		PageOffset:   int64(arg.Offset),
+		PageLimit:    int64(arg.Limit),
 	})
 	if err != nil {
 		return nil, err
@@ -92,6 +106,21 @@ func (s *Store) ListCodexPaged(ctx context.Context, arg db.ListCodexPagedParams)
 		)
 	}
 	return resolved, nil
+}
+
+func sqliteCodexSearchPattern(search string) string {
+	value := strings.TrimSpace(search)
+	if value == "" {
+		return ""
+	}
+	return "%" + strings.ToLower(value) + "%"
+}
+
+func sqliteBool(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (s *Store) CreateCodex(ctx context.Context, arg db.CreateCodexParams) (db.Codex, error) {

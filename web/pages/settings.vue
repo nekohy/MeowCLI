@@ -63,7 +63,8 @@ function onDragOver(e: DragEvent, idx: number) {
   e.preventDefault()
   if (dragIdx.value === null || dragIdx.value === idx) return
   const list = [...planOrderDraft.value]
-  const [moved] = list.splice(dragIdx.value, 1)
+  const moved = list.splice(dragIdx.value, 1)[0]
+  if (moved === undefined) return
   list.splice(idx, 0, moved)
   planOrderDraft.value = list
   dragIdx.value = idx

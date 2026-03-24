@@ -37,6 +37,15 @@ interface RequestOptions {
   query?: Record<string, string | number | boolean | undefined | null>
 }
 
+type QueryOptions = NonNullable<RequestOptions['query']>
+
+interface PaginationOptions {
+  page?: number
+  pageSize?: number
+}
+
+type ListOptions<TExtra extends QueryOptions = Record<never, never>> = PaginationOptions & TExtra
+
 function buildUrl(path: string, query?: RequestOptions['query']) {
   const url = new URL(`/admin/api${path}`, window.location.origin)
   if (query) {
@@ -113,6 +122,22 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return data as T
 }
 
+type CredentialListFilters = {
+  search?: string
+  status?: 'enabled' | 'disabled'
+  planType?: string
+  unsynced?: boolean
+}
+
+function buildPaginatedQuery<TExtra extends QueryOptions>(options: PaginationOptions, extraQuery?: TExtra): QueryOptions {
+  const { page = 1, pageSize = 25 } = options
+  return {
+    page,
+    page_size: pageSize,
+    ...(extraQuery || {}),
+  }
+}
+
 export const adminApi = {
   status() {
     return apiRequest<{ need_setup: boolean }>('/status')
@@ -133,11 +158,21 @@ export const adminApi = {
       body: payload,
     })
   },
-  listCodex(token: string, options: { page?: number; pageSize?: number } = {}) {
-    const { page = 1, pageSize = 25 } = options
+  listCodex(token: string, options: ListOptions<CredentialListFilters> = {}) {
+    const {
+      search = '',
+      status,
+      planType,
+      unsynced,
+    } = options
     return apiRequest<PaginatedResponse<CodexItem>>('/codex', {
       token,
-      query: { page, page_size: pageSize },
+      query: buildPaginatedQuery(options, {
+        search,
+        status,
+        plan_type: planType,
+        unsynced,
+      }),
     })
   },
   batchCreateCodex(token: string, payload: { tokens: string[] }) {
@@ -168,11 +203,10 @@ export const adminApi = {
       method: 'DELETE',
     })
   },
-  listLogs(token: string, options: { page?: number; pageSize?: number } = {}) {
-    const { page = 1, pageSize = 25 } = options
+  listLogs(token: string, options: ListOptions = {}) {
     return apiRequest<PaginatedResponse<LogItem>>('/logs', {
       token,
-      query: { page, page_size: pageSize },
+      query: buildPaginatedQuery(options),
     })
   },
   listAuthKeys(token: string) {

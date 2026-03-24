@@ -259,7 +259,6 @@ watch(
             :value="tile.value"
             :helper="tile.helper"
             :icon="tile.icon"
-            :color="tile.color"
           />
         </div>
 

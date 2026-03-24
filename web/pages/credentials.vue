@@ -26,7 +26,8 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(25)
 const loading = ref(false)
-const search = ref('')
+const searchInput = ref('')
+const searchQuery = ref('')
 const statusFilter = ref<'all' | 'enabled' | 'disabled' | 'unsynced'>('all')
 const planFilter = ref('all')
 const selectedIds = ref<string[]>([])
@@ -42,33 +43,6 @@ const importLines = computed(() => (
     .map((line) => line.trim())
     .filter(Boolean)
 ))
-
-const filteredRows = computed(() => {
-  const query = search.value.trim().toLowerCase()
-  return rows.value.filter((item) => {
-    if (statusFilter.value === 'enabled' && item.status !== 'enabled') {
-      return false
-    }
-    if (statusFilter.value === 'disabled' && item.status !== 'disabled') {
-      return false
-    }
-    if (statusFilter.value === 'unsynced' && !isUnsynced(item.synced_at)) {
-      return false
-    }
-
-    const planType = normalizePlanType(item.plan_type)
-    if (planFilter.value !== 'all' && planType !== planFilter.value) {
-      return false
-    }
-
-    if (!query) {
-      return true
-    }
-
-    return [item.id, item.status, planType, item.access_token, item.refresh_token]
-      .some((value) => String(value || '').toLowerCase().includes(query))
-  })
-})
 
 const summaryTiles = computed(() => [
   {
@@ -98,6 +72,12 @@ const summaryTiles = computed(() => [
 
 const availablePlanTypes = computed(() => {
   const planTypes = new Set<string>()
+  admin.activeHandler.value?.plan_list?.forEach((item) => {
+    const planType = normalizePlanType(item)
+    if (planType) {
+      planTypes.add(planType)
+    }
+  })
   rows.value.forEach((item) => {
     const planType = normalizePlanType(item.plan_type)
     if (planType) {
@@ -107,12 +87,28 @@ const availablePlanTypes = computed(() => {
   return ['all', ...planTypes]
 })
 
+const hasActiveFilters = computed(() => (
+  Boolean(searchInput.value.trim())
+  || statusFilter.value !== 'all'
+  || planFilter.value !== 'all'
+))
+const emptyStateTitle = computed(() => (
+  hasActiveFilters.value ? '当前条件下没有匹配的凭据' : '还没有可管理的凭据'
+))
+const emptyStateDescription = computed(() => (
+  hasActiveFilters.value
+    ? '调整搜索、状态或套餐筛选，或者先导入新凭据。'
+    : '先导入一批凭据，系统才会开始调度和额度同步。'
+))
 const selectedSet = computed(() => new Set(selectedIds.value))
 const allVisibleSelected = computed(() => (
-  filteredRows.value.length > 0 && filteredRows.value.every((item) => selectedSet.value.has(item.id))
+  rows.value.length > 0 && rows.value.every((item) => selectedSet.value.has(item.id))
 ))
 const maxPage = computed(() => Math.max(1, Math.ceil((total.value || 0) / (pageSize.value || 25))))
 const pageSizeOptions = PAGE_SIZE_OPTIONS
+
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+let latestLoadToken = 0
 
 function closeImportModal() {
   importOpen.value = false
@@ -125,7 +121,7 @@ function toggleSelectAll() {
     selectedIds.value = []
     return
   }
-  selectedIds.value = filteredRows.value.map((item) => item.id)
+  selectedIds.value = rows.value.map((item) => item.id)
 }
 
 function toggleSelectOne(id: string) {
@@ -167,27 +163,49 @@ function renderQuotaValue(item: CodexItem, quotaKey: 'quota_5h' | 'quota_7d', re
   return formatPercent(item[quotaKey])
 }
 
+function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.value) {
+  return {
+    page: nextPage,
+    pageSize: nextPageSize,
+    search: searchQuery.value.trim(),
+    status: statusFilter.value === 'enabled' || statusFilter.value === 'disabled'
+      ? statusFilter.value
+      : undefined,
+    planType: planFilter.value !== 'all' ? planFilter.value : undefined,
+    unsynced: statusFilter.value === 'unsynced' ? true : undefined,
+  }
+}
+
 async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.value) {
+  const requestToken = ++latestLoadToken
   if (!admin.token.value || !admin.activeHandler.value?.supports_credentials) {
     rows.value = []
     total.value = 0
     page.value = 1
     selectedIds.value = []
+    loading.value = false
     return
   }
 
   loading.value = true
   try {
-    const data = await adminApi.listCodex(admin.token.value, { page: nextPage, pageSize: nextPageSize })
+    const data = await adminApi.listCodex(admin.token.value, currentQueryOptions(nextPage, nextPageSize))
+    if (requestToken !== latestLoadToken) {
+      return
+    }
     rows.value = data.data || []
     total.value = data.total || 0
     page.value = data.page || nextPage
     pageSize.value = data.page_size || nextPageSize
     selectedIds.value = []
   } catch (error) {
-    admin.notify(error instanceof Error ? error.message : '加载凭据失败', 'danger')
+    if (requestToken === latestLoadToken) {
+      admin.notify(error instanceof Error ? error.message : '加载凭据失败', 'danger')
+    }
   } finally {
-    loading.value = false
+    if (requestToken === latestLoadToken) {
+      loading.value = false
+    }
   }
 }
 
@@ -306,6 +324,15 @@ onMounted(() => {
   }
 })
 
+watch(searchInput, (value) => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
+  searchTimer = setTimeout(() => {
+    searchQuery.value = value.trim()
+  }, 250)
+})
+
 watch(
   () => admin.authReady.value,
   (ready) => {
@@ -320,12 +347,28 @@ watch(
   () => {
     statusFilter.value = 'all'
     planFilter.value = 'all'
-    search.value = ''
+    searchInput.value = ''
+    searchQuery.value = ''
     if (admin.authReady.value) {
       void loadCredentials(1, pageSize.value)
     }
   },
 )
+
+watch(
+  () => [searchQuery.value, statusFilter.value, planFilter.value],
+  () => {
+    if (admin.authReady.value && admin.activeHandler.value?.supports_credentials) {
+      void loadCredentials(1, pageSize.value)
+    }
+  },
+)
+
+onBeforeUnmount(() => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
+})
 </script>
 
 <template>
@@ -369,17 +412,16 @@ watch(
               :value="tile.value"
               :helper="tile.helper"
               :icon="tile.icon"
-              :color="tile.color"
             />
           </div>
 
           <div class="toolbar-panel">
             <div class="filter-toolbar">
               <VTextField
-                v-model="search"
+                v-model="searchInput"
                 class="filter-grow"
                 label="搜索"
-                placeholder="ID / 状态 / 套餐 / Token"
+                placeholder="凭据 ID / 状态 / 套餐"
                 prepend-inner-icon="mdi-magnify"
                 clearable
               />
@@ -407,7 +449,7 @@ watch(
                 :value="plan"
                 filter
               >
-                {{ plan }}
+                {{ planTypeText(plan) }}
               </VChip>
             </VChipGroup>
           </div>
@@ -421,11 +463,11 @@ watch(
             </div>
           </div>
 
-          <div v-if="filteredRows.length" class="d-grid ga-4">
+          <div v-if="rows.length" class="d-grid ga-4">
             <div class="d-flex align-center justify-space-between flex-wrap ga-3">
               <VCheckboxBtn
                 :model-value="allVisibleSelected"
-                label="选中所有筛选结果"
+                label="选中当前页全部结果"
                 @update:model-value="toggleSelectAll"
               />
               <div class="text-body-2 text-medium-emphasis">
@@ -435,7 +477,7 @@ watch(
 
             <div class="stack-list">
               <VCard
-                v-for="item in filteredRows"
+                v-for="item in rows"
                 :key="item.id"
                 color="surface-container"
                 variant="flat"
@@ -531,8 +573,8 @@ watch(
 
           <EmptyState
             v-else
-            title="当前筛选没有结果"
-            description="换一个处理器、清空筛选，或者先导入新凭据。"
+            :title="emptyStateTitle"
+            :description="emptyStateDescription"
             icon="mdi-key-plus"
           >
             <template #action>

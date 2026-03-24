@@ -113,9 +113,17 @@ type LogRow struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type CredentialFilterParams struct {
+	Search       string
+	Status       string
+	PlanType     string
+	UnsyncedOnly bool
+}
+
 type ListCodexPagedParams struct {
 	Limit  int32
 	Offset int32
+	CredentialFilterParams
 }
 
 type ListLogsParams struct {
@@ -156,6 +164,7 @@ type LogStore interface {
 type Store interface {
 	CountEnabledCodex(ctx context.Context) (int64, error)
 	CountCodex(ctx context.Context) (int64, error)
+	CountCodexFiltered(ctx context.Context, filter CredentialFilterParams) (int64, error)
 	CountModels(ctx context.Context) (int64, error)
 	CountModelsByHandler(ctx context.Context, handler string) (int64, error)
 	CountAuthKeys(ctx context.Context) (int64, error)

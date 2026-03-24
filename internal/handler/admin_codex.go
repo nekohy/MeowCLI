@@ -64,7 +64,9 @@ func (a *AdminHandler) ListCodex(c *gin.Context) {
 		pageSize = defaultCodexPageSize
 	}
 
-	total, err := a.store.CountCodex(c.Request.Context())
+	filters := codexFiltersFromRequest(c)
+
+	total, err := a.store.CountCodexFiltered(c.Request.Context(), filters)
 	if err != nil {
 		writeInternalError(c, err)
 		return
@@ -72,8 +74,9 @@ func (a *AdminHandler) ListCodex(c *gin.Context) {
 
 	offset := int32((page - 1) * pageSize)
 	rows, err := a.store.ListCodexPaged(c.Request.Context(), db.ListCodexPagedParams{
-		Limit:  int32(pageSize),
-		Offset: offset,
+		Limit:                  int32(pageSize),
+		Offset:                 offset,
+		CredentialFilterParams: filters,
 	})
 	if err != nil {
 		writeInternalError(c, err)
@@ -86,6 +89,33 @@ func (a *AdminHandler) ListCodex(c *gin.Context) {
 		"page_size": pageSize,
 		"data":      serializeCodexRows(rows),
 	})
+}
+
+func codexFiltersFromRequest(c *gin.Context) db.CredentialFilterParams {
+	status := strings.TrimSpace(c.Query("status"))
+	if status != "enabled" && status != "disabled" {
+		status = ""
+	}
+
+	planType := strings.TrimSpace(c.Query("plan_type"))
+	if planType != "" && planType != "all" {
+		planType = corecodex.NormalizePlanType(planType)
+	} else {
+		planType = ""
+	}
+
+	unsyncedOnly := false
+	switch strings.ToLower(strings.TrimSpace(c.Query("unsynced"))) {
+	case "1", "true", "yes":
+		unsyncedOnly = true
+	}
+
+	return db.CredentialFilterParams{
+		Search:       strings.TrimSpace(c.Query("search")),
+		Status:       status,
+		PlanType:     planType,
+		UnsyncedOnly: unsyncedOnly,
+	}
 }
 
 func (a *AdminHandler) BatchCreateCodex(c *gin.Context) {

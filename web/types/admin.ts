@@ -106,8 +106,6 @@ export interface SettingsForm {
 export interface CodexItem {
   id: string
   status: string
-  access_token: string
-  refresh_token: string
   expired: string
   synced_at: string
   throttled_until: string

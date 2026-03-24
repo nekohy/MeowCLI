@@ -385,15 +385,8 @@ func calcScore(quota5h, quota7d float64, reset5h, reset7d time.Time, window5hSec
 
 	now := time.Now().Unix()
 
-	// 仅当配额被消耗（< 1.0）时才考虑重置紧迫度
-	// 配额满（1.0）意味着无此窗口限制或窗口刚重置，无需紧迫使用
-	var u7d, u5h float64
-	if quota7d < 1.0 {
-		u7d = urgencyFactor(reset7d.Unix(), now, window7dSeconds)
-	}
-	if quota5h < 1.0 {
-		u5h = urgencyFactor(reset5h.Unix(), now, window5hSeconds)
-	}
+	u7d := urgencyFactor(reset7d.Unix(), now, window7dSeconds)
+	u5h := urgencyFactor(reset5h.Unix(), now, window5hSeconds)
 
 	return u7d*1000 + quota7d*100 + u5h*10 + quota5h
 }
