@@ -27,7 +27,7 @@ html,
 body,
 #__nuxt {
   min-height: 100%;
-  font-family: var(--admin-font-sans);
+  font-family: var(--admin-font-sans), sans-serif;
 }
 
 html {
@@ -69,7 +69,7 @@ h6 {
 
 code,
 pre {
-  font-family: var(--admin-font-mono);
+  font-family: var(--admin-font-mono), monospace;
 }
 
 /* --- Vuetify font family --- */
@@ -97,7 +97,7 @@ pre {
 .v-expansion-panel-title,
 .v-table,
 .v-toolbar-title {
-  font-family: var(--admin-font-sans);
+  font-family: var(--admin-font-sans), sans-serif;
 }
 
 .v-label,

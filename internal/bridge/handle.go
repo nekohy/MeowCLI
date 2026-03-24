@@ -241,10 +241,7 @@ func (h *Handler) writeResponse(c *gin.Context, resp *http.Response, backend api
 		return err
 	}
 
-	if responseAlias != "" {
-		bodyBytes = backend.ReplaceModel(bodyBytes, responseAlias)
-	}
-
+	bodyBytes = backend.ReplaceModel(bodyBytes, responseAlias)
 	c.Data(resp.StatusCode, contentType, bodyBytes)
 	return nil
 }

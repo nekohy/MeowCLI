@@ -553,7 +553,7 @@ func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *cod
 }
 
 // SyncCredentials 为新导入凭证异步执行首轮 quota 校验
-func (s *Scheduler) SyncCredentials(ctx context.Context, ids []string) {
+func (s *Scheduler) SyncCredentials(_ context.Context, ids []string) {
 	if s.fetcher == nil || s.manager == nil || len(ids) == 0 {
 		return
 	}
