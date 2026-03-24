@@ -13,9 +13,10 @@ MeowCLI 是一个注重高性能，更优调度的API转发服务
 - 可创建多个Key用于内部分发
 
 ## 效果图
-![1.png](image/1.png)
-![2.png](image/2.png)
-![3.png](image/3.png)
+![1.png](image/1.png?v=9390)
+![2.png](image/2.png?v=9390)
+![3.png](image/3.png?v=9390)
+![4.png](image/4.png?v=9390)
 ## 快速开始
 ### 管理面板
 
