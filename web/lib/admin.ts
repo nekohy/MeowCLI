@@ -264,16 +264,15 @@ export function normalizePlanType(value?: string | null) {
   if (!value) {
     return ''
   }
-  const text = value.trim()
-  if (!text) {
+  const text = value.trim().toLowerCase()
+  if (!text || text === 'unknown') {
     return ''
   }
-  return text.toLowerCase()
+  return text
 }
 
 export function planTypeText(value?: string | null) {
-  const normalized = normalizePlanType(value)
-  return normalized && normalized !== 'unknown' ? normalized : '-'
+  return normalizePlanType(value) || '-'
 }
 
 export function splitPlanTypeInput(value?: string | null) {

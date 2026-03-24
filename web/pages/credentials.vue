@@ -72,12 +72,6 @@ const summaryTiles = computed(() => [
 
 const availablePlanTypes = computed(() => {
   const planTypes = new Set<string>()
-  admin.activeHandler.value?.plan_list?.forEach((item) => {
-    const planType = normalizePlanType(item)
-    if (planType) {
-      planTypes.add(planType)
-    }
-  })
   rows.value.forEach((item) => {
     const planType = normalizePlanType(item.plan_type)
     if (planType) {
