@@ -93,6 +93,9 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 
 		authHeaders, err := sched.AuthHeaders(ctx, credID)
 		if err != nil {
+			if ctx.Err() != nil {
+				return // client disconnected
+			}
 			sched.RecordFailure(ctx, credID, 0, err.Error(), 0)
 			lastRelayErr = errUpstreamAuthFailed
 			haveLastRelayErr = true
@@ -110,6 +113,9 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 		resp, err := backend.Chat(attemptCtx, credID, upstreamBody, headers, apiType)
 		if err != nil {
 			cancel()
+			if ctx.Err() != nil {
+				return // client disconnected
+			}
 			sched.RecordFailure(ctx, credID, 0, err.Error(), 0)
 			lastRelayErr = errUpstreamRequestFailed
 			haveLastRelayErr = true
@@ -120,6 +126,9 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 		if isSuccessfulUpstreamStatus(resp.StatusCode) {
 			if err := h.writeResponse(c, resp, backend, alias, needReplace); err != nil {
 				cancel()
+				if ctx.Err() != nil {
+					return // client disconnected
+				}
 				sched.RecordFailure(ctx, credID, 0, err.Error(), 0)
 				log.Warn().Err(err).Str("credential", credID).Int("status", resp.StatusCode).Msg("relay response write failed")
 				if !c.Writer.Written() {

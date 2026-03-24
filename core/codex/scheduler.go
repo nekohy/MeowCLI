@@ -416,12 +416,12 @@ func urgencyFactor(resetAtUnix, nowUnix, windowSeconds int64) float64 {
 }
 
 // RecordSuccess 记录成功请求并重置退避状态
-func (s *Scheduler) RecordSuccess(ctx context.Context, credentialID string, statusCode int32) {
+func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, statusCode int32) {
 	s.mu.Lock()
 	delete(s.throttle, credentialID)
 	s.mu.Unlock()
 
-	if err := s.insertLog(ctx, db.InsertLogParams{
+	if err := s.insertLog(context.Background(), db.InsertLogParams{
 		Handler:      string(utils.HandlerCodex),
 		CredentialID: credentialID,
 		StatusCode:   statusCode,
@@ -434,8 +434,12 @@ func (s *Scheduler) RecordSuccess(ctx context.Context, credentialID string, stat
 // RecordFailure 记录失败请求并临时禁用凭证
 // 当 retryAfter > 0 时直接使用该时长；否则使用指数退避：
 // 基础 1 分钟 × 2^(连续失败次数-1)，上限 30 分钟
-func (s *Scheduler) RecordFailure(ctx context.Context, credentialID string, statusCode int32, text string, retryAfter time.Duration) {
-	if err := s.insertLog(ctx, db.InsertLogParams{
+func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, statusCode int32, text string, retryAfter time.Duration) {
+	// 使用 background context：日志记录和节流是服务端内务操作，
+	// 不应受客户端请求 context 取消的影响
+	bgCtx := context.Background()
+
+	if err := s.insertLog(bgCtx, db.InsertLogParams{
 		Handler:      string(utils.HandlerCodex),
 		CredentialID: credentialID,
 		StatusCode:   statusCode,
@@ -472,7 +476,7 @@ func (s *Scheduler) RecordFailure(ctx context.Context, credentialID string, stat
 	}
 
 	throttledUntil := now.Add(backoff)
-	if err := s.store.SetQuotaThrottled(ctx, credentialID, throttledUntil); err != nil {
+	if err := s.store.SetQuotaThrottled(bgCtx, credentialID, throttledUntil); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: set throttled")
 	}
 	s.setThrottleUntil(credentialID, throttledUntil)

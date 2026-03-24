@@ -236,7 +236,7 @@ function batchSetStatus(status: string) {
   }
 
   confirm.show({
-    title: `批量${statusText(status)}凭据`,
+    title: `${statusText(status)}凭据`,
     message: `确认将 ${ids.length} 个凭据设为"${statusText(status)}"吗？`,
     confirmText: `确认${statusText(status)}`,
     confirmVariant: 'secondary',
@@ -257,7 +257,7 @@ function batchSetStatus(status: string) {
           loadCredentials(page.value, pageSize.value),
         ])
       } catch (error) {
-        admin.notify(error instanceof Error ? error.message : '批量更新状态失败', 'danger')
+        admin.notify(error instanceof Error ? error.message : '更新状态失败', 'danger')
       } finally {
         actionBusy.value = false
       }
@@ -272,7 +272,7 @@ function batchDelete() {
   }
 
   confirm.show({
-    title: '批量删除凭据',
+    title: '删除凭据',
     message: `确认删除 ${ids.length} 个凭据吗？此操作不可撤销。`,
     confirmText: '确认删除',
     action: async () => {
@@ -292,7 +292,7 @@ function batchDelete() {
           loadCredentials(1, pageSize.value),
         ])
       } catch (error) {
-        admin.notify(error instanceof Error ? error.message : '批量删除失败', 'danger')
+        admin.notify(error instanceof Error ? error.message : '删除失败', 'danger')
       } finally {
         actionBusy.value = false
       }
@@ -415,9 +415,9 @@ watch(
           <div v-if="selectedIds.length" class="selection-bar">
             <div class="text-body-1">已选择 {{ selectedIds.length }} 条凭据</div>
             <div class="d-flex flex-wrap ga-2">
-              <AdminButton variant="secondary" size="sm" @click="batchSetStatus('enabled')">批量启用</AdminButton>
-              <AdminButton variant="secondary" size="sm" @click="batchSetStatus('disabled')">批量停用</AdminButton>
-              <AdminButton variant="danger" size="sm" @click="batchDelete">批量删除</AdminButton>
+              <AdminButton variant="secondary" size="sm" @click="batchSetStatus('enabled')">启用</AdminButton>
+              <AdminButton variant="secondary" size="sm" @click="batchSetStatus('disabled')">停用</AdminButton>
+              <AdminButton variant="danger" size="sm" @click="batchDelete">删除</AdminButton>
             </div>
           </div>
 
