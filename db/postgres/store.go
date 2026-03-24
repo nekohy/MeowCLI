@@ -53,6 +53,42 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
+func (s *Store) SaveSettings(ctx context.Context, settings []db.UpsertSettingParams) error {
+	if s == nil {
+		return nil
+	}
+	if len(settings) == 0 {
+		return nil
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+
+	queries := s.queries.WithTx(tx)
+	for _, setting := range settings {
+		if _, err := queries.UpsertSetting(ctx, sqlcpostgres.UpsertSettingParams{
+			Key:   setting.Key,
+			Value: setting.Value,
+		}); err != nil {
+			return wrapError(err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 func applySchema(ctx context.Context, pool *pgxpool.Pool) error {
 	paths, err := fs.Glob(schemaFS, "schema/*.sql")
 	if err != nil {

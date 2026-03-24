@@ -32,6 +32,10 @@ func (s *Store) ListAuthKeys(ctx context.Context) ([]db.AuthKey, error) {
 	return out, nil
 }
 
+func (s *Store) CountAuthKeys(ctx context.Context) (int64, error) {
+	return s.queries.CountAuthKeys(ctx)
+}
+
 func (s *Store) GetAuthKey(ctx context.Context, key string) (db.AuthKey, error) {
 	row, err := s.queries.GetAuthKey(ctx, key)
 	if err != nil {

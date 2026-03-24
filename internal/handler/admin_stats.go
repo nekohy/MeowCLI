@@ -20,7 +20,7 @@ func (a *AdminHandler) Stats(c *gin.Context) {
 		writeInternalError(c, err)
 		return
 	}
-	models, err := a.store.ListModels(ctx)
+	modelsTotal, err := a.store.CountModels(ctx)
 	if err != nil {
 		writeInternalError(c, err)
 		return
@@ -29,6 +29,6 @@ func (a *AdminHandler) Stats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"credentials_enabled": credCount,
 		"logs_total":          logCount,
-		"models_total":        len(models),
+		"models_total":        modelsTotal,
 	})
 }

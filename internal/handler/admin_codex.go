@@ -192,9 +192,6 @@ func (a *AdminHandler) createFromTokenData(ctx context.Context, accessToken, ref
 		return "", fmt.Errorf("could not extract chatgpt account id from token")
 	}
 
-	if a.currentSettings().CodexDeleteFreeAccounts && corecodex.IsFreePlanType(planType) {
-		return "", fmt.Errorf("free plan credential is blocked by current settings")
-	}
 	planType = corecodex.NormalizePlanType(planType)
 
 	if email != "" {

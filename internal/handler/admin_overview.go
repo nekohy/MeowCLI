@@ -62,10 +62,6 @@ func (a *AdminHandler) Overview(c *gin.Context) {
 
 func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, error) {
 	handlers := defaultHandlerOverview()
-	handlerIndex := make(map[utils.HandlerType]int, len(handlers))
-	for i := range handlers {
-		handlerIndex[handlers[i].Key] = i
-	}
 
 	enabledCreds, err := a.store.CountEnabledCodex(ctx)
 	if err != nil {
@@ -77,7 +73,7 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 		return overviewResponse{}, err
 	}
 
-	modelRows, err := a.store.ListModels(ctx)
+	modelsTotal, err := a.store.CountModels(ctx)
 	if err != nil {
 		return overviewResponse{}, err
 	}
@@ -95,30 +91,33 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 		return overviewResponse{}, err
 	}
 
-	authKeys, err := a.store.ListAuthKeys(ctx)
+	authKeysTotal, err := a.store.CountAuthKeys(ctx)
 	if err != nil {
 		return overviewResponse{}, err
 	}
 
-	for _, row := range modelRows {
-		key := utils.HandlerType(row.Handler)
-		if index, ok := handlerIndex[key]; ok {
-			handlers[index].ModelsTotal++
+	for i := range handlers {
+		count, countErr := a.store.CountModelsByHandler(ctx, string(handlers[i].Key))
+		if countErr != nil {
+			return overviewResponse{}, countErr
 		}
+		handlers[i].ModelsTotal = int(count)
 	}
 
-	if index, ok := handlerIndex[utils.HandlerCodex]; ok {
-		handlers[index].CredentialsTotal = int(codexTotal)
-		handlers[index].CredentialsEnabled = enabledCreds
+	for i := range handlers {
+		if handlers[i].Key == utils.HandlerCodex {
+			handlers[i].CredentialsTotal = int(codexTotal)
+			handlers[i].CredentialsEnabled = enabledCreds
+		}
 	}
 
 	return overviewResponse{
 		Summary: overviewSummary{
 			CredentialsEnabled: enabledCreds,
 			CredentialsTotal:   int(codexTotal),
-			ModelsTotal:        len(modelRows),
+			ModelsTotal:        int(modelsTotal),
 			LogsTotal:          logCount,
-			AuthKeysTotal:      int64(len(authKeys)),
+			AuthKeysTotal:      authKeysTotal,
 		},
 		Handlers:   handlers,
 		RecentLogs: recentLogs,

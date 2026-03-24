@@ -14,7 +14,6 @@ const (
 	KeyAllowUserPlanTypeHeader      = "allow_user_plan_type_header"
 	KeyGlobalProxy                  = "global_proxy"
 	KeyCodexProxy                   = "codex_proxy"
-	KeyCodexDeleteFreeAccounts      = "codex_delete_free_accounts"
 	KeyCodexAllowUserPlanTypeHeader = "codex_allow_user_plan_type_header"
 	KeyCodexPreferredPlanTypes      = "codex_preferred_plan_types"
 	KeyRefreshBeforeSeconds         = "refresh_before_seconds"
@@ -38,7 +37,6 @@ type Snapshot struct {
 	AllowUserPlanTypeHeader      bool   `json:"allow_user_plan_type_header"`
 	GlobalProxy                  string `json:"global_proxy"`
 	CodexProxy                   string `json:"codex_proxy"`
-	CodexDeleteFreeAccounts      bool   `json:"codex_delete_free_accounts"`
 	CodexAllowUserPlanTypeHeader bool   `json:"codex_allow_user_plan_type_header"`
 	CodexPreferredPlanTypes      string `json:"codex_preferred_plan_types"`
 	RefreshBeforeSeconds         int    `json:"refresh_before_seconds"`
@@ -71,7 +69,6 @@ func DefaultSnapshot() Snapshot {
 		AllowUserPlanTypeHeader:      false,
 		GlobalProxy:                  "",
 		CodexProxy:                   "",
-		CodexDeleteFreeAccounts:      false,
 		CodexAllowUserPlanTypeHeader: false,
 		CodexPreferredPlanTypes:      "",
 		RefreshBeforeSeconds:         30,
@@ -244,7 +241,6 @@ func (s Snapshot) asMap() map[string]string {
 		KeyAllowUserPlanTypeHeader:      strconv.FormatBool(s.AllowUserPlanTypeHeader),
 		KeyGlobalProxy:                  s.GlobalProxy,
 		KeyCodexProxy:                   s.CodexProxy,
-		KeyCodexDeleteFreeAccounts:      strconv.FormatBool(s.CodexDeleteFreeAccounts),
 		KeyCodexAllowUserPlanTypeHeader: strconv.FormatBool(s.CodexAllowUserPlanTypeHeader),
 		KeyCodexPreferredPlanTypes:      s.CodexPreferredPlanTypes,
 		KeyRefreshBeforeSeconds:         strconv.Itoa(s.RefreshBeforeSeconds),
@@ -268,11 +264,6 @@ func applyValues(target *Snapshot, values map[string]string) {
 	}
 	if value, ok := valueForKeys(values, KeyCodexProxy); ok {
 		target.CodexProxy = strings.TrimSpace(value)
-	}
-	if value, ok := valueForKeys(values, KeyCodexDeleteFreeAccounts); ok {
-		if parsed, err := strconv.ParseBool(value); err == nil {
-			target.CodexDeleteFreeAccounts = parsed
-		}
 	}
 	if value, ok := valueForKeys(values, KeyCodexAllowUserPlanTypeHeader); ok {
 		if parsed, err := strconv.ParseBool(value); err == nil {

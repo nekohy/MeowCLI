@@ -27,6 +27,14 @@ func (s *Store) ListModels(ctx context.Context) ([]db.ModelRow, error) {
 	return resolved, nil
 }
 
+func (s *Store) CountModels(ctx context.Context) (int64, error) {
+	return s.queries.CountModels(ctx)
+}
+
+func (s *Store) CountModelsByHandler(ctx context.Context, handler string) (int64, error) {
+	return s.queries.CountModelsByHandler(ctx, handler)
+}
+
 func (s *Store) CreateModel(ctx context.Context, arg db.CreateModelParams) (db.ModelRow, error) {
 	row, err := s.queries.CreateModel(ctx, sqlcsqlite.CreateModelParams{
 		Alias:   arg.Alias,

@@ -2,11 +2,11 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
 	"github.com/nekohy/MeowCLI/internal/settings"
@@ -19,7 +19,6 @@ type settingsUpdateRequest struct {
 	AllowUserPlanTypeHeader      *bool   `json:"allow_user_plan_type_header"`
 	GlobalProxy                  *string `json:"global_proxy"`
 	CodexProxy                   *string `json:"codex_proxy"`
-	CodexDeleteFreeAccounts      *bool   `json:"codex_delete_free_accounts"`
 	CodexAllowUserPlanTypeHeader *bool   `json:"codex_allow_user_plan_type_header"`
 	CodexPreferredPlanTypes      *string `json:"codex_preferred_plan_types"`
 	RefreshBeforeSeconds         *int    `json:"refresh_before_seconds"`
@@ -52,25 +51,22 @@ func (a *AdminHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 
-	saved, err := a.settingsSvc.Save(c.Request.Context(), next)
+	settingsParams := snapshotToSettingParams(next)
+	if err := a.store.SaveSettings(c.Request.Context(), settingsParams); err != nil {
+		writeInternalError(c, err)
+		return
+	}
+
+	postCommitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	reloaded, err := a.settingsSvc.Reload(postCommitCtx)
 	if err != nil {
 		writeInternalError(c, err)
 		return
 	}
 
-	deleted, err := a.deleteFreeCodexAccounts(c.Request.Context(), saved)
-	if err != nil {
-		writeInternalError(c, err)
-		return
-	}
-	if len(deleted) > 0 {
-		a.refreshCredentials(c.Request.Context())
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"settings":              saved,
-		"deleted_free_accounts": deleted,
-	})
+	c.JSON(http.StatusOK, gin.H{"settings": reloaded})
 }
 
 func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (settings.Snapshot, error) {
@@ -84,9 +80,6 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 	}
 	if req.CodexProxy != nil {
 		next.CodexProxy = strings.TrimSpace(*req.CodexProxy)
-	}
-	if req.CodexDeleteFreeAccounts != nil {
-		next.CodexDeleteFreeAccounts = *req.CodexDeleteFreeAccounts
 	}
 	if req.CodexAllowUserPlanTypeHeader != nil {
 		next.CodexAllowUserPlanTypeHeader = *req.CodexAllowUserPlanTypeHeader
@@ -156,28 +149,19 @@ func validateProxyURL(raw, field string) error {
 	return nil
 }
 
-func (a *AdminHandler) deleteFreeCodexAccounts(ctx context.Context, snapshot settings.Snapshot) ([]string, error) {
-	if !snapshot.CodexDeleteFreeAccounts {
-		return nil, nil
+func snapshotToSettingParams(snapshot settings.Snapshot) []db.UpsertSettingParams {
+	return []db.UpsertSettingParams{
+		{Key: settings.KeyAllowUserPlanTypeHeader, Value: fmt.Sprintf("%t", snapshot.AllowUserPlanTypeHeader)},
+		{Key: settings.KeyGlobalProxy, Value: snapshot.GlobalProxy},
+		{Key: settings.KeyCodexProxy, Value: snapshot.CodexProxy},
+		{Key: settings.KeyCodexAllowUserPlanTypeHeader, Value: fmt.Sprintf("%t", snapshot.CodexAllowUserPlanTypeHeader)},
+		{Key: settings.KeyCodexPreferredPlanTypes, Value: snapshot.CodexPreferredPlanTypes},
+		{Key: settings.KeyRefreshBeforeSeconds, Value: fmt.Sprintf("%d", snapshot.RefreshBeforeSeconds)},
+		{Key: settings.KeyPollIntervalMilliseconds, Value: fmt.Sprintf("%d", snapshot.PollIntervalMilliseconds)},
+		{Key: settings.KeyQuotaSyncIntervalSeconds, Value: fmt.Sprintf("%d", snapshot.QuotaSyncIntervalSeconds)},
+		{Key: settings.KeyThrottleBaseSeconds, Value: fmt.Sprintf("%d", snapshot.ThrottleBaseSeconds)},
+		{Key: settings.KeyThrottleMaxSeconds, Value: fmt.Sprintf("%d", snapshot.ThrottleMaxSeconds)},
+		{Key: settings.KeyRelayMaxRetries, Value: fmt.Sprintf("%d", snapshot.RelayMaxRetries)},
+		{Key: settings.KeyLogsRetentionSeconds, Value: fmt.Sprintf("%d", snapshot.LogsRetentionSeconds)},
 	}
-
-	rows, err := a.store.ListCodex(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	deleted := make([]string, 0)
-	for _, row := range rows {
-		if !corecodex.IsFreePlanType(row.PlanType) {
-			continue
-		}
-		if err := a.store.DeleteCodex(ctx, row.ID); err != nil {
-			if errors.Is(err, db.ErrNotFound) {
-				continue
-			}
-			return deleted, err
-		}
-		deleted = append(deleted, row.ID)
-	}
-	return deleted, nil
 }

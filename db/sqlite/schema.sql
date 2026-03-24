@@ -19,8 +19,6 @@ CREATE TABLE IF NOT EXISTS codex (
 
 CREATE INDEX IF NOT EXISTS idx_codex_status_expired ON codex(status, expired);
 
-DROP TABLE IF EXISTS logs;
-
 CREATE TABLE IF NOT EXISTS quota (
     credential_id TEXT PRIMARY KEY,
     quota_5h REAL NOT NULL DEFAULT 1.0,

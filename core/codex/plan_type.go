@@ -40,10 +40,6 @@ func NormalizePlanType(planType string) string {
 	return normalized
 }
 
-func IsFreePlanType(planType string) bool {
-	return NormalizePlanType(planType) == planTypeFree
-}
-
 func NormalizePlanTypeList(raw string) string {
 	return joinPlanTypeList(parsePlanTypeList(raw))
 }

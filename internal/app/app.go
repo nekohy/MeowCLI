@@ -26,6 +26,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	serverReadHeaderTimeout = 5 * time.Second
+	serverReadTimeout       = 30 * time.Second
+	serverIdleTimeout       = 2 * time.Minute
+	serverMaxHeaderBytes    = 1 << 20
+)
+
 func Run(ctx context.Context, cfg Config) error {
 	log.Info().Str("db_type", cfg.DBType).Str("dsn", RedactedDatabaseURL(cfg.DatabaseURL)).Msg("database config")
 
@@ -91,8 +98,12 @@ func Run(ctx context.Context, cfg Config) error {
 	})
 
 	srv := &http.Server{
-		Addr:    cfg.ListenAddr,
-		Handler: r,
+		Addr:              cfg.ListenAddr,
+		Handler:           r,
+		ReadHeaderTimeout: serverReadHeaderTimeout,
+		ReadTimeout:       serverReadTimeout,
+		IdleTimeout:       serverIdleTimeout,
+		MaxHeaderBytes:    serverMaxHeaderBytes,
 	}
 
 	serverErr := make(chan error, 1)

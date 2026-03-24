@@ -14,6 +14,7 @@ type relayError struct {
 
 var (
 	errReadRequestBody        = relayError{StatusCode: http.StatusBadRequest, Code: "invalid_request_body", Message: "failed to read request body"}
+	errRequestBodyTooLarge    = relayError{StatusCode: http.StatusRequestEntityTooLarge, Code: "request_body_too_large", Message: "request body is too large"}
 	errModelRequired          = relayError{StatusCode: http.StatusBadRequest, Code: "model_required", Message: "model is required"}
 	errModelNotConfigured     = relayError{StatusCode: http.StatusBadRequest, Code: "model_not_configured", Message: "model is not configured"}
 	errModelResolutionFailed  = relayError{StatusCode: http.StatusInternalServerError, Code: "model_resolution_failed", Message: "failed to resolve model"}

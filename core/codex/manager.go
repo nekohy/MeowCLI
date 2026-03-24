@@ -21,8 +21,9 @@ var (
 	ErrCodexAPIRequired    = errors.New("codex api is required")
 	ErrCredentialDisabled  = errors.New("credential is not active")
 	ErrRefreshTokenMissing = errors.New("refresh_token is empty")
-	ErrFreeCredential      = errors.New("credential deleted because plan type is free")
 )
+
+const defaultManagerRefreshTimeout = 20 * time.Second
 
 // CodexStore 描述令牌管理器所依赖的 SQL 操作
 type CodexStore interface {
@@ -188,7 +189,10 @@ func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.Codex) (db.Cod
 	}
 
 	// 调用 API 层刷新令牌
-	tokenData, retryable, err := m.codexAPI.RefreshAccessToken(ctx, latest.RefreshToken)
+	refreshCtx, cancel := m.refreshContext(ctx)
+	defer cancel()
+
+	tokenData, retryable, err := m.codexAPI.RefreshAccessToken(refreshCtx, latest.RefreshToken)
 	if err != nil {
 		if !retryable {
 			m.DeleteCredential(ctx, latest.ID, "refresh token invalid")
@@ -221,11 +225,6 @@ func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.Codex) (db.Cod
 			planExpired = until
 		}
 	}
-	if m.shouldDeleteFreeCredential(planType) {
-		m.DeleteCredential(ctx, latest.ID, "plan type is free and auto-delete is enabled")
-		return db.Codex{}, ErrFreeCredential
-	}
-
 	refreshed, err := m.store.UpdateCodexTokens(ctx, db.UpdateCodexTokensParams{
 		ID:           latest.ID,
 		Status:       string(utils.StatusEnabled),
@@ -319,7 +318,9 @@ func (m *Manager) proactiveRefresh(id string) {
 	}
 	defer entry.refreshing.Store(false)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), m.refreshTimeout())
+	defer cancel()
+
 	row, err := m.store.GetCodex(ctx, id)
 	if err != nil {
 		log.Error().Err(err).Str("credential", id).Msg("proactive-refresh: get codex")
@@ -360,9 +361,13 @@ func (m *Manager) settingsSnapshot() settings.Snapshot {
 	return m.settings.Snapshot()
 }
 
-func (m *Manager) shouldDeleteFreeCredential(planType string) bool {
-	if !m.settingsSnapshot().CodexDeleteFreeAccounts {
-		return false
+func (m *Manager) refreshTimeout() time.Duration {
+	return defaultManagerRefreshTimeout
+}
+
+func (m *Manager) refreshContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, hasDeadline := ctx.Deadline(); hasDeadline {
+		return ctx, func() {}
 	}
-	return IsFreePlanType(planType)
+	return context.WithTimeout(ctx, m.refreshTimeout())
 }

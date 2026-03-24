@@ -23,9 +23,12 @@ type rateLimitWindow struct {
 }
 
 func (c *Client) FetchQuota(ctx context.Context, credentialID, accessToken string) (*codexutils.Quota, error) {
+	reqCtx, cancel := withOptionalTimeout(ctx, defaultQuotaRequestTimeout)
+	defer cancel()
+
 	var usage usageResponse
 	_, err := c.client.R().
-		SetContext(ctx).
+		SetContext(reqCtx).
 		SetHeader("Authorization", "Bearer "+accessToken).
 		SetHeader("Chatgpt-Account-Id", utils.AccountIDFromCredentialID(credentialID)).
 		SetResult(&usage).

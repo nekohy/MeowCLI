@@ -156,6 +156,9 @@ type LogStore interface {
 type Store interface {
 	CountEnabledCodex(ctx context.Context) (int64, error)
 	CountCodex(ctx context.Context) (int64, error)
+	CountModels(ctx context.Context) (int64, error)
+	CountModelsByHandler(ctx context.Context, handler string) (int64, error)
+	CountAuthKeys(ctx context.Context) (int64, error)
 	GetCodex(ctx context.Context, id string) (Codex, error)
 	UpdateCodexTokens(ctx context.Context, arg UpdateCodexTokensParams) (Codex, error)
 	ListCodex(ctx context.Context) ([]ListCodexRow, error)
@@ -166,6 +169,7 @@ type Store interface {
 
 	ReverseInfoFromModel(ctx context.Context, alias string) (ReverseInfoFromModelRow, error)
 	ListModels(ctx context.Context) ([]ModelRow, error)
+	SaveSettings(ctx context.Context, settings []UpsertSettingParams) error
 	CreateModel(ctx context.Context, arg CreateModelParams) (ModelRow, error)
 	UpdateModel(ctx context.Context, arg UpdateModelParams) (ModelRow, error)
 	DeleteModel(ctx context.Context, alias string) error

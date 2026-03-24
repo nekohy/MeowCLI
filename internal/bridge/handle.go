@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -18,11 +19,20 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+const defaultRelayRoundTripTimeout = 2 * time.Minute
+const maxBridgeRequestBodyBytes = 32 << 20
+
 func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 	ctx := c.Request.Context()
 
-	body, err := io.ReadAll(c.Request.Body)
+	bodyReader := http.MaxBytesReader(c.Writer, c.Request.Body, maxBridgeRequestBodyBytes)
+	body, err := io.ReadAll(bodyReader)
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeRelayError(c, errRequestBodyTooLarge)
+			return
+		}
 		writeRelayError(c, errReadRequestBody)
 		return
 	}
@@ -66,6 +76,7 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 	if needReplace {
 		upstreamBody = backend.ReplaceModel(body, info.origin)
 	}
+	streamRequest := gjson.GetBytes(body, "stream").Bool()
 
 	// 带重试的上游请求：每次失败换一个新凭证
 	var lastRelayErr relayError
@@ -95,8 +106,10 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 			headers[k] = vs
 		}
 
-		resp, err := backend.Chat(ctx, credID, upstreamBody, headers, apiType)
+		attemptCtx, cancel := relayAttemptContext(ctx, streamRequest)
+		resp, err := backend.Chat(attemptCtx, credID, upstreamBody, headers, apiType)
 		if err != nil {
+			cancel()
 			sched.RecordFailure(ctx, credID, 0, err.Error(), 0)
 			lastRelayErr = errUpstreamRequestFailed
 			haveLastRelayErr = true
@@ -106,6 +119,7 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 
 		if isSuccessfulUpstreamStatus(resp.StatusCode) {
 			if err := h.writeResponse(c, resp, backend, alias, needReplace); err != nil {
+				cancel()
 				sched.RecordFailure(ctx, credID, 0, err.Error(), 0)
 				log.Warn().Err(err).Str("credential", credID).Int("status", resp.StatusCode).Msg("relay response write failed")
 				if !c.Writer.Written() {
@@ -113,6 +127,7 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 				}
 				return
 			}
+			cancel()
 			sched.RecordSuccess(ctx, credID, int32(resp.StatusCode))
 			return
 		}
@@ -120,6 +135,7 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 		// 上游返回错误
 		errBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		_ = resp.Body.Close()
+		cancel()
 		errText := string(errBytes)
 		lastRelayErr = relayErrorForUpstreamStatus(resp.StatusCode)
 		haveLastRelayErr = true
@@ -160,6 +176,16 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 	writeRelayError(c, lastRelayErr)
 }
 
+func relayAttemptContext(ctx context.Context, stream bool) (context.Context, context.CancelFunc) {
+	if stream {
+		return ctx, func() {}
+	}
+	if _, hasDeadline := ctx.Deadline(); hasDeadline {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, defaultRelayRoundTripTimeout)
+}
+
 func shouldRetryUpstreamStatus(status int) bool {
 	switch status {
 	case http.StatusRequestTimeout,
@@ -185,6 +211,19 @@ func (h *Handler) writeResponse(c *gin.Context, resp *http.Response, backend api
 	contentType := resp.Header.Get("Content-Type")
 	if strings.HasPrefix(contentType, "text/event-stream") {
 		return h.streamSSE(c, resp, backend, responseAlias)
+	}
+
+	if responseAlias == "" {
+		defer func() {
+			_ = resp.Body.Close()
+		}()
+
+		if contentType != "" {
+			c.Header("Content-Type", contentType)
+		}
+		c.Status(resp.StatusCode)
+		_, err := io.CopyBuffer(c.Writer, resp.Body, make([]byte, 32*1024))
+		return err
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)

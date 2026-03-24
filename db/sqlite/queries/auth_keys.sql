@@ -1,3 +1,6 @@
+-- name: CountAuthKeys :one
+SELECT COUNT(*) FROM auth_keys;
+
 -- name: ListAuthKeys :many
 SELECT key, role, note, created_at FROM auth_keys ORDER BY created_at;
 

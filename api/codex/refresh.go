@@ -22,9 +22,12 @@ func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*
 		return nil, false, fmt.Errorf("refresh token was eaten by a cat")
 	}
 
+	reqCtx, cancel := withOptionalTimeout(ctx, defaultRefreshTokenTimeout)
+	defer cancel()
+
 	var result RTResponse
 	_, err := c.client.R().
-		SetContext(ctx).
+		SetContext(reqCtx).
 		SetHeader("Accept", "application/json").
 		SetHeader("Content-Type", "application/x-www-form-urlencoded").
 		SetFormData(map[string]string{

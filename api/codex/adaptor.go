@@ -6,9 +6,11 @@ import (
 	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	"github.com/nekohy/MeowCLI/utils"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/bytedance/sonic"
 	"github.com/go-resty/resty/v2"
@@ -27,6 +29,16 @@ func NewClient() *Client {
 	c := &Client{}
 	rc := resty.New()
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = (&net.Dialer{
+		Timeout:   defaultDialTimeout,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+	transport.TLSHandshakeTimeout = defaultTLSHandshakeTimeout
+	transport.ResponseHeaderTimeout = defaultResponseHeaderTimeout
+	transport.ExpectContinueTimeout = defaultExpectContinueTimeout
+	transport.IdleConnTimeout = defaultIdleConnTimeout
+	transport.MaxIdleConns = 100
+	transport.MaxIdleConnsPerHost = 20
 	transport.Proxy = func(*http.Request) (*url.URL, error) {
 		return c.proxyURL()
 	}
@@ -42,6 +54,10 @@ func NewClient() *Client {
 	rc.OnAfterResponse(func(_ *resty.Client, resp *resty.Response) error {
 		// Responses 使用 DoNotParseResponse，body 未读取，跳过
 		if resp.Body() == nil {
+			return nil
+		}
+		// 2xx 为成功响应，不作为错误处理
+		if resp.StatusCode() >= 200 && resp.StatusCode() < 300 {
 			return nil
 		}
 		return &api.APIError{

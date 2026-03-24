@@ -1,3 +1,9 @@
+-- name: CountModels :one
+SELECT COUNT(*) FROM models;
+
+-- name: CountModelsByHandler :one
+SELECT COUNT(*) FROM models WHERE handler = $1;
+
 -- name: ReverseInfoFromModel :one
 SELECT origin, handler, extra
 FROM models

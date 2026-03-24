@@ -143,7 +143,9 @@ func (s *Scheduler) syncAllQuotas(ctx context.Context) {
 			continue
 		}
 
-		q, err := s.fetcher.FetchQuota(ctx, row.ID, token)
+		quotaCtx, cancel := context.WithTimeout(ctx, s.settingsSnapshot().ImportedCheckTimeout())
+		q, err := s.fetcher.FetchQuota(quotaCtx, row.ID, token)
+		cancel()
 		if err != nil {
 			if statusCode, body, ok := codexclient.ParseAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
 				s.HandleUnauthorized(ctx, row.ID, int32(statusCode), body)

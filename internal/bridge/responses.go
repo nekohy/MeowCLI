@@ -99,7 +99,6 @@ func (h *Handler) settingsSnapshot() settings.Snapshot {
 func (h *Handler) streamSSE(c *gin.Context, resp *http.Response, backend api.Backend, alias string) error {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
 	c.Status(resp.StatusCode)
 
 	flusher, _ := c.Writer.(http.Flusher)
