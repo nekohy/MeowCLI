@@ -162,7 +162,7 @@ func (a *AdminHandler) BatchCreateCodex(c *gin.Context) {
 
 func (a *AdminHandler) processOneToken(ctx context.Context, token string) (string, error) {
 	switch {
-	case strings.HasPrefix(token, "rt_"):
+	case strings.HasPrefix(token, "rt_"), strings.HasPrefix(token, "oaistb"):
 		if a.codexAPI == nil {
 			return "", fmt.Errorf("codex api is unavailable")
 		}
@@ -174,7 +174,7 @@ func (a *AdminHandler) processOneToken(ctx context.Context, token string) (strin
 	case strings.HasPrefix(token, "eyJ"):
 		return a.createFromTokenData(ctx, token, "", "")
 	default:
-		return "", fmt.Errorf("unsupported token format: expected refresh_token starting with rt_ or access_token starting with eyJ")
+		return "", fmt.Errorf("unsupported token format: expected refresh_token starting with rt_/oaistb or access_token starting with eyJ")
 	}
 }
 
