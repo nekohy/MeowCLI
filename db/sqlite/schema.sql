@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS codex (
     expired TEXT NOT NULL,
     refresh_token TEXT NOT NULL,
     plan_type TEXT NOT NULL,
-    plan_expired TEXT NOT NULL
+    plan_expired TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_codex_status_expired ON codex(status, expired);

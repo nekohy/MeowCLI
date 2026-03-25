@@ -14,6 +14,7 @@ type Codex struct {
 	RefreshToken string    `json:"refresh_token"`
 	PlanType     string    `json:"plan_type"`
 	PlanExpired  time.Time `json:"plan_expired"`
+	Reason       string    `json:"reason"`
 }
 
 type UpdateCodexTokensParams struct {
@@ -66,6 +67,7 @@ type ListCodexRow struct {
 	RefreshToken   string    `json:"-"`
 	PlanType       string    `json:"plan_type"`
 	PlanExpired    time.Time `json:"plan_expired"`
+	Reason         string    `json:"reason"`
 	Quota5h        float64   `json:"quota_5h"`
 	Quota7d        float64   `json:"quota_7d"`
 	Reset5h        time.Time `json:"reset_5h"`
@@ -174,7 +176,7 @@ type Store interface {
 	ListCodexPaged(ctx context.Context, arg ListCodexPagedParams) ([]ListCodexRow, error)
 	CreateCodex(ctx context.Context, arg CreateCodexParams) (Codex, error)
 	DeleteCodex(ctx context.Context, id string) error
-	UpdateCodexStatus(ctx context.Context, id string, status string) (Codex, error)
+	UpdateCodexStatus(ctx context.Context, id string, status string, reason string) (Codex, error)
 
 	ReverseInfoFromModel(ctx context.Context, alias string) (ReverseInfoFromModelRow, error)
 	ListModels(ctx context.Context) ([]ModelRow, error)
@@ -185,6 +187,7 @@ type Store interface {
 
 	UpsertQuota(ctx context.Context, arg UpsertQuotaParams) error
 	SetQuotaThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error
+	DeleteQuota(ctx context.Context, credentialID string) error
 	ListAvailableCodex(ctx context.Context) ([]ListAvailableCodexRow, error)
 
 	ListAuthKeys(ctx context.Context) ([]AuthKey, error)

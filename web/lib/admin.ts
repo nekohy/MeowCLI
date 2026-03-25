@@ -196,7 +196,7 @@ export function toneForStatus(status?: string | null): UiTone {
     case 'available':
       return 'success'
     case 'disabled':
-      return 'muted'
+      return 'danger'
     case 'planned':
       return 'accent'
     case 'admin':

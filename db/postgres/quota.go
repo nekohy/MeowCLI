@@ -26,6 +26,17 @@ func (s *Store) SetQuotaThrottled(ctx context.Context, credentialID string, thro
 	})
 }
 
+func (s *Store) DeleteQuota(ctx context.Context, credentialID string) error {
+	affected, err := s.queries.DeleteQuota(ctx, credentialID)
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return db.ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) ListAvailableCodex(ctx context.Context) ([]db.ListAvailableCodexRow, error) {
 	rows, err := s.queries.ListAvailableCodex(ctx)
 	if err != nil {

@@ -43,3 +43,7 @@ WHERE c.status = 'enabled'
 ORDER BY
     COALESCE(q.quota_5h, 1.0) DESC,
     COALESCE(q.quota_7d, 1.0) DESC;
+
+-- name: DeleteQuota :execrows
+-- Deletes the quota record for a credential.
+DELETE FROM quota WHERE credential_id = ?;

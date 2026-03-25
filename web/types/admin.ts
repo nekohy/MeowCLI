@@ -115,6 +115,7 @@ export interface CodexItem {
   reset_7d: string
   plan_type: string | null
   plan_expired: string
+  reason: string
 }
 
 export interface ModelItem {

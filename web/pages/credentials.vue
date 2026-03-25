@@ -560,6 +560,11 @@ onBeforeUnmount(() => {
                       <div class="detail-value">{{ isPastTime(item.throttled_until) ? '-' : formatTime(item.throttled_until) }}</div>
                     </div>
                   </div>
+
+                  <div v-if="item.status === 'disabled' && item.reason" class="reason-block">
+                    <div class="reason-label">停用原因</div>
+                    <div class="reason-value">{{ item.reason }}</div>
+                  </div>
                 </VCardText>
               </VCard>
             </div>

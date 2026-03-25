@@ -17,7 +17,8 @@ SET
     expired = ?,
     refresh_token = ?,
     plan_type = ?,
-    plan_expired = ?
+    plan_expired = ?,
+    reason = ''
 WHERE id = ?
 RETURNING *;
 
@@ -75,5 +76,5 @@ RETURNING *;
 DELETE FROM codex WHERE id = ?;
 
 -- name: UpdateCodexStatus :one
-UPDATE codex SET status = ? WHERE id = ?
+UPDATE codex SET status = ?, reason = ? WHERE id = ?
 RETURNING *;

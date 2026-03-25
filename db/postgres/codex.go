@@ -64,6 +64,7 @@ func (s *Store) ListCodex(ctx context.Context) ([]db.ListCodexRow, error) {
 			row.RefreshToken,
 			row.PlanType,
 			tsTo(row.PlanExpired),
+			row.Reason,
 			row.Quota5h,
 			row.Quota7d,
 			tsTo(row.Reset5h),
@@ -97,6 +98,7 @@ func (s *Store) ListCodexPaged(ctx context.Context, arg db.ListCodexPagedParams)
 			row.RefreshToken,
 			row.PlanType,
 			tsTo(row.PlanExpired),
+			row.Reason,
 			row.Quota5h,
 			row.Quota7d,
 			tsTo(row.Reset5h),
@@ -143,10 +145,11 @@ func (s *Store) DeleteCodex(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Store) UpdateCodexStatus(ctx context.Context, id string, status string) (db.Codex, error) {
+func (s *Store) UpdateCodexStatus(ctx context.Context, id string, status string, reason string) (db.Codex, error) {
 	row, err := s.queries.UpdateCodexStatus(ctx, sqlcpostgres.UpdateCodexStatusParams{
 		ID:     id,
 		Status: status,
+		Reason: reason,
 	})
 	if err != nil {
 		return db.Codex{}, wrapError(err)
