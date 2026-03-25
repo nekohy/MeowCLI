@@ -30,6 +30,8 @@ type CodexStore interface {
 	GetCodex(ctx context.Context, id string) (db.Codex, error)
 	UpdateCodexTokens(ctx context.Context, arg db.UpdateCodexTokensParams) (db.Codex, error)
 	DeleteCodex(ctx context.Context, id string) error
+	UpdateCodexStatus(ctx context.Context, id string, status string, reason string) (db.Codex, error)
+	DeleteQuota(ctx context.Context, credentialID string) error
 }
 
 // ManagerConfig 配置 codex 令牌管理器
@@ -138,7 +140,31 @@ func (m *Manager) GetAccessToken(ctx context.Context, id string) (string, error)
 	return snapshot.AccessToken, nil
 }
 
-// DeleteCredential 从 DB、缓存和刷新协调条目中删除无效凭证
+// DisableCredential 将凭证状态设为 disabled，从缓存和调度中移除，但保留数据库记录
+func (m *Manager) DisableCredential(ctx context.Context, id string, reason string) {
+	_, err := m.store.UpdateCodexStatus(ctx, id, string(utils.StatusDisabled), reason)
+	switch {
+	case err == nil:
+	case errors.Is(err, db.ErrNotFound):
+		log.Warn().Str("credential", id).Msg("credential already absent while disabling")
+	default:
+		log.Error().Err(err).Str("credential", id).Msg("disable credential in DB failed")
+		return
+	}
+
+	if m.cache != nil {
+		m.cache.Invalidate(id)
+	}
+	m.entries.Delete(id)
+
+	event := log.Warn().Str("credential", id)
+	if reason != "" {
+		event = event.Str("reason", reason)
+	}
+	event.Msg("credential disabled")
+}
+
+// DeleteCredential 从 DB、缓存和刷新协调条目中删除凭证，同时清理关联的 quota 记录
 func (m *Manager) DeleteCredential(ctx context.Context, id string, reason string) {
 	err := m.store.DeleteCodex(ctx, id)
 	switch {
@@ -148,6 +174,11 @@ func (m *Manager) DeleteCredential(ctx context.Context, id string, reason string
 	default:
 		log.Error().Err(err).Str("credential", id).Msg("delete credential from DB failed")
 		return
+	}
+
+	// 清理关联的 quota 记录
+	if qErr := m.store.DeleteQuota(ctx, id); qErr != nil && !errors.Is(qErr, db.ErrNotFound) {
+		log.Error().Err(qErr).Str("credential", id).Msg("delete quota for credential failed")
 	}
 
 	if m.cache != nil {
@@ -184,7 +215,7 @@ func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.Codex) (db.Cod
 	}
 
 	if latest.RefreshToken == "" {
-		m.DeleteCredential(ctx, latest.ID, "refresh token is empty")
+		m.DisableCredential(ctx, latest.ID, "refresh token is empty")
 		return db.Codex{}, ErrRefreshTokenMissing
 	}
 
@@ -195,13 +226,13 @@ func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.Codex) (db.Cod
 	tokenData, retryable, err := m.codexAPI.RefreshAccessToken(refreshCtx, latest.RefreshToken)
 	if err != nil {
 		if !retryable {
-			m.DeleteCredential(ctx, latest.ID, "refresh token invalid")
+			m.DisableCredential(ctx, latest.ID, "refresh token invalid")
 		}
 		return db.Codex{}, fmt.Errorf("refresh tokens for %s: %w", latest.ID, err)
 	}
 
 	if tokenData.RefreshToken == "" {
-		m.DeleteCredential(ctx, latest.ID, "no refresh token returned")
+		m.DisableCredential(ctx, latest.ID, "no refresh token returned")
 		return db.Codex{}, fmt.Errorf("no refresh token returned for %s", latest.ID)
 	}
 

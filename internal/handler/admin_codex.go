@@ -46,6 +46,7 @@ type codexListItem struct {
 	Expired        time.Time `json:"expired"`
 	PlanType       string    `json:"plan_type"`
 	PlanExpired    time.Time `json:"plan_expired"`
+	Reason         string    `json:"reason"`
 	Quota5h        float64   `json:"quota_5h"`
 	Quota7d        float64   `json:"quota_7d"`
 	Reset5h        time.Time `json:"reset_5h"`
@@ -264,7 +265,8 @@ func (a *AdminHandler) BatchUpdateStatus(c *gin.Context) {
 		if id == "" {
 			continue
 		}
-		_, err := a.store.UpdateCodexStatus(ctx, id, req.Status)
+
+		_, err := a.store.UpdateCodexStatus(ctx, id, req.Status, "")
 		if err != nil {
 			errs = append(errs, batchError{
 				Input: id,
@@ -330,6 +332,7 @@ func serializeCodexRows(rows []db.ListCodexRow) []codexListItem {
 			Expired:        row.Expired,
 			PlanType:       corecodex.NormalizePlanType(row.PlanType),
 			PlanExpired:    row.PlanExpired,
+			Reason:         row.Reason,
 			Quota5h:        row.Quota5h,
 			Quota7d:        row.Quota7d,
 			Reset5h:        row.Reset5h,

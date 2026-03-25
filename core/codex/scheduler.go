@@ -667,11 +667,11 @@ func (s *Scheduler) validateCredentialUsageAfterRefresh(ctx context.Context, cre
 			}); err != nil {
 				log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert usage verification failure log")
 			}
-			s.manager.DeleteCredential(ctx, credentialID, fmt.Sprintf("usage rejected after refresh (%d)", statusCode))
+			s.manager.DisableCredential(ctx, credentialID, fmt.Sprintf("usage rejected after refresh (%d)", statusCode))
 			log.Warn().
 				Str("credential", credentialID).
 				Int("status", statusCode).
-				Msg("credential deleted because usage fetch still returned auth rejection after refresh")
+				Msg("credential disabled because usage fetch still returned auth rejection after refresh")
 			return
 		}
 		log.Warn().Err(err).Str("credential", credentialID).Msg("credential usage verification failed after refresh")
@@ -701,11 +701,11 @@ func (s *Scheduler) validateImportedCredential(ctx context.Context, credentialID
 				log.Error().Err(logErr).Str("credential", credentialID).Msg("scheduler: insert import validation failure log")
 			}
 			s.removeFromAvailable(credentialID)
-			s.manager.DeleteCredential(ctx, credentialID, fmt.Sprintf("initial quota validation rejected (%d)", statusCode))
+			s.manager.DisableCredential(ctx, credentialID, fmt.Sprintf("initial quota validation rejected (%d)", statusCode))
 			log.Warn().
 				Str("credential", credentialID).
 				Int("status", statusCode).
-				Msg("credential deleted because initial quota validation returned auth rejection")
+				Msg("credential disabled because initial quota validation returned auth rejection")
 			return
 		}
 		log.Error().Err(err).Str("credential", credentialID).Msg("sync-credentials: fetch quota")

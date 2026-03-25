@@ -62,6 +62,11 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		return nil, fmt.Errorf("sqlite apply schema: %w", err)
 	}
 
+	if err := migrateSchema(ctx, d); err != nil {
+		d.Close()
+		return nil, fmt.Errorf("sqlite migrate schema: %w", err)
+	}
+
 	return &Store{
 		db:      d,
 		queries: sqlcsqlite.New(d),
@@ -73,6 +78,47 @@ func (s *Store) Close() {
 		return
 	}
 	s.db.Close()
+}
+
+// migrateSchema applies incremental schema changes for existing databases.
+// New databases already have the latest schema from schema.sql.
+func migrateSchema(ctx context.Context, d *sql.DB) error {
+	// Migration: add codex.reason column (soft-delete support)
+	if err := addColumnIfNotExists(ctx, d, "codex", "reason", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// addColumnIfNotExists checks via PRAGMA table_info and adds the column if missing.
+func addColumnIfNotExists(ctx context.Context, d *sql.DB, table, column, colDef string) error {
+	rows, err := d.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return fmt.Errorf("pragma table_info(%s): %w", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			return fmt.Errorf("scan table_info(%s): %w", table, err)
+		}
+		if name == column {
+			return nil // column already exists
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	_, err = d.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, colDef))
+	if err != nil {
+		return fmt.Errorf("alter table %s add column %s: %w", table, column, err)
+	}
+	return nil
 }
 
 func (s *Store) SaveSettings(ctx context.Context, settings []db.UpsertSettingParams) error {

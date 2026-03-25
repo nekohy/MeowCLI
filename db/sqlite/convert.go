@@ -38,6 +38,7 @@ func codexTo(value sqlcsqlite.Codex) db.Codex {
 		RefreshToken: value.RefreshToken,
 		PlanType:     value.PlanType,
 		PlanExpired:  parseTime(value.PlanExpired),
+		Reason:       value.Reason,
 	}
 }
 
@@ -71,7 +72,7 @@ func listAvailableCodexRowTo(id, planType string, quota5h, quota7d float64, rese
 	}
 }
 
-func listCodexRowTo(id, status, accessToken, expired, refreshToken, planType, planExpired string, quota5h, quota7d float64, reset5h, reset7d, throttledUntil, syncedAt string) db.ListCodexRow {
+func listCodexRowTo(id, status, accessToken, expired, refreshToken, planType, planExpired, reason string, quota5h, quota7d float64, reset5h, reset7d, throttledUntil, syncedAt string) db.ListCodexRow {
 	return db.ListCodexRow{
 		ID:             id,
 		Status:         status,
@@ -80,22 +81,13 @@ func listCodexRowTo(id, status, accessToken, expired, refreshToken, planType, pl
 		RefreshToken:   refreshToken,
 		PlanType:       planType,
 		PlanExpired:    parseTime(planExpired),
+		Reason:         reason,
 		Quota5h:        quota5h,
 		Quota7d:        quota7d,
 		Reset5h:        parseTime(reset5h),
 		Reset7d:        parseTime(reset7d),
 		ThrottledUntil: parseTime(throttledUntil),
 		SyncedAt:       parseTime(syncedAt),
-	}
-}
-
-func logRowTo(handler, credentialID string, statusCode int64, text, createdAt string) db.LogRow {
-	return db.LogRow{
-		Handler:      handler,
-		CredentialID: credentialID,
-		StatusCode:   int32(statusCode),
-		Text:         text,
-		CreatedAt:    parseTime(createdAt),
 	}
 }
 

@@ -42,6 +42,7 @@ func codexTo(value sqlcpostgres.Codex) db.Codex {
 		RefreshToken: value.RefreshToken,
 		PlanType:     value.PlanType,
 		PlanExpired:  tsTo(value.PlanExpired),
+		Reason:       value.Reason,
 	}
 }
 
@@ -75,7 +76,7 @@ func listAvailableCodexRowTo(id, planType string, quota5h, quota7d float64, rese
 	}
 }
 
-func listCodexRowTo(id, status, accessToken string, expired time.Time, refreshToken, planType string, planExpired time.Time, quota5h, quota7d float64, reset5h, reset7d, throttledUntil, syncedAt time.Time) db.ListCodexRow {
+func listCodexRowTo(id, status, accessToken string, expired time.Time, refreshToken, planType string, planExpired time.Time, reason string, quota5h, quota7d float64, reset5h, reset7d, throttledUntil, syncedAt time.Time) db.ListCodexRow {
 	return db.ListCodexRow{
 		ID:             id,
 		Status:         status,
@@ -84,22 +85,13 @@ func listCodexRowTo(id, status, accessToken string, expired time.Time, refreshTo
 		RefreshToken:   refreshToken,
 		PlanType:       planType,
 		PlanExpired:    planExpired,
+		Reason:         reason,
 		Quota5h:        quota5h,
 		Quota7d:        quota7d,
 		Reset5h:        reset5h,
 		Reset7d:        reset7d,
 		ThrottledUntil: throttledUntil,
 		SyncedAt:       syncedAt,
-	}
-}
-
-func logRowTo(handler, credentialID string, statusCode int32, text string, createdAt time.Time) db.LogRow {
-	return db.LogRow{
-		Handler:      handler,
-		CredentialID: credentialID,
-		StatusCode:   statusCode,
-		Text:         text,
-		CreatedAt:    createdAt,
 	}
 }
 
