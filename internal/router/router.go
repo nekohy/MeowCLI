@@ -24,6 +24,10 @@ func Setup(r *gin.Engine, deps Deps) {
 	v1.POST("/responses", deps.Bridge.Route(utils.APIResponses))
 	v1.POST("/responses/compact", deps.Bridge.Route(utils.APIResponsesCompact))
 
+	v1beta := r.Group("/v1beta", handler.APIAuthMiddleware(deps.AuthCache))
+	v1beta.GET("/models", deps.Bridge.RouteGeminiModels())
+	v1beta.POST("/models/*target", deps.Bridge.RouteGemini())
+
 	// Admin
 	admin := r.Group("/admin")
 	{
@@ -47,6 +51,11 @@ func Setup(r *gin.Engine, deps Deps) {
 			apiGroup.POST("/codex", deps.Admin.BatchCreateCodex)
 			apiGroup.PUT("/codex/status", deps.Admin.BatchUpdateStatus)
 			apiGroup.DELETE("/codex", deps.Admin.BatchDeleteCodex)
+
+			apiGroup.GET("/gemini", deps.Admin.ListGemini)
+			apiGroup.POST("/gemini", deps.Admin.BatchCreateGemini)
+			apiGroup.PUT("/gemini/status", deps.Admin.BatchUpdateGeminiStatus)
+			apiGroup.DELETE("/gemini", deps.Admin.BatchDeleteGemini)
 
 			apiGroup.GET("/models", deps.Admin.ListModels)
 			apiGroup.POST("/models", deps.Admin.CreateModel)

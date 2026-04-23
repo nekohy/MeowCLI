@@ -46,20 +46,38 @@ func codexTo(value sqlcpostgres.Codex) db.Codex {
 	}
 }
 
-func reverseInfoTo(origin string, handler string, extra json.RawMessage) db.ReverseInfoFromModelRow {
-	return db.ReverseInfoFromModelRow{
-		Origin:  origin,
-		Handler: handler,
-		Extra:   extra,
+func geminiCredentialTo(value sqlcpostgres.GeminiCli) db.GeminiCredential {
+	return db.GeminiCredential{
+		ID:             value.ID,
+		Status:         value.Status,
+		AccessToken:    value.AccessToken,
+		RefreshToken:   value.RefreshToken,
+		Expired:        tsTo(value.Expired),
+		Email:          value.Email,
+		ProjectID:      value.ProjectID,
+		PlanType:       value.PlanType,
+		Reason:         value.Reason,
+		ThrottledUntil: tsTo(value.ThrottledUntil),
+		SyncedAt:       tsTo(value.SyncedAt),
 	}
 }
 
-func modelRowTo(alias, origin, handler string, extra json.RawMessage) db.ModelRow {
+func reverseInfoTo(origin string, handler string, planTypes string, extra json.RawMessage) db.ReverseInfoFromModelRow {
+	return db.ReverseInfoFromModelRow{
+		Origin:    origin,
+		Handler:   handler,
+		PlanTypes: planTypes,
+		Extra:     extra,
+	}
+}
+
+func modelRowTo(alias, origin, handler, planTypes string, extra json.RawMessage) db.ModelRow {
 	return db.ModelRow{
-		Alias:   alias,
-		Origin:  origin,
-		Handler: handler,
-		Extra:   extra,
+		Alias:     alias,
+		Origin:    origin,
+		Handler:   handler,
+		PlanTypes: planTypes,
+		Extra:     extra,
 	}
 }
 
@@ -90,6 +108,33 @@ func listCodexRowTo(id, status, accessToken string, expired time.Time, refreshTo
 		Quota7d:        quota7d,
 		Reset5h:        reset5h,
 		Reset7d:        reset7d,
+		ThrottledUntil: throttledUntil,
+		SyncedAt:       syncedAt,
+	}
+}
+
+func listAvailableGeminiCLIRowTo(id, email, projectID, planType string, throttledUntil, syncedAt time.Time) db.ListAvailableGeminiCLIRow {
+	return db.ListAvailableGeminiCLIRow{
+		ID:             id,
+		Email:          email,
+		ProjectID:      projectID,
+		PlanType:       planType,
+		ThrottledUntil: throttledUntil,
+		SyncedAt:       syncedAt,
+	}
+}
+
+func listGeminiCLIRowTo(id, status, accessToken, refreshToken string, expired time.Time, email, projectID, planType, reason string, throttledUntil, syncedAt time.Time) db.ListGeminiCLIRow {
+	return db.ListGeminiCLIRow{
+		ID:             id,
+		Status:         status,
+		AccessToken:    accessToken,
+		RefreshToken:   refreshToken,
+		Expired:        expired,
+		Email:          email,
+		ProjectID:      projectID,
+		PlanType:       planType,
+		Reason:         reason,
 		ThrottledUntil: throttledUntil,
 		SyncedAt:       syncedAt,
 	}

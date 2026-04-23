@@ -76,7 +76,7 @@ func (s *Store) ListCodex(ctx context.Context) ([]db.ListCodexRow, error) {
 	return resolved, nil
 }
 
-func (s *Store) ListCodexPaged(ctx context.Context, arg db.ListCodexPagedParams) ([]db.ListCodexRow, error) {
+func (s *Store) ListCodexPaged(ctx context.Context, arg db.ListCredentialPagedParams) ([]db.ListCodexRow, error) {
 	rows, err := s.queries.ListCodexPaged(ctx, sqlcsqlite.ListCodexPagedParams{
 		Search:       sqliteCodexSearchPattern(arg.Search),
 		Status:       strings.TrimSpace(arg.Status),

@@ -83,8 +83,26 @@ func (s *Store) Close() {
 // migrateSchema applies incremental schema changes for existing databases.
 // New databases already have the latest schema from schema.sql.
 func migrateSchema(ctx context.Context, d *sql.DB) error {
-	// Migration: add codex.reason column (soft-delete support)
 	if err := addColumnIfNotExists(ctx, d, "codex", "reason", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if _, err := d.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS gemini_cli (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'enabled',
+    access_token TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    expired TEXT NOT NULL,
+    email TEXT NOT NULL,
+    project_id TEXT NOT NULL DEFAULT '',
+    plan_type TEXT NOT NULL DEFAULT 'free',
+    reason TEXT NOT NULL DEFAULT '',
+    throttled_until TEXT NOT NULL DEFAULT (datetime('now')),
+    synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`); err != nil {
+		return fmt.Errorf("create gemini_cli table: %w", err)
+	}
+	if err := addColumnIfNotExists(ctx, d, "models", "plan_types", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	return nil

@@ -100,7 +100,7 @@ export function useAdminApp() {
 
       selectedHandler.value = data.handlers.some((item) => item.key === selectedHandler.value)
         ? selectedHandler.value
-        : (data.handlers[0]?.key || 'codex')
+        : (data.handlers[0]?.key || '')
 
       return true
     } catch (error) {

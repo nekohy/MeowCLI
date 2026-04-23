@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/nekohy/MeowCLI/api/codex"
+	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
+	corecodex "github.com/nekohy/MeowCLI/core/codex"
+	coregemini "github.com/nekohy/MeowCLI/core/gemini"
 	"github.com/nekohy/MeowCLI/internal/auth"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	db "github.com/nekohy/MeowCLI/internal/store"
@@ -28,14 +31,15 @@ type AdminHandler struct {
 	store       db.Store
 	logStore    LogStore
 	codexAPI    *codex.Client
+	geminiAPI   *geminiapi.Client
 	authCache   *auth.KeyCache
 	credRefresh CredentialRefresher
 	settingsSvc *settings.Service
 	mu          sync.Mutex
 }
 
-func NewAdminHandler(store db.Store, codexAPI *codex.Client) *AdminHandler {
-	return &AdminHandler{store: store, codexAPI: codexAPI}
+func NewAdminHandler(store db.Store, codexAPI *codex.Client, geminiAPI *geminiapi.Client) *AdminHandler {
+	return &AdminHandler{store: store, codexAPI: codexAPI, geminiAPI: geminiAPI}
 }
 
 func (a *AdminHandler) SetLogStore(store LogStore) {
@@ -97,6 +101,10 @@ func storeErrorMessage(err error, notFoundMsg, conflictMsg string) string {
 	}
 }
 
+type batchDeleteReq struct {
+	IDs []string `json:"ids" binding:"required,min=1"`
+}
+
 func writeAdminKeyError(c *gin.Context, err error, notFoundMsg, conflictMsg, initializedMsg, lastAdminMsg string) bool {
 	if err == nil {
 		return false
@@ -118,26 +126,32 @@ func writeAdminKeyError(c *gin.Context, err error, notFoundMsg, conflictMsg, ini
 	return true
 }
 
-func normalizeModelInput(alias, origin, handler string, extra json.RawMessage) (string, string, string, json.RawMessage, error) {
+func normalizeModelInput(alias, origin, handler string, planTypes string, extra json.RawMessage) (string, string, string, string, json.RawMessage, error) {
 	alias = strings.TrimSpace(alias)
 	origin = strings.TrimSpace(origin)
 	handler = strings.TrimSpace(handler)
 	if alias == "" {
-		return "", "", "", nil, fmt.Errorf("alias is required")
+		return "", "", "", "", nil, fmt.Errorf("alias is required")
 	}
 	if origin == "" {
-		return "", "", "", nil, fmt.Errorf("origin is required")
+		return "", "", "", "", nil, fmt.Errorf("origin is required")
 	}
 	parsedHandler, ok := utils.ParseHandlerType(handler)
 	if !ok {
-		return "", "", "", nil, fmt.Errorf("unknown handler type: %q", handler)
+		return "", "", "", "", nil, fmt.Errorf("unknown handler type: %q", handler)
+	}
+	switch parsedHandler {
+	case utils.HandlerGemini:
+		planTypes = coregemini.NormalizePlanTypeList(planTypes)
+	default:
+		planTypes = corecodex.NormalizePlanTypeList(planTypes)
 	}
 	if len(extra) == 0 {
 		extra = json.RawMessage("{}")
 	} else if !json.Valid(extra) {
-		return "", "", "", nil, fmt.Errorf("extra must be valid JSON")
+		return "", "", "", "", nil, fmt.Errorf("extra must be valid JSON")
 	}
-	return alias, origin, string(parsedHandler), extra, nil
+	return alias, origin, string(parsedHandler), planTypes, extra, nil
 }
 
 func (a *AdminHandler) currentSettings() settings.Snapshot {

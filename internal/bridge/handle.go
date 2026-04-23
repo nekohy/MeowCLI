@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,13 +13,18 @@ import (
 	storedb "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
 
+	"github.com/bytedance/sonic"
 	"github.com/gin-gonic/gin"
-	"github.com/rs/zerolog/log"
-	"github.com/tidwall/gjson"
 )
 
 const defaultRelayRoundTripTimeout = 2 * time.Minute
 const maxBridgeRequestBodyBytes = 32 << 20
+
+type relayRequest struct {
+	Model     string `json:"model"`
+	SessionID string `json:"session_id"`
+	Stream    bool   `json:"stream"`
+}
 
 func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 	ctx := c.Request.Context()
@@ -37,7 +41,13 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 		return
 	}
 
-	alias := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	var req relayRequest
+	if err := sonic.Unmarshal(body, &req); err != nil {
+		writeRelayError(c, errReadRequestBody)
+		return
+	}
+
+	alias := strings.TrimSpace(req.Model)
 	if alias == "" {
 		writeRelayError(c, errModelRequired)
 		return
@@ -53,8 +63,9 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 		}
 		return
 	}
+	sessionKey := preferredSessionKey(info.Handler, req.SessionID)
 
-	backend, ok := h.backends[info.handler]
+	backend, ok := h.backends[info.Handler]
 	if !ok {
 		writeRelayError(c, errBackendUnavailable)
 		return
@@ -64,125 +75,57 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 		return
 	}
 
-	sched, ok := h.schedulers[info.handler]
+	sched, ok := h.schedulers[info.Handler]
 	if !ok {
 		writeRelayError(c, errSchedulerUnavailable)
 		return
 	}
 
-	// alias != origin 时，请求体替换为上游模型名，响应体替换回别名
-	needReplace := alias != info.origin
+	needReplace := alias != info.Origin
 	upstreamBody := body
 	if needReplace {
-		upstreamBody = backend.ReplaceModel(body, info.origin)
-	}
-	streamRequest := gjson.GetBytes(body, "stream").Bool()
-
-	// 带重试的上游请求：每次失败换一个新凭证
-	var lastRelayErr relayError
-	var haveLastRelayErr bool
-	for attempt := 0; attempt < h.maxAttempts(); attempt++ {
-		credID, err := sched.Pick(ctx, c.Request.Header)
-		if err != nil {
-			if haveLastRelayErr {
-				break
-			}
-			writeRelayError(c, errNoAvailableCredential)
-			return
-		}
-
-		authHeaders, err := sched.AuthHeaders(ctx, credID)
-		if err != nil {
-			if ctx.Err() != nil {
-				return // client disconnected
-			}
-			sched.RecordFailure(ctx, credID, 0, err.Error(), 0)
-			lastRelayErr = errUpstreamAuthFailed
-			haveLastRelayErr = true
-			log.Warn().Err(err).Str("credential", credID).Msg("get auth headers failed, retrying")
-			continue
-		}
-
-		headers := c.Request.Header.Clone()
-		headers.Del(utils.HeaderPlanTypePreference)
-		for k, vs := range authHeaders {
-			headers[k] = vs
-		}
-
-		attemptCtx, cancel := relayAttemptContext(ctx, streamRequest)
-		resp, err := backend.Chat(attemptCtx, credID, upstreamBody, headers, apiType)
-		if err != nil {
-			cancel()
-			if ctx.Err() != nil {
-				return // client disconnected
-			}
-			sched.RecordFailure(ctx, credID, 0, err.Error(), 0)
-			lastRelayErr = errUpstreamRequestFailed
-			haveLastRelayErr = true
-			log.Warn().Err(err).Str("credential", credID).Int("attempt", attempt+1).Msg("upstream request failed, retrying")
-			continue
-		}
-
-		if isSuccessfulUpstreamStatus(resp.StatusCode) {
-			if err := h.writeResponse(c, resp, backend, alias, needReplace); err != nil {
-				cancel()
-				if ctx.Err() != nil {
-					return // client disconnected
-				}
-				sched.RecordFailure(ctx, credID, 0, err.Error(), 0)
-				log.Warn().Err(err).Str("credential", credID).Int("status", resp.StatusCode).Msg("relay response write failed")
-				if !c.Writer.Written() {
-					writeRelayError(c, errRelayResponseFailed)
-				}
-				return
-			}
-			cancel()
-			sched.RecordSuccess(ctx, credID, int32(resp.StatusCode))
-			return
-		}
-
-		// 上游返回错误
-		errBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		_ = resp.Body.Close()
-		cancel()
-		errText := string(errBytes)
-		lastRelayErr = relayErrorForUpstreamStatus(resp.StatusCode)
-		haveLastRelayErr = true
-
-		if sched.HandleUnauthorized(ctx, credID, int32(resp.StatusCode), errText) {
-			log.Warn().
-				Int("status", resp.StatusCode).
-				Str("credential", credID).
-				Int("attempt", attempt+1).
-				Msg("upstream returned unauthorized, retrying with next credential")
-			continue
-		}
-
-		if !shouldRetryUpstreamStatus(resp.StatusCode) {
-			writeRelayError(c, lastRelayErr)
-			return
-		}
-
-		if resp.StatusCode == http.StatusTooManyRequests {
-			var retryAfter time.Duration
-			if raw := resp.Header.Get("Retry-After"); raw != "" {
-				if seconds, convErr := strconv.Atoi(raw); convErr == nil && seconds > 0 {
-					retryAfter = time.Duration(seconds) * time.Second
-				}
-			}
-			sched.RecordFailure(ctx, credID, int32(resp.StatusCode), errText, retryAfter)
-		} else {
-			sched.RecordFailure(ctx, credID, int32(resp.StatusCode), errText, 0)
-		}
-
-		log.Warn().Int("status", resp.StatusCode).Str("credential", credID).Int("attempt", attempt+1).Msg("upstream error, retrying")
+		upstreamBody = backend.ReplaceModel(body, info.Origin)
 	}
 
-	// 所有重试耗尽
-	if !haveLastRelayErr {
-		lastRelayErr = errUpstreamRequestFailed
+	chatBackend, ok := backend.(api.ChatBackend)
+	if !ok {
+		writeRelayError(c, errBackendUnavailable)
+		return
 	}
-	writeRelayError(c, lastRelayErr)
+
+	h.relayWithRetry(c, relayConfig{
+		ctx:            ctx,
+		sched:          sched,
+		requestHeaders: c.Request.Header,
+		allowedPlans:   info.AllowedPlanTypes,
+		streamRequest:  req.Stream,
+		modelAlias:     alias,
+		backend:        backend,
+		needReplace:    needReplace,
+		responseAlias:  alias,
+		resolvePreferred: func(graceCredID string) string {
+			if graceCredID != "" {
+				return graceCredID
+			}
+			preferred, _ := h.readSessionRoute(sessionKey)
+			return preferred
+		},
+		doRequest: func(attemptCtx context.Context, credID string, headers http.Header) (*http.Response, error) {
+			return chatBackend.Chat(attemptCtx, credID, upstreamBody, headers, apiType)
+		},
+		onSuccess: func(credID string) {
+			h.writeSessionRoute(sessionKey, credID)
+		},
+	})
+}
+
+func preferredSessionKey(providerType utils.HandlerType, sessionID string) string {
+	provider := strings.TrimSpace(string(providerType))
+	sessionID = strings.TrimSpace(sessionID)
+	if provider != "" && sessionID != "" {
+		return provider + "-" + sessionID
+	}
+	return ""
 }
 
 func relayAttemptContext(ctx context.Context, stream bool) (context.Context, context.CancelFunc) {
@@ -211,18 +154,33 @@ func shouldRetryUpstreamStatus(status int) bool {
 	}
 }
 
+func sleepWithContext(ctx context.Context, delay time.Duration) bool {
+	if delay <= 0 {
+		return true
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
 func (h *Handler) writeResponse(c *gin.Context, resp *http.Response, backend api.Backend, alias string, needReplace bool) error {
 	responseAlias := ""
 	if needReplace {
 		responseAlias = alias
 	}
+	normalizeGemini := backend.HandlerType() == utils.HandlerGemini
 
 	contentType := resp.Header.Get("Content-Type")
 	if strings.HasPrefix(contentType, "text/event-stream") {
 		return h.streamSSE(c, resp, backend, responseAlias)
 	}
 
-	if responseAlias == "" {
+	if responseAlias == "" && !normalizeGemini {
 		defer func() {
 			_ = resp.Body.Close()
 		}()

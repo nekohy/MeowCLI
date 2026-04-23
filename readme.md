@@ -59,6 +59,15 @@ http://127.0.0.1:3000/admin
 - 系统还可单独配置“内置 PlanType 优先级”，当用户未传 header 或 header 未命中可用凭据时，会先按该优先级回退，再回到默认评分结果
 - Codex 内部稳定编码固定为 `free=0`、`plus=1`、`team=2`、`pro=3`，管理台会自动反向显示为套餐名
 
+### Gemini 原生接口
+
+`gemini-cli` 不再提供 OpenAI Responses 兼容层，改为原生 Gemini 接口：
+
+- 非流式：`POST /v1beta/models/{alias}:generateContent`
+- 流式：`POST /v1beta/models/{alias}:streamGenerateContent`
+
+其中 `{alias}` 仍然使用管理台中配置的模型别名，服务端会在转发时映射为真实上游模型名。凭据统一通过管理台手工导入。
+
 ## 配置方式
 
 ### 环境变量
@@ -72,8 +81,6 @@ http://127.0.0.1:3000/admin
 
 ## todo
 
-- 当前实际注册的后端只有 `codex`，后续会加GeminiCLI等
-- 目前无格式转换，完整透传
 - 我不会写前端，所以前端是纯AI的（包括你现在看的readme.md，我懒得写）
 - 
 ## 开发指南

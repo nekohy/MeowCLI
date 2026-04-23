@@ -20,65 +20,19 @@ const actionBusy = ref(false)
 const form = ref<SettingsForm>({ ...DEFAULT_SETTINGS_FORM })
 
 const availablePlanTypes = computed(() => admin.activeHandler.value?.plan_list || [])
+const geminiPlanTypes = ['ultra', 'pro', 'free']
 
-// --- Plan type order modal ---
-const planOrderOpen = ref(false)
-const planOrderDraft = ref<string[]>([])
+const codexPlanOrder = usePlanOrderModal(
+  () => form.value.codex_preferred_plan_types,
+  (v) => { form.value.codex_preferred_plan_types = v },
+  () => availablePlanTypes.value,
+)
 
-function openPlanOrderModal() {
-  const selected = splitPlanTypeInput(form.value.codex_preferred_plan_types)
-  const unselected = availablePlanTypes.value.filter((t) => !selected.includes(t))
-  planOrderDraft.value = [...selected, ...unselected]
-  planOrderOpen.value = true
-}
-
-function planOrderDraftSelected(planType: string) {
-  const selected = splitPlanTypeInput(form.value.codex_preferred_plan_types)
-  return selected.includes(planType)
-}
-
-function togglePlanOrderDraft(planType: string) {
-  const selected = splitPlanTypeInput(form.value.codex_preferred_plan_types)
-  const idx = selected.indexOf(planType)
-  if (idx >= 0) {
-    selected.splice(idx, 1)
-  } else {
-    selected.push(planType)
-  }
-  form.value.codex_preferred_plan_types = joinPlanTypeInput(selected)
-  // re-sort draft: selected first (keeping their order), unselected after
-  const newSelected = splitPlanTypeInput(form.value.codex_preferred_plan_types)
-  const remaining = planOrderDraft.value.filter((t) => !newSelected.includes(t))
-  planOrderDraft.value = [...newSelected, ...remaining]
-}
-
-// drag state
-const dragIdx = ref<number | null>(null)
-
-function onDragStart(idx: number) {
-  dragIdx.value = idx
-}
-
-function onDragOver(e: DragEvent, idx: number) {
-  e.preventDefault()
-  if (dragIdx.value === null || dragIdx.value === idx) return
-  const list = [...planOrderDraft.value]
-  const moved = list.splice(dragIdx.value, 1)[0]
-  if (moved === undefined) return
-  list.splice(idx, 0, moved)
-  planOrderDraft.value = list
-  dragIdx.value = idx
-}
-
-function onDragEnd() {
-  dragIdx.value = null
-  // sync: only keep items that are selected, in draft order
-  const selected = new Set(splitPlanTypeInput(form.value.codex_preferred_plan_types))
-  const ordered = planOrderDraft.value.filter((t) => selected.has(t))
-  form.value.codex_preferred_plan_types = joinPlanTypeInput(ordered)
-}
-
-const planOrderPreview = computed(() => splitPlanTypeInput(form.value.codex_preferred_plan_types))
+const geminiPlanOrder = usePlanOrderModal(
+  () => form.value.gemini_preferred_plan_types,
+  (v) => { form.value.gemini_preferred_plan_types = v },
+  () => geminiPlanTypes,
+)
 
 const numericFields = [
   {
@@ -169,7 +123,9 @@ function normalizeSettingsForm(source: SettingsForm): SettingsForm {
     ...source,
     global_proxy: source.global_proxy.trim(),
     codex_proxy: source.codex_proxy.trim(),
+    gemini_proxy: source.gemini_proxy.trim(),
     codex_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.codex_preferred_plan_types)),
+    gemini_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.gemini_preferred_plan_types)),
   }
 
   for (const field of numericFields) {
@@ -312,11 +268,11 @@ watch(
           />
         </div>
 
-        <div class="settings-item settings-item--toggle" style="cursor: pointer" @click="openPlanOrderModal">
+        <div class="settings-item settings-item--toggle" style="cursor: pointer" @click="codexPlanOrder.openModal()">
           <div class="settings-item-copy">
             <div class="settings-item-title">调用套餐顺序</div>
             <div class="settings-item-description text-medium-emphasis">
-              优先使用的套餐类型及顺序：{{ planOrderPreview.length ? planOrderPreview.join(' → ') : '未配置' }}
+              优先使用的套餐类型及顺序：{{ codexPlanOrder.preview.value.length ? codexPlanOrder.preview.value.join(' → ') : '未配置' }}
             </div>
           </div>
           <VIcon icon="mdi-chevron-right" />
@@ -332,50 +288,70 @@ watch(
       </div>
     </SectionCard>
 
-    <!-- Plan Order Modal -->
-    <ModalDialog
-      :open="planOrderOpen"
-      title="调用套餐顺序"
-      description="拖动排序，勾选启用"
-      icon="mdi-swap-vertical"
-      :max-width="400"
-      @close="planOrderOpen = false"
-    >
-      <div class="plan-order-list">
-        <div
-          v-for="(planType, idx) in planOrderDraft"
-          :key="planType"
-          class="plan-order-item"
-          :class="{
-            'plan-order-item--selected': planOrderDraftSelected(planType),
-            'plan-order-item--dragging': dragIdx === idx,
-          }"
-          draggable="true"
-          @dragstart="onDragStart(idx)"
-          @dragover="(e) => onDragOver(e, idx)"
-          @dragend="onDragEnd"
-        >
-          <VIcon icon="mdi-drag" size="18" class="plan-order-drag text-medium-emphasis" />
-          <VCheckbox
-            :model-value="planOrderDraftSelected(planType)"
-            density="compact"
-            hide-details
-            @update:model-value="togglePlanOrderDraft(planType)"
-            @click.stop
+    <SectionCard title="Gemini CLI" icon="mdi-google-circles-communities">
+      <div class="setting-field-stack">
+        <div class="settings-item">
+          <div class="settings-item-copy">
+            <div class="settings-item-title">Gemini CLI 代理</div>
+            <div class="settings-item-description text-medium-emphasis">供 Gemini CLI 上游请求使用，未设置时回退到全局代理。</div>
+          </div>
+          <VTextField
+            v-model="form.gemini_proxy"
+            placeholder="http://127.0.0.1:7890"
+            variant="outlined"
+            density="comfortable"
+            class="settings-item-control"
           />
-          <span class="plan-order-label">{{ planType }}</span>
-          <span v-if="planOrderDraftSelected(planType)" class="plan-order-rank text-medium-emphasis">
-            #{{ splitPlanTypeInput(form.codex_preferred_plan_types).indexOf(planType) + 1 }}
-          </span>
+        </div>
+
+        <div class="settings-item settings-item--toggle" style="cursor: pointer" @click="geminiPlanOrder.openModal()">
+          <div class="settings-item-copy">
+            <div class="settings-item-title">调用套餐顺序</div>
+            <div class="settings-item-description text-medium-emphasis">
+              优先使用的套餐类型及顺序：{{ geminiPlanOrder.preview.value.length ? geminiPlanOrder.preview.value.join(' → ') : '未配置（默认 ultra → pro → free）' }}
+            </div>
+          </div>
+          <VIcon icon="mdi-chevron-right" />
+        </div>
+
+        <div class="settings-item settings-item--toggle">
+          <div class="settings-item-copy">
+            <div class="settings-item-title">允许 PlanType 请求头</div>
+            <div class="settings-item-description text-medium-emphasis">允许客户端为 Gemini CLI 请求指定套餐类型</div>
+          </div>
+          <VSwitch v-model="form.gemini_allow_user_plan_type_header" />
         </div>
       </div>
-      <div v-if="!planOrderDraft.length" class="text-center text-medium-emphasis py-4">
-        暂无可用套餐类型
-      </div>
-      <template #footer>
-        <VBtn variant="text" @click="planOrderOpen = false">关闭</VBtn>
-      </template>
-    </ModalDialog>
+    </SectionCard>
+
+    <!-- Plan Order Modals -->
+    <PlanOrderModal
+      :open="codexPlanOrder.open.value"
+      title="调用套餐顺序"
+      :draft="codexPlanOrder.draft.value"
+      :drag-idx="codexPlanOrder.dragIdx.value"
+      :is-selected="codexPlanOrder.isSelected"
+      :rank-of="codexPlanOrder.rankOf"
+      :toggle="codexPlanOrder.toggle"
+      :on-drag-start="codexPlanOrder.onDragStart"
+      :on-drag-over="codexPlanOrder.onDragOver"
+      :on-drag-end="codexPlanOrder.onDragEnd"
+      @close="codexPlanOrder.closeModal()"
+    />
+
+    <PlanOrderModal
+      :open="geminiPlanOrder.open.value"
+      title="Gemini 调用套餐顺序"
+      :draft="geminiPlanOrder.draft.value"
+      :drag-idx="geminiPlanOrder.dragIdx.value"
+      :is-selected="geminiPlanOrder.isSelected"
+      :rank-of="geminiPlanOrder.rankOf"
+      :toggle="geminiPlanOrder.toggle"
+      :on-drag-start="geminiPlanOrder.onDragStart"
+      :on-drag-over="geminiPlanOrder.onDragOver"
+      :on-drag-end="geminiPlanOrder.onDragEnd"
+      @close="geminiPlanOrder.closeModal()"
+    />
   </div>
 </template>
 
@@ -389,57 +365,5 @@ watch(
   color: rgba(var(--v-theme-on-surface), 0.65);
   padding-top: 12px;
   padding-bottom: 4px;
-}
-
-.plan-order-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.plan-order-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 10px;
-  background: rgba(var(--v-theme-on-surface), 0.04);
-  transition: background 0.15s, opacity 0.15s;
-  user-select: none;
-}
-
-.plan-order-item:hover {
-  background: rgba(var(--v-theme-on-surface), 0.08);
-}
-
-.plan-order-item--selected {
-  background: rgba(var(--v-theme-primary), 0.08);
-}
-
-.plan-order-item--selected:hover {
-  background: rgba(var(--v-theme-primary), 0.14);
-}
-
-.plan-order-item--dragging {
-  opacity: 0.5;
-}
-
-.plan-order-drag {
-  cursor: grab;
-}
-
-.plan-order-drag:active {
-  cursor: grabbing;
-}
-
-.plan-order-label {
-  flex: 1;
-  font-weight: 600;
-  font-size: 0.875rem;
-}
-
-.plan-order-rank {
-  font-size: 0.75rem;
-  font-weight: 700;
 }
 </style>

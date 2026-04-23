@@ -21,6 +21,18 @@ func extractBearerKey(c *gin.Context) string {
 	return strings.TrimSpace(token)
 }
 
+func extractAPIKey(c *gin.Context) string {
+	if key := extractBearerKey(c); key != "" {
+		return key
+	}
+	for _, header := range []string{"x-goog-api-key", "x-api-key", "api-key"} {
+		if key := strings.TrimSpace(c.GetHeader(header)); key != "" {
+			return key
+		}
+	}
+	return ""
+}
+
 // APIAuthMiddleware 校验 /v1/* 请求的 Bearer key，admin 和 user 都可通过
 func APIAuthMiddleware(cache *auth.KeyCache) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -28,7 +40,7 @@ func APIAuthMiddleware(cache *auth.KeyCache) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "auth cache is unavailable"})
 			return
 		}
-		key := extractBearerKey(c)
+		key := extractAPIKey(c)
 		if key == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing api key"})
 			return

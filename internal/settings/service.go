@@ -11,18 +11,21 @@ import (
 )
 
 const (
-	KeyAllowUserPlanTypeHeader      = "allow_user_plan_type_header"
-	KeyGlobalProxy                  = "global_proxy"
-	KeyCodexProxy                   = "codex_proxy"
-	KeyCodexAllowUserPlanTypeHeader = "codex_allow_user_plan_type_header"
-	KeyCodexPreferredPlanTypes      = "codex_preferred_plan_types"
-	KeyRefreshBeforeSeconds         = "refresh_before_seconds"
-	KeyPollIntervalMilliseconds     = "poll_interval_milliseconds"
-	KeyQuotaSyncIntervalSeconds     = "quota_sync_interval_seconds"
-	KeyThrottleBaseSeconds          = "throttle_base_seconds"
-	KeyThrottleMaxSeconds           = "throttle_max_seconds"
-	KeyRelayMaxRetries              = "relay_max_retries"
-	KeyLogsRetentionSeconds         = "logs_retention_seconds"
+	KeyAllowUserPlanTypeHeader       = "allow_user_plan_type_header"
+	KeyGlobalProxy                   = "global_proxy"
+	KeyCodexProxy                    = "codex_proxy"
+	KeyGeminiProxy                   = "gemini_proxy"
+	KeyCodexAllowUserPlanTypeHeader  = "codex_allow_user_plan_type_header"
+	KeyCodexPreferredPlanTypes       = "codex_preferred_plan_types"
+	KeyGeminiAllowUserPlanTypeHeader = "gemini_allow_user_plan_type_header"
+	KeyGeminiPreferredPlanTypes      = "gemini_preferred_plan_types"
+	KeyRefreshBeforeSeconds          = "refresh_before_seconds"
+	KeyPollIntervalMilliseconds      = "poll_interval_milliseconds"
+	KeyQuotaSyncIntervalSeconds      = "quota_sync_interval_seconds"
+	KeyThrottleBaseSeconds           = "throttle_base_seconds"
+	KeyThrottleMaxSeconds            = "throttle_max_seconds"
+	KeyRelayMaxRetries               = "relay_max_retries"
+	KeyLogsRetentionSeconds          = "logs_retention_seconds"
 )
 
 const (
@@ -34,18 +37,21 @@ const (
 )
 
 type Snapshot struct {
-	AllowUserPlanTypeHeader      bool   `json:"allow_user_plan_type_header"`
-	GlobalProxy                  string `json:"global_proxy"`
-	CodexProxy                   string `json:"codex_proxy"`
-	CodexAllowUserPlanTypeHeader bool   `json:"codex_allow_user_plan_type_header"`
-	CodexPreferredPlanTypes      string `json:"codex_preferred_plan_types"`
-	RefreshBeforeSeconds         int    `json:"refresh_before_seconds"`
-	PollIntervalMilliseconds     int    `json:"poll_interval_milliseconds"`
-	QuotaSyncIntervalSeconds     int    `json:"quota_sync_interval_seconds"`
-	ThrottleBaseSeconds          int    `json:"throttle_base_seconds"`
-	ThrottleMaxSeconds           int    `json:"throttle_max_seconds"`
-	RelayMaxRetries              int    `json:"relay_max_retries"`
-	LogsRetentionSeconds         int    `json:"logs_retention_seconds"`
+	AllowUserPlanTypeHeader       bool   `json:"allow_user_plan_type_header"`
+	GlobalProxy                   string `json:"global_proxy"`
+	CodexProxy                    string `json:"codex_proxy"`
+	GeminiProxy                   string `json:"gemini_proxy"`
+	CodexAllowUserPlanTypeHeader  bool   `json:"codex_allow_user_plan_type_header"`
+	CodexPreferredPlanTypes       string `json:"codex_preferred_plan_types"`
+	GeminiAllowUserPlanTypeHeader bool   `json:"gemini_allow_user_plan_type_header"`
+	GeminiPreferredPlanTypes      string `json:"gemini_preferred_plan_types"`
+	RefreshBeforeSeconds          int    `json:"refresh_before_seconds"`
+	PollIntervalMilliseconds      int    `json:"poll_interval_milliseconds"`
+	QuotaSyncIntervalSeconds      int    `json:"quota_sync_interval_seconds"`
+	ThrottleBaseSeconds           int    `json:"throttle_base_seconds"`
+	ThrottleMaxSeconds            int    `json:"throttle_max_seconds"`
+	RelayMaxRetries               int    `json:"relay_max_retries"`
+	LogsRetentionSeconds          int    `json:"logs_retention_seconds"`
 }
 
 type Provider interface {
@@ -66,18 +72,21 @@ type Service struct {
 
 func DefaultSnapshot() Snapshot {
 	return Snapshot{
-		AllowUserPlanTypeHeader:      false,
-		GlobalProxy:                  "",
-		CodexProxy:                   "",
-		CodexAllowUserPlanTypeHeader: false,
-		CodexPreferredPlanTypes:      "",
-		RefreshBeforeSeconds:         30,
-		PollIntervalMilliseconds:     200,
-		QuotaSyncIntervalSeconds:     15 * 60,
-		ThrottleBaseSeconds:          60,
-		ThrottleMaxSeconds:           30 * 60,
-		RelayMaxRetries:              3,
-		LogsRetentionSeconds:         defaultLogsRetentionSeconds,
+		AllowUserPlanTypeHeader:       false,
+		GlobalProxy:                   "",
+		CodexProxy:                    "",
+		GeminiProxy:                   "",
+		CodexAllowUserPlanTypeHeader:  false,
+		CodexPreferredPlanTypes:       "",
+		GeminiAllowUserPlanTypeHeader: false,
+		GeminiPreferredPlanTypes:      "",
+		RefreshBeforeSeconds:          30,
+		PollIntervalMilliseconds:      200,
+		QuotaSyncIntervalSeconds:      15 * 60,
+		ThrottleBaseSeconds:           60,
+		ThrottleMaxSeconds:            30 * 60,
+		RelayMaxRetries:               3,
+		LogsRetentionSeconds:          defaultLogsRetentionSeconds,
 	}
 }
 
@@ -162,7 +171,9 @@ func (s Snapshot) Normalize() Snapshot {
 
 	s.GlobalProxy = strings.TrimSpace(s.GlobalProxy)
 	s.CodexProxy = strings.TrimSpace(s.CodexProxy)
+	s.GeminiProxy = strings.TrimSpace(s.GeminiProxy)
 	s.CodexPreferredPlanTypes = strings.TrimSpace(s.CodexPreferredPlanTypes)
+	s.GeminiPreferredPlanTypes = strings.TrimSpace(s.GeminiPreferredPlanTypes)
 
 	if s.RefreshBeforeSeconds <= 0 {
 		s.RefreshBeforeSeconds = defaults.RefreshBeforeSeconds
@@ -192,6 +203,13 @@ func (s Snapshot) Normalize() Snapshot {
 func (s Snapshot) EffectiveCodexProxy() string {
 	if s.CodexProxy != "" {
 		return s.CodexProxy
+	}
+	return s.GlobalProxy
+}
+
+func (s Snapshot) EffectiveGeminiProxy() string {
+	if s.GeminiProxy != "" {
+		return s.GeminiProxy
 	}
 	return s.GlobalProxy
 }
@@ -238,18 +256,21 @@ func (s Snapshot) LogsRetention() time.Duration {
 
 func (s Snapshot) asMap() map[string]string {
 	return map[string]string{
-		KeyAllowUserPlanTypeHeader:      strconv.FormatBool(s.AllowUserPlanTypeHeader),
-		KeyGlobalProxy:                  s.GlobalProxy,
-		KeyCodexProxy:                   s.CodexProxy,
-		KeyCodexAllowUserPlanTypeHeader: strconv.FormatBool(s.CodexAllowUserPlanTypeHeader),
-		KeyCodexPreferredPlanTypes:      s.CodexPreferredPlanTypes,
-		KeyRefreshBeforeSeconds:         strconv.Itoa(s.RefreshBeforeSeconds),
-		KeyPollIntervalMilliseconds:     strconv.Itoa(s.PollIntervalMilliseconds),
-		KeyQuotaSyncIntervalSeconds:     strconv.Itoa(s.QuotaSyncIntervalSeconds),
-		KeyThrottleBaseSeconds:          strconv.Itoa(s.ThrottleBaseSeconds),
-		KeyThrottleMaxSeconds:           strconv.Itoa(s.ThrottleMaxSeconds),
-		KeyRelayMaxRetries:              strconv.Itoa(s.RelayMaxRetries),
-		KeyLogsRetentionSeconds:         strconv.Itoa(s.LogsRetentionSeconds),
+		KeyAllowUserPlanTypeHeader:       strconv.FormatBool(s.AllowUserPlanTypeHeader),
+		KeyGlobalProxy:                   s.GlobalProxy,
+		KeyCodexProxy:                    s.CodexProxy,
+		KeyGeminiProxy:                   s.GeminiProxy,
+		KeyCodexAllowUserPlanTypeHeader:  strconv.FormatBool(s.CodexAllowUserPlanTypeHeader),
+		KeyCodexPreferredPlanTypes:       s.CodexPreferredPlanTypes,
+		KeyGeminiAllowUserPlanTypeHeader: strconv.FormatBool(s.GeminiAllowUserPlanTypeHeader),
+		KeyGeminiPreferredPlanTypes:      s.GeminiPreferredPlanTypes,
+		KeyRefreshBeforeSeconds:          strconv.Itoa(s.RefreshBeforeSeconds),
+		KeyPollIntervalMilliseconds:      strconv.Itoa(s.PollIntervalMilliseconds),
+		KeyQuotaSyncIntervalSeconds:      strconv.Itoa(s.QuotaSyncIntervalSeconds),
+		KeyThrottleBaseSeconds:           strconv.Itoa(s.ThrottleBaseSeconds),
+		KeyThrottleMaxSeconds:            strconv.Itoa(s.ThrottleMaxSeconds),
+		KeyRelayMaxRetries:               strconv.Itoa(s.RelayMaxRetries),
+		KeyLogsRetentionSeconds:          strconv.Itoa(s.LogsRetentionSeconds),
 	}
 }
 
@@ -265,6 +286,9 @@ func applyValues(target *Snapshot, values map[string]string) {
 	if value, ok := valueForKeys(values, KeyCodexProxy); ok {
 		target.CodexProxy = strings.TrimSpace(value)
 	}
+	if value, ok := valueForKeys(values, KeyGeminiProxy); ok {
+		target.GeminiProxy = strings.TrimSpace(value)
+	}
 	if value, ok := valueForKeys(values, KeyCodexAllowUserPlanTypeHeader); ok {
 		if parsed, err := strconv.ParseBool(value); err == nil {
 			target.CodexAllowUserPlanTypeHeader = parsed
@@ -272,6 +296,14 @@ func applyValues(target *Snapshot, values map[string]string) {
 	}
 	if value, ok := valueForKeys(values, KeyCodexPreferredPlanTypes); ok {
 		target.CodexPreferredPlanTypes = value
+	}
+	if value, ok := valueForKeys(values, KeyGeminiAllowUserPlanTypeHeader); ok {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			target.GeminiAllowUserPlanTypeHeader = parsed
+		}
+	}
+	if value, ok := valueForKeys(values, KeyGeminiPreferredPlanTypes); ok {
+		target.GeminiPreferredPlanTypes = value
 	}
 	if parsed, ok := intValueForKeys(values, KeyRefreshBeforeSeconds); ok {
 		target.RefreshBeforeSeconds = parsed

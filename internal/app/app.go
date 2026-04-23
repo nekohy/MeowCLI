@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/nekohy/MeowCLI/api/codex"
 	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
+	"github.com/nekohy/MeowCLI/api/gemini"
 	runtimelogs "github.com/nekohy/MeowCLI/internal/logs"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	db "github.com/nekohy/MeowCLI/internal/store"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	coreCodex "github.com/nekohy/MeowCLI/core/codex"
+	coreGemini "github.com/nekohy/MeowCLI/core/gemini"
 	"github.com/nekohy/MeowCLI/db/postgres"
 	"github.com/nekohy/MeowCLI/db/sqlite"
 	"github.com/nekohy/MeowCLI/internal/auth"
@@ -74,16 +76,32 @@ func Run(ctx context.Context, cfg Config) error {
 		codexScheduler.UpdateQuota(ctx, credentialID, q)
 	}
 
+	geminiClient := gemini.NewClient()
+	geminiClient.SetSettingsProvider(settingsSvc)
+	geminiManager, err := coreGemini.NewManager(coreGemini.ManagerConfig{
+		Store:    store,
+		Client:   geminiClient,
+		Settings: settingsSvc,
+	})
+	if err != nil {
+		return fmt.Errorf("init gemini manager: %w", err)
+	}
+	geminiScheduler := coreGemini.NewScheduler(store, geminiManager)
+	geminiScheduler.SetSettingsProvider(settingsSvc)
+	geminiScheduler.SetLogStore(logStore)
+
 	h := bridge.NewHandler(
 		&modelStoreAdapter{store: store},
 		map[utils.HandlerType]bridge.CredentialScheduler{
-			utils.HandlerCodex: codexScheduler,
+			utils.HandlerCodex:  codexScheduler,
+			utils.HandlerGemini: geminiScheduler,
 		},
 		codexClient,
+		geminiClient,
 	)
 	h.SetSettingsProvider(settingsSvc)
 
-	adminHandler := handler.NewAdminHandler(store, codexClient)
+	adminHandler := handler.NewAdminHandler(store, codexClient, geminiClient)
 	adminHandler.SetAuthCache(authCache)
 	adminHandler.SetCredentialRefresher(&credRefreshAdapter{s: codexScheduler})
 	adminHandler.SetLogStore(logStore)
@@ -147,16 +165,49 @@ type modelStoreAdapter struct {
 	store db.Store
 }
 
-func (a *modelStoreAdapter) ResolveModel(ctx context.Context, alias string) (string, utils.HandlerType, error) {
+func (a *modelStoreAdapter) ResolveModel(ctx context.Context, alias string) (*bridge.ResolvedModel, error) {
 	row, err := a.store.ReverseInfoFromModel(ctx, alias)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	ht, ok := utils.ParseHandlerType(row.Handler)
 	if !ok {
-		return "", "", fmt.Errorf("unknown handler type: %q", row.Handler)
+		return nil, fmt.Errorf("unknown handler type: %q", row.Handler)
 	}
-	return row.Origin, ht, nil
+	return &bridge.ResolvedModel{
+		Origin:           row.Origin,
+		Handler:          ht,
+		AllowedPlanTypes: parseModelPlanTypes(ht, row.PlanTypes),
+	}, nil
+}
+
+func (a *modelStoreAdapter) ListModels(ctx context.Context) ([]bridge.ModelListItem, error) {
+	rows, err := a.store.ListModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]bridge.ModelListItem, 0, len(rows))
+	for _, row := range rows {
+		ht, ok := utils.ParseHandlerType(row.Handler)
+		if !ok {
+			continue
+		}
+		items = append(items, bridge.ModelListItem{
+			Alias:   row.Alias,
+			Origin:  row.Origin,
+			Handler: ht,
+		})
+	}
+	return items, nil
+}
+
+func parseModelPlanTypes(handler utils.HandlerType, raw string) []string {
+	switch handler {
+	case utils.HandlerGemini:
+		return coreGemini.ParsePlanTypeList(raw)
+	default:
+		return coreCodex.ParsePlanTypeList(raw)
+	}
 }
 
 // credRefreshAdapter 适配 coreCodex.Scheduler → handler.CredentialRefresher

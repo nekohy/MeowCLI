@@ -4,14 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	codexclient "github.com/nekohy/MeowCLI/api/codex"
-	codexAPI "github.com/nekohy/MeowCLI/api/codex/utils"
-	"math"
 	"net/http"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	codexclient "github.com/nekohy/MeowCLI/api/codex"
+	codexAPI "github.com/nekohy/MeowCLI/api/codex/utils"
 
 	"github.com/nekohy/MeowCLI/internal/settings"
 	db "github.com/nekohy/MeowCLI/internal/store"
@@ -172,19 +172,30 @@ func (s *Scheduler) syncAllQuotas(ctx context.Context) {
 	}
 }
 
-// Pick 根据优先级评分选择最佳可用凭证。
-// 请求头和设置里的 plan type 偏好会先被转换为内部 int code，再进入缓存调度。
-func (s *Scheduler) Pick(ctx context.Context, headers http.Header) (string, error) {
-	return s.pickPreferred(ctx, s.preferredPlanTypeCodes(headers))
+// Pick 根据优先级评分选择最佳可用凭证
+// 调用方可传入一个偏好的 credentialID；若不可用，再回退到常规 planType 调度
+func (s *Scheduler) Pick(ctx context.Context, headers http.Header, preferredCredentialID string, allowedPlanTypes []string) (string, error) {
+	codec := s.planTypeCodec()
+	return s.pickPreferred(ctx, s.preferredPlanTypeCodes(headers), codec.codesFor(allowedPlanTypes), preferredCredentialID)
 }
 
-func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int) (string, error) {
+func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, allowedCodes []int, preferredCredentialID string) (string, error) {
 	snap, err := s.listAvailable(ctx)
 	if err != nil {
 		return "", err
 	}
 
+	allowed := planTypeCodeSet(allowedCodes)
+	if preferredCredentialID != "" {
+		if row, ok := availableRowByCredentialID(snap, preferredCredentialID); ok && row.Score >= 0 && planTypeAllowed(row.PlanTypeCode, allowed) {
+			return preferredCredentialID, nil
+		}
+	}
+
 	for _, code := range preferredCodes {
+		if !planTypeAllowed(code, allowed) {
+			continue
+		}
 		idx, ok := snap.bestByPlanType[code]
 		if !ok {
 			continue
@@ -196,6 +207,9 @@ func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int) (st
 
 	for _, r := range snap.rows {
 		if r.Score < 0 {
+			continue
+		}
+		if !planTypeAllowed(r.PlanTypeCode, allowed) {
 			continue
 		}
 		return r.ID, nil
@@ -328,6 +342,44 @@ func buildAvailableSnapshot(rows []availableRow) *availableSnapshot {
 		rows:           rows,
 		bestByPlanType: bestByPlanType,
 	}
+}
+
+func availableRowByCredentialID(snap *availableSnapshot, credentialID string) (availableRow, bool) {
+	if snap == nil {
+		return availableRow{}, false
+	}
+	for _, row := range snap.rows {
+		if row.ID == credentialID {
+			return row, true
+		}
+	}
+	return availableRow{}, false
+}
+
+func planTypeCodeSet(codes []int) map[int]struct{} {
+	if len(codes) == 0 {
+		return nil
+	}
+
+	set := make(map[int]struct{}, len(codes))
+	for _, code := range codes {
+		if code == planTypeCodeAny {
+			continue
+		}
+		set[code] = struct{}{}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
+}
+
+func planTypeAllowed(code int, allowed map[int]struct{}) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	_, ok := allowed[code]
+	return ok
 }
 
 func (s *Scheduler) AuthHeaders(ctx context.Context, credentialID string) (http.Header, error) {
@@ -464,7 +516,7 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 		reason = "Retry-After"
 	} else {
 		config := s.settingsSnapshot()
-		backoff = calcBackoff(consecutive, config.ThrottleBase(), config.ThrottleMax())
+		backoff = utils.CalcBackoff(consecutive, config.ThrottleBase(), config.ThrottleMax())
 		reason = fmt.Sprintf("attempt #%d", consecutive)
 	}
 
@@ -718,24 +770,6 @@ func (s *Scheduler) validateImportedCredential(ctx context.Context, credentialID
 		Float64("quota_7d", q.Quota7d).
 		Msg("sync-credentials: fetched")
 	s.UpdateQuota(ctx, credentialID, q)
-}
-
-// calcBackoff 返回 1分钟 × 2^(n-1)，上限 30 分钟
-func calcBackoff(consecutive int, base, max time.Duration) time.Duration {
-	if consecutive <= 0 {
-		consecutive = 1
-	}
-	if base <= 0 {
-		base = time.Minute
-	}
-	if max < base {
-		max = 30 * time.Minute
-	}
-	backoff := time.Duration(math.Pow(2, float64(consecutive-1))) * base
-	if backoff > max {
-		return max
-	}
-	return backoff
 }
 
 func isCredentialRejectedStatus(statusCode int) bool {

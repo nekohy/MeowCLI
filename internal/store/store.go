@@ -17,6 +17,20 @@ type Codex struct {
 	Reason       string    `json:"reason"`
 }
 
+type GeminiCredential struct {
+	ID             string    `json:"id"`
+	Status         string    `json:"status"`
+	AccessToken    string    `json:"access_token"`
+	RefreshToken   string    `json:"refresh_token"`
+	Expired        time.Time `json:"expired"`
+	Email          string    `json:"email"`
+	ProjectID      string    `json:"project_id"`
+	PlanType       string    `json:"plan_type"`
+	Reason         string    `json:"reason"`
+	ThrottledUntil time.Time `json:"throttled_until"`
+	SyncedAt       time.Time `json:"synced_at"`
+}
+
 type UpdateCodexTokensParams struct {
 	ID           string
 	Status       string
@@ -25,6 +39,17 @@ type UpdateCodexTokensParams struct {
 	RefreshToken string
 	PlanType     string
 	PlanExpired  time.Time
+}
+
+type UpdateGeminiTokensParams struct {
+	ID           string
+	Status       string
+	AccessToken  string
+	RefreshToken string
+	Expired      time.Time
+	Email        string
+	ProjectID    string
+	PlanType     string
 }
 
 type InsertLogParams struct {
@@ -43,9 +68,10 @@ type UpsertQuotaParams struct {
 }
 
 type ReverseInfoFromModelRow struct {
-	Origin  string          `json:"origin"`
-	Handler string          `json:"handler"`
-	Extra   json.RawMessage `json:"extra"`
+	Origin    string          `json:"origin"`
+	Handler   string          `json:"handler"`
+	PlanTypes string          `json:"plan_types"`
+	Extra     json.RawMessage `json:"extra"`
 }
 
 type ListAvailableCodexRow struct {
@@ -76,6 +102,29 @@ type ListCodexRow struct {
 	SyncedAt       time.Time `json:"synced_at"`
 }
 
+type ListAvailableGeminiCLIRow struct {
+	ID             string    `json:"id"`
+	Email          string    `json:"email"`
+	ProjectID      string    `json:"project_id"`
+	PlanType       string    `json:"plan_type"`
+	ThrottledUntil time.Time `json:"throttled_until"`
+	SyncedAt       time.Time `json:"synced_at"`
+}
+
+type ListGeminiCLIRow struct {
+	ID             string    `json:"id"`
+	Status         string    `json:"status"`
+	AccessToken    string    `json:"-"`
+	RefreshToken   string    `json:"-"`
+	Expired        time.Time `json:"expired"`
+	Email          string    `json:"email"`
+	ProjectID      string    `json:"project_id"`
+	PlanType       string    `json:"plan_type"`
+	Reason         string    `json:"reason"`
+	ThrottledUntil time.Time `json:"throttled_until"`
+	SyncedAt       time.Time `json:"synced_at"`
+}
+
 type CreateCodexParams struct {
 	ID           string
 	Status       string
@@ -86,25 +135,40 @@ type CreateCodexParams struct {
 	PlanExpired  time.Time
 }
 
+type UpsertGeminiCLIParams struct {
+	ID           string
+	Status       string
+	AccessToken  string
+	RefreshToken string
+	Expired      time.Time
+	Email        string
+	ProjectID    string
+	PlanType     string
+	Reason       string
+}
+
 type ModelRow struct {
-	Alias   string          `json:"alias"`
-	Origin  string          `json:"origin"`
-	Handler string          `json:"handler"`
-	Extra   json.RawMessage `json:"extra"`
+	Alias     string          `json:"alias"`
+	Origin    string          `json:"origin"`
+	Handler   string          `json:"handler"`
+	PlanTypes string          `json:"plan_types"`
+	Extra     json.RawMessage `json:"extra"`
 }
 
 type CreateModelParams struct {
-	Alias   string
-	Origin  string
-	Handler string
-	Extra   json.RawMessage
+	Alias     string
+	Origin    string
+	Handler   string
+	PlanTypes string
+	Extra     json.RawMessage
 }
 
 type UpdateModelParams struct {
-	Alias   string
-	Origin  string
-	Handler string
-	Extra   json.RawMessage
+	Alias     string
+	Origin    string
+	Handler   string
+	PlanTypes string
+	Extra     json.RawMessage
 }
 
 type LogRow struct {
@@ -122,7 +186,7 @@ type CredentialFilterParams struct {
 	UnsyncedOnly bool
 }
 
-type ListCodexPagedParams struct {
+type ListCredentialPagedParams struct {
 	Limit  int32
 	Offset int32
 	CredentialFilterParams
@@ -167,16 +231,26 @@ type Store interface {
 	CountEnabledCodex(ctx context.Context) (int64, error)
 	CountCodex(ctx context.Context) (int64, error)
 	CountCodexFiltered(ctx context.Context, filter CredentialFilterParams) (int64, error)
+	CountEnabledGeminiCLI(ctx context.Context) (int64, error)
+	CountGeminiCLI(ctx context.Context) (int64, error)
+	CountGeminiCLIFiltered(ctx context.Context, filter CredentialFilterParams) (int64, error)
 	CountModels(ctx context.Context) (int64, error)
 	CountModelsByHandler(ctx context.Context, handler string) (int64, error)
 	CountAuthKeys(ctx context.Context) (int64, error)
 	GetCodex(ctx context.Context, id string) (Codex, error)
 	UpdateCodexTokens(ctx context.Context, arg UpdateCodexTokensParams) (Codex, error)
 	ListCodex(ctx context.Context) ([]ListCodexRow, error)
-	ListCodexPaged(ctx context.Context, arg ListCodexPagedParams) ([]ListCodexRow, error)
+	ListCodexPaged(ctx context.Context, arg ListCredentialPagedParams) ([]ListCodexRow, error)
 	CreateCodex(ctx context.Context, arg CreateCodexParams) (Codex, error)
 	DeleteCodex(ctx context.Context, id string) error
 	UpdateCodexStatus(ctx context.Context, id string, status string, reason string) (Codex, error)
+	GetGeminiCLI(ctx context.Context, id string) (GeminiCredential, error)
+	UpdateGeminiTokens(ctx context.Context, arg UpdateGeminiTokensParams) (GeminiCredential, error)
+	ListGeminiCLI(ctx context.Context) ([]ListGeminiCLIRow, error)
+	ListGeminiCLIPaged(ctx context.Context, arg ListCredentialPagedParams) ([]ListGeminiCLIRow, error)
+	UpsertGeminiCLI(ctx context.Context, arg UpsertGeminiCLIParams) (GeminiCredential, error)
+	DeleteGeminiCLI(ctx context.Context, id string) error
+	UpdateGeminiCLIStatus(ctx context.Context, id string, status string, reason string) (GeminiCredential, error)
 
 	ReverseInfoFromModel(ctx context.Context, alias string) (ReverseInfoFromModelRow, error)
 	ListModels(ctx context.Context) ([]ModelRow, error)
@@ -189,6 +263,8 @@ type Store interface {
 	SetQuotaThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error
 	DeleteQuota(ctx context.Context, credentialID string) error
 	ListAvailableCodex(ctx context.Context) ([]ListAvailableCodexRow, error)
+	SetGeminiCLIThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error
+	ListAvailableGeminiCLI(ctx context.Context) ([]ListAvailableGeminiCLIRow, error)
 
 	ListAuthKeys(ctx context.Context) ([]AuthKey, error)
 	GetAuthKey(ctx context.Context, key string) (AuthKey, error)

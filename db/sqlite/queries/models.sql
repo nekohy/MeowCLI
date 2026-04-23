@@ -5,7 +5,7 @@ SELECT COUNT(*) FROM models;
 SELECT COUNT(*) FROM models WHERE handler = ?;
 
 -- name: ReverseInfoFromModel :one
-SELECT origin, handler, extra
+SELECT origin, handler, plan_types, extra
 FROM models
 WHERE alias = ?
 LIMIT 1;
@@ -14,13 +14,13 @@ LIMIT 1;
 SELECT * FROM models ORDER BY alias;
 
 -- name: CreateModel :one
-INSERT INTO models (alias, origin, handler, extra)
-VALUES (?, ?, ?, ?)
+INSERT INTO models (alias, origin, handler, plan_types, extra)
+VALUES (?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: UpdateModel :one
 UPDATE models
-SET origin = ?, handler = ?, extra = ?
+SET origin = ?, handler = ?, plan_types = ?, extra = ?
 WHERE alias = ?
 RETURNING *;
 

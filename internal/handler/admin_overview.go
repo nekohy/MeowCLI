@@ -2,9 +2,11 @@ package handler
 
 import (
 	"context"
-	corecodex "github.com/nekohy/MeowCLI/core/codex"
-	"github.com/nekohy/MeowCLI/utils"
 	"net/http"
+
+	corecodex "github.com/nekohy/MeowCLI/core/codex"
+	coregemini "github.com/nekohy/MeowCLI/core/gemini"
+	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -62,7 +64,7 @@ func (a *AdminHandler) Overview(c *gin.Context) {
 func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, error) {
 	handlers := defaultHandlerOverview()
 
-	enabledCreds, err := a.store.CountEnabledCodex(ctx)
+	codexEnabled, err := a.store.CountEnabledCodex(ctx)
 	if err != nil {
 		return overviewResponse{}, err
 	}
@@ -95,6 +97,11 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 		return overviewResponse{}, err
 	}
 
+	geminiTotal, geminiEnabled, geminiAvailable, err := a.geminiCounts(ctx)
+	if err != nil {
+		return overviewResponse{}, err
+	}
+
 	for i := range handlers {
 		count, countErr := a.store.CountModelsByHandler(ctx, string(handlers[i].Key))
 		if countErr != nil {
@@ -104,16 +111,22 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 	}
 
 	for i := range handlers {
-		if handlers[i].Key == utils.HandlerCodex {
+		switch handlers[i].Key {
+		case utils.HandlerCodex:
 			handlers[i].CredentialsTotal = int(codexTotal)
-			handlers[i].CredentialsEnabled = enabledCreds
+			handlers[i].CredentialsEnabled = codexEnabled
+		case utils.HandlerGemini:
+			if geminiAvailable {
+				handlers[i].CredentialsTotal = int(geminiTotal)
+				handlers[i].CredentialsEnabled = geminiEnabled
+			}
 		}
 	}
 
 	return overviewResponse{
 		Summary: overviewSummary{
-			CredentialsEnabled: enabledCreds,
-			CredentialsTotal:   int(codexTotal),
+			CredentialsEnabled: codexEnabled + geminiEnabled,
+			CredentialsTotal:   int(codexTotal + geminiTotal),
 			ModelsTotal:        int(modelsTotal),
 			LogsTotal:          logCount,
 			AuthKeysTotal:      authKeysTotal,
@@ -121,6 +134,10 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 		Handlers:   handlers,
 		RecentLogs: recentLogs,
 	}, nil
+}
+
+func credentialsEndpointForHandler(handler utils.HandlerType) string {
+	return "/admin/api/" + string(handler)
 }
 
 func defaultHandlerOverview() []handlerOverview {
@@ -132,7 +149,7 @@ func defaultHandlerOverview() []handlerOverview {
 			SupportedAPI:        []utils.APIType{utils.APIResponses, utils.APIResponsesCompact},
 			PlanList:            corecodex.PlanList(),
 			SupportsCredentials: true,
-			CredentialEndpoint:  "/admin/api/codex",
+			CredentialEndpoint:  credentialsEndpointForHandler(utils.HandlerCodex),
 			CredentialFields: []credentialField{
 				{
 					Key:         "tokens",
@@ -140,6 +157,33 @@ func defaultHandlerOverview() []handlerOverview {
 					Kind:        "textarea",
 					Placeholder: "一行一个 Refresh Token 或 Access Token",
 					HelpText:    "每行一个 token，系统自动识别 RT 或 ATRT 会先刷新获取 AT",
+					Preferred:   true,
+				},
+			},
+			CredentialStatusOptions: []string{"enabled", "disabled"},
+		},
+		{
+			Key:                 utils.HandlerGemini,
+			Label:               "Gemini CLI",
+			Status:              "available",
+			SupportedAPI:        []utils.APIType{utils.APIGemini},
+			PlanList:            coregemini.PlanList(),
+			SupportsCredentials: true,
+			CredentialEndpoint:  credentialsEndpointForHandler(utils.HandlerGemini),
+			CredentialFields: []credentialField{
+				{
+					Key:         "id",
+					Label:       "Credential ID",
+					Kind:        "text",
+					Placeholder: "name@example.com",
+					HelpText:    "可选，留空时默认使用 Google 账号邮箱作为凭据 ID",
+				},
+				{
+					Key:         "refresh_token",
+					Label:       "Refresh Token",
+					Kind:        "password",
+					Placeholder: "1//0g...",
+					HelpText:    "填写 Google refresh token；留空 Credential ID 时默认使用 Google 账号邮箱作为凭据 ID",
 					Preferred:   true,
 				},
 			},

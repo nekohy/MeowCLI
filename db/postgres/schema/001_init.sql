@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS models (
     alias TEXT PRIMARY KEY,
     origin TEXT NOT NULL,
     handler TEXT NOT NULL,
+    plan_types TEXT NOT NULL DEFAULT '',
     extra JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
@@ -19,6 +20,22 @@ CREATE TABLE IF NOT EXISTS codex (
 );
 
 CREATE INDEX IF NOT EXISTS idx_codex_status_expired ON codex(status, expired);
+
+CREATE TABLE IF NOT EXISTS gemini_cli (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'enabled',
+    access_token TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    expired TIMESTAMPTZ NOT NULL,
+    email TEXT NOT NULL,
+    project_id TEXT NOT NULL DEFAULT '',
+    plan_type TEXT NOT NULL DEFAULT 'free',
+    reason TEXT NOT NULL DEFAULT '',
+    throttled_until TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_gemini_cli_status_expired ON gemini_cli(status, expired);
 
 CREATE TABLE IF NOT EXISTS quota (
     credential_id TEXT PRIMARY KEY,

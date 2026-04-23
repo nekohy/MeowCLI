@@ -1,11 +1,13 @@
 package codex
 
 import (
+	"bytes"
 	"context"
 	"github.com/nekohy/MeowCLI/api"
 	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	"github.com/nekohy/MeowCLI/utils"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -140,6 +142,15 @@ func (c *Client) Chat(ctx context.Context, credentialID string, body []byte, hea
 		raw.Header.Set("Content-Type", "text/event-stream")
 	}
 
+	if !isStream && raw != nil && raw.StatusCode >= 200 && raw.StatusCode < 300 {
+		translated, translateErr := translateCodexNonStreamResponse(raw)
+		if translateErr != nil {
+			_ = raw.Body.Close()
+			return nil, translateErr
+		}
+		raw = translated
+	}
+
 	if c.OnQuota != nil {
 		rl := codexutils.ParseRateLimit(raw.Header)
 		q := rl.ToQuota()
@@ -147,6 +158,33 @@ func (c *Client) Chat(ctx context.Context, credentialID string, body []byte, hea
 	}
 
 	return raw, nil
+}
+
+func translateCodexNonStreamResponse(resp *http.Response) (*http.Response, error) {
+	if resp == nil || resp.Body == nil {
+		return resp, nil
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	_ = resp.Body.Close()
+
+	translated := body
+	root := gjson.ParseBytes(body)
+	if root.Get("type").String() == "response.completed" {
+		if response := root.Get("response"); response.Exists() && response.Type == gjson.JSON {
+			translated = []byte(response.Raw)
+		}
+	}
+
+	cloned := resp.Header.Clone()
+	cloned.Set("Content-Type", "application/json")
+	cloned.Del("Content-Length")
+	resp.Header = cloned
+	resp.Body = io.NopCloser(bytes.NewReader(translated))
+	resp.ContentLength = int64(len(translated))
+	return resp, nil
 }
 
 func (c *Client) proxyURL() (*url.URL, error) {

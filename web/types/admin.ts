@@ -77,8 +77,11 @@ export interface SettingsSnapshot {
   allow_user_plan_type_header: boolean
   global_proxy: string
   codex_proxy: string
+  gemini_proxy: string
   codex_allow_user_plan_type_header: boolean
   codex_preferred_plan_types: string
+  gemini_allow_user_plan_type_header: boolean
+  gemini_preferred_plan_types: string
   refresh_before_seconds: number
   poll_interval_milliseconds: number
   quota_sync_interval_seconds: number
@@ -92,8 +95,11 @@ export interface SettingsForm {
   allow_user_plan_type_header: boolean
   global_proxy: string
   codex_proxy: string
+  gemini_proxy: string
   codex_allow_user_plan_type_header: boolean
   codex_preferred_plan_types: string
+  gemini_allow_user_plan_type_header: boolean
+  gemini_preferred_plan_types: string
   refresh_before_seconds: string
   poll_interval_milliseconds: string
   quota_sync_interval_seconds: string
@@ -104,6 +110,7 @@ export interface SettingsForm {
 }
 
 export interface CodexItem {
+  handler: 'codex'
   id: string
   status: string
   expired: string
@@ -118,10 +125,33 @@ export interface CodexItem {
   reason: string
 }
 
+export interface GeminiCredentialItem {
+  handler: 'gemini'
+  id: string
+  status: string
+  email: string
+  project_id: string
+  plan_type: string
+  expired: string
+  reason: string
+  synced_at: string
+  throttled_until: string
+}
+
+export type CredentialItem = CodexItem | GeminiCredentialItem
+
+export interface GeminiCredentialInput {
+  id?: string
+  refresh_token: string
+}
+
+export type CredentialHandlerKey = 'codex' | 'gemini'
+
 export interface ModelItem {
   alias: string
   origin: string
   handler: string
+  plan_types: string
   extra: Record<string, unknown>
 }
 

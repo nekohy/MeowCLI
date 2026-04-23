@@ -3,7 +3,6 @@ package codex
 import (
 	"net/http"
 	"strings"
-	"unicode"
 
 	"github.com/nekohy/MeowCLI/utils"
 )
@@ -18,29 +17,22 @@ const (
 	planTypeUnknown    = "unknown"
 )
 
-var planTypeLabelsByStableCode = map[string]string{
-	"0": planTypeFree,
-	"1": planTypePlus,
-	"2": planTypeTeam,
-	"3": planTypePro,
-	"4": planTypeBusiness,
-	"5": planTypeEnterprise,
-	"6": planTypeUnknown,
-}
-
 func NormalizePlanType(planType string) string {
 	normalized := strings.ToLower(strings.TrimSpace(planType))
-	if normalized == "" {
+	switch normalized {
+	case planTypeFree, planTypePlus, planTypeTeam, planTypePro, planTypeBusiness, planTypeEnterprise, planTypeUnknown:
+		return normalized
+	default:
 		return ""
 	}
-	if label, ok := planTypeLabelsByStableCode[normalized]; ok {
-		return label
-	}
-	return normalized
 }
 
 func NormalizePlanTypeList(raw string) string {
-	return joinPlanTypeList(parsePlanTypeList(raw))
+	return utils.JoinNormalizedList(utils.ParseDelimitedList(raw, NormalizePlanType), NormalizePlanType)
+}
+
+func ParsePlanTypeList(raw string) []string {
+	return utils.ParseDelimitedList(raw, NormalizePlanType)
 }
 
 func PlanList() []string {
@@ -53,54 +45,6 @@ func PlanList() []string {
 		planTypeEnterprise,
 		planTypeUnknown,
 	}
-}
-
-func parsePlanTypeList(raw string) []string {
-	if raw == "" {
-		return nil
-	}
-
-	parts := strings.FieldsFunc(raw, isPlanTypeSeparator)
-
-	planTypes := make([]string, 0, len(parts))
-	seen := make(map[string]struct{}, len(parts))
-	for _, part := range parts {
-		planType := NormalizePlanType(part)
-		if planType == "" {
-			continue
-		}
-		if _, ok := seen[planType]; ok {
-			continue
-		}
-		seen[planType] = struct{}{}
-		planTypes = append(planTypes, planType)
-	}
-	return planTypes
-}
-
-func isPlanTypeSeparator(r rune) bool {
-	return r == ',' || r == ';' || unicode.IsSpace(r)
-}
-
-func joinPlanTypeList(planTypes []string) string {
-	if len(planTypes) == 0 {
-		return ""
-	}
-
-	normalized := make([]string, 0, len(planTypes))
-	seen := make(map[string]struct{}, len(planTypes))
-	for _, planType := range planTypes {
-		label := NormalizePlanType(planType)
-		if label == "" {
-			continue
-		}
-		if _, ok := seen[label]; ok {
-			continue
-		}
-		seen[label] = struct{}{}
-		normalized = append(normalized, label)
-	}
-	return strings.Join(normalized, ",")
 }
 
 const planTypeCodeAny = -1
@@ -168,7 +112,7 @@ func (s *Scheduler) preferredPlanTypeCodes(headers http.Header) []int {
 
 	return mergePlanTypeCodes(
 		headerPlanTypeCodes(headers, snapshot.AllowUserPlanTypeHeader && snapshot.CodexAllowUserPlanTypeHeader, codec),
-		codec.codesFor(parsePlanTypeList(snapshot.CodexPreferredPlanTypes)),
+		codec.codesFor(ParsePlanTypeList(snapshot.CodexPreferredPlanTypes)),
 	)
 }
 
@@ -176,5 +120,5 @@ func headerPlanTypeCodes(headers http.Header, enabled bool, codec *planTypeCodec
 	if !enabled {
 		return nil
 	}
-	return codec.codesFor(parsePlanTypeList(strings.Join(headers.Values(utils.HeaderPlanTypePreference), ",")))
+	return codec.codesFor(ParsePlanTypeList(strings.Join(headers.Values(utils.HeaderPlanTypePreference), ",")))
 }

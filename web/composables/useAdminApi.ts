@@ -3,12 +3,14 @@ import type {
   BatchCreateResponse,
   BatchDeleteResponse,
   BatchStatusResponse,
+  CredentialHandlerKey,
+  CredentialItem,
   CreateAuthKeyResponse,
+  GeminiCredentialInput,
   ModelItem,
   OverviewResponse,
-  PaginatedResponse,
-  CodexItem,
   LogItem,
+  PaginatedResponse,
   SettingsSnapshot,
   SetupResult,
 } from '~/types/admin'
@@ -129,6 +131,10 @@ type CredentialListFilters = {
   unsynced?: boolean
 }
 
+function credentialsPathForHandler(handler: CredentialHandlerKey) {
+  return handler === 'gemini' ? '/gemini' : '/codex'
+}
+
 function buildPaginatedQuery<TExtra extends QueryOptions>(options: PaginationOptions, extraQuery?: TExtra): QueryOptions {
   const { page = 1, pageSize = 25 } = options
   return {
@@ -158,39 +164,51 @@ export const adminApi = {
       body: payload,
     })
   },
-  listCodex(token: string, options: ListOptions<CredentialListFilters> = {}) {
+  listCredentials(token: string, handler: CredentialHandlerKey, options: ListOptions<CredentialListFilters> = {}) {
     const {
       search = '',
       status,
       planType,
       unsynced,
     } = options
-    return apiRequest<PaginatedResponse<CodexItem>>('/codex', {
+    return apiRequest<PaginatedResponse<CredentialItem>>(credentialsPathForHandler(handler), {
       token,
       query: buildPaginatedQuery(options, {
         search,
         status,
         plan_type: planType,
-        unsynced,
+        unsynced: handler === 'codex' ? unsynced : undefined,
       }),
     })
   },
-  batchCreateCodex(token: string, payload: { tokens: string[] }) {
-    return apiRequest<BatchCreateResponse>('/codex', { token, method: 'POST', body: payload })
+  createCredentials(token: string, handler: CredentialHandlerKey, payload: { tokens: string[] } | { credentials: GeminiCredentialInput[] }) {
+    return apiRequest<BatchCreateResponse>(credentialsPathForHandler(handler), {
+      token,
+      method: 'POST',
+      body: payload,
+    })
   },
-  batchUpdateCodexStatus(token: string, payload: { ids: string[]; status: string }) {
-    return apiRequest<BatchStatusResponse>('/codex/status', { token, method: 'PUT', body: payload })
+  updateCredentialStatus(token: string, handler: CredentialHandlerKey, payload: { ids: string[]; status: string }) {
+    return apiRequest<BatchStatusResponse>(`${credentialsPathForHandler(handler)}/status`, {
+      token,
+      method: 'PUT',
+      body: payload,
+    })
   },
-  batchDeleteCodex(token: string, payload: { ids: string[] }) {
-    return apiRequest<BatchDeleteResponse>('/codex', { token, method: 'DELETE', body: payload })
+  deleteCredentials(token: string, handler: CredentialHandlerKey, payload: { ids: string[] }) {
+    return apiRequest<BatchDeleteResponse>(credentialsPathForHandler(handler), {
+      token,
+      method: 'DELETE',
+      body: payload,
+    })
   },
   listModels(token: string) {
     return apiRequest<ModelItem[]>('/models', { token })
   },
-  createModel(token: string, payload: { alias: string; origin: string; handler: string; extra: Record<string, unknown> }) {
+  createModel(token: string, payload: { alias: string; origin: string; handler: string; plan_types: string; extra: Record<string, unknown> }) {
     return apiRequest<ModelItem>('/models', { token, method: 'POST', body: payload })
   },
-  updateModel(token: string, alias: string, payload: { origin: string; handler: string; extra: Record<string, unknown> }) {
+  updateModel(token: string, alias: string, payload: { origin: string; handler: string; plan_types: string; extra: Record<string, unknown> }) {
     return apiRequest<ModelItem>(`/models/${encodeURIComponent(alias)}`, {
       token,
       method: 'PUT',

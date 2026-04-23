@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -13,23 +14,9 @@ import (
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rs/zerolog/log"
 )
 
 const defaultCodexPageSize = 25
-
-type batchCreateCodexReq struct {
-	Tokens []string `json:"tokens" binding:"required,min=1"`
-}
-
-type batchUpdateStatusReq struct {
-	IDs    []string `json:"ids" binding:"required,min=1"`
-	Status string   `json:"status" binding:"required,oneof=enabled disabled"`
-}
-
-type batchDeleteCodexReq struct {
-	IDs []string `json:"ids" binding:"required,min=1"`
-}
 
 type batchCreateResult struct {
 	ID string `json:"id"`
@@ -41,6 +28,7 @@ type batchError struct {
 }
 
 type codexListItem struct {
+	Handler        string    `json:"handler"`
 	ID             string    `json:"id"`
 	Status         string    `json:"status"`
 	Expired        time.Time `json:"expired"`
@@ -74,7 +62,7 @@ func (a *AdminHandler) ListCodex(c *gin.Context) {
 	}
 
 	offset := int32((page - 1) * pageSize)
-	rows, err := a.store.ListCodexPaged(c.Request.Context(), db.ListCodexPagedParams{
+	rows, err := a.store.ListCodexPaged(c.Request.Context(), db.ListCredentialPagedParams{
 		Limit:                  int32(pageSize),
 		Offset:                 offset,
 		CredentialFilterParams: filters,
@@ -98,155 +86,160 @@ func codexFiltersFromRequest(c *gin.Context) db.CredentialFilterParams {
 		status = ""
 	}
 
-	planType := strings.TrimSpace(c.Query("plan_type"))
-	if planType != "" && planType != "all" {
-		planType = corecodex.NormalizePlanType(planType)
-	} else {
-		planType = ""
-	}
-
-	unsyncedOnly := false
-	switch strings.ToLower(strings.TrimSpace(c.Query("unsynced"))) {
-	case "1", "true", "yes":
-		unsyncedOnly = true
-	}
-
 	return db.CredentialFilterParams{
 		Search:       strings.TrimSpace(c.Query("search")),
 		Status:       status,
-		PlanType:     planType,
-		UnsyncedOnly: unsyncedOnly,
+		PlanType:     corecodex.NormalizePlanType(c.Query("plan_type")),
+		UnsyncedOnly: c.Query("unsynced") == "true",
 	}
 }
 
 func (a *AdminHandler) BatchCreateCodex(c *gin.Context) {
+	if a == nil || a.codexAPI == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "codex backend is unavailable"})
+		return
+	}
+
 	var req batchCreateCodexReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	ctx := c.Request.Context()
 	var created []batchCreateResult
 	var errs []batchError
-	var newIDs []string
 
-	for _, raw := range req.Tokens {
-		token := strings.TrimSpace(raw)
+	for _, token := range req.Tokens {
+		token = strings.TrimSpace(token)
 		if token == "" {
 			continue
 		}
-
-		id, createErr := a.processOneToken(ctx, token)
-		if createErr != nil {
+		id, err := a.processOneToken(c.Request.Context(), token)
+		if err != nil {
 			errs = append(errs, batchError{
 				Input: maskToken(token),
-				Error: storeErrorMessage(createErr, "", "credential already exists"),
+				Error: err.Error(),
 			})
 			continue
 		}
 		created = append(created, batchCreateResult{ID: id})
-		newIDs = append(newIDs, id)
 	}
 
-	// Refresh + sync quotas for newly created credentials
-	a.refreshCredentials(ctx)
-	if len(newIDs) > 0 && a.credRefresh != nil {
-		a.credRefresh.SyncQuotas(ctx, newIDs)
-	}
-
+	a.refreshCredentials(c.Request.Context())
 	c.JSON(http.StatusOK, gin.H{
 		"created": created,
 		"errors":  errs,
 	})
 }
 
+type batchCreateCodexReq struct {
+	Tokens []string `json:"tokens" binding:"required,min=1"`
+}
+
 func (a *AdminHandler) processOneToken(ctx context.Context, token string) (string, error) {
 	switch {
 	case strings.HasPrefix(token, "rt_"), strings.HasPrefix(token, "oaistb"):
-		if a.codexAPI == nil {
-			return "", fmt.Errorf("codex api is unavailable")
-		}
 		tokenData, _, err := a.codexAPI.RefreshAccessToken(ctx, token)
 		if err != nil {
 			return "", fmt.Errorf("failed to refresh refresh_token: %w", err)
 		}
-		return a.createFromTokenData(ctx, tokenData.AccessToken, tokenData.RefreshToken, tokenData.IDToken)
+		return a.upsertCodexFromTokenData(ctx, tokenData.AccessToken, tokenData.RefreshToken, tokenData.IDToken)
 	case strings.HasPrefix(token, "eyJ"):
-		return a.createFromTokenData(ctx, token, "", "")
+		return a.upsertCodexFromTokenData(ctx, token, "", "")
 	default:
 		return "", fmt.Errorf("unsupported token format: expected refresh_token starting with rt_/oaistb or access_token starting with eyJ")
 	}
 }
 
-func (a *AdminHandler) createFromTokenData(ctx context.Context, accessToken, refreshToken, idToken string) (string, error) {
+type codexCredentialPayload struct {
+	CredentialID string
+	AccessToken  string
+	RefreshToken string
+	Expired      time.Time
+	PlanType     string
+	PlanExpired  time.Time
+	Email        string
+}
+
+func (a *AdminHandler) parseCodexTokenData(accessToken, refreshToken, idToken string) (*codexCredentialPayload, error) {
 	accessClaims, err := utils.ParseJWT(accessToken)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse access_token: %w", err)
+		return nil, fmt.Errorf("failed to parse access_token: %w", err)
 	}
 	if exp := accessClaims.GetExpiry(); !exp.IsZero() && exp.Before(time.Now()) {
-		return "", fmt.Errorf("access_token is expired")
+		return nil, fmt.Errorf("access_token is expired")
 	}
 
 	credentialID := accessClaims.GetCredentialID()
-
-	planType := "unknown"
-	if pt := accessClaims.GetPlanType(); pt != "" {
-		planType = pt
-	}
-	planExpired := accessClaims.GetSubscriptionActiveUntil()
+	planType := accessClaims.GetPlanType()
 	expired := accessClaims.GetExpiry()
-	email := accessClaims.GetEmail()
+	var planExpired time.Time
 
-	// 优先从 id_token 提取 plan 信息（与 manager.refreshAndWriteBack 保持一致）
+	email := accessClaims.GetEmail()
 	if idToken != "" {
-		if idClaims, idErr := utils.ParseJWT(idToken); idErr == nil {
-			if pt := idClaims.GetPlanType(); pt != "" {
-				planType = pt
-			}
-			if until := idClaims.GetSubscriptionActiveUntil(); !until.IsZero() {
-				planExpired = until
-			}
-			if credentialID == "" {
-				credentialID = idClaims.GetCredentialID()
-			}
-			if email == "" {
-				email = idClaims.GetEmail()
+		idClaims, idErr := utils.ParseJWT(idToken)
+		if idErr == nil {
+			if idEmail := idClaims.GetEmail(); idEmail != "" {
+				email = idEmail
 			}
 		}
 	}
 	if credentialID == "" {
-		return "", fmt.Errorf("could not extract chatgpt account user id from token")
+		return nil, fmt.Errorf("could not extract chatgpt account user id from token")
 	}
 	accountID := utils.AccountIDFromCredentialID(credentialID)
 	if accountID == "" {
-		return "", fmt.Errorf("could not extract chatgpt account id from token")
+		return nil, fmt.Errorf("could not extract chatgpt account id from token")
 	}
 
 	planType = corecodex.NormalizePlanType(planType)
 
-	if email != "" {
-		log.Info().
-			Str("credential_id", credentialID).
-			Str("account_id", accountID).
-			Str("email", email).
-			Str("plan", planType).
-			Msg("creating credential")
+	return &codexCredentialPayload{
+		CredentialID: credentialID,
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		Expired:      expired,
+		PlanType:     planType,
+		PlanExpired:  planExpired,
+		Email:        email,
+	}, nil
+}
+
+func (a *AdminHandler) upsertCodexFromTokenData(ctx context.Context, accessToken, refreshToken, idToken string) (string, error) {
+	payload, err := a.parseCodexTokenData(accessToken, refreshToken, idToken)
+	if err != nil {
+		return "", err
 	}
 
 	_, err = a.store.CreateCodex(ctx, db.CreateCodexParams{
-		ID:           credentialID,
+		ID:           payload.CredentialID,
 		Status:       "enabled",
-		AccessToken:  accessToken,
-		Expired:      expired,
-		RefreshToken: refreshToken,
-		PlanType:     planType,
-		PlanExpired:  planExpired,
+		AccessToken:  payload.AccessToken,
+		Expired:      payload.Expired,
+		RefreshToken: payload.RefreshToken,
+		PlanType:     payload.PlanType,
+		PlanExpired:  payload.PlanExpired,
+	})
+	if err == nil {
+		return payload.CredentialID, nil
+	}
+	if !errors.Is(err, db.ErrConflict) {
+		return "", err
+	}
+
+	_, err = a.store.UpdateCodexTokens(ctx, db.UpdateCodexTokensParams{
+		ID:           payload.CredentialID,
+		Status:       "enabled",
+		AccessToken:  payload.AccessToken,
+		Expired:      payload.Expired,
+		RefreshToken: payload.RefreshToken,
+		PlanType:     payload.PlanType,
+		PlanExpired:  payload.PlanExpired,
 	})
 	if err != nil {
 		return "", err
 	}
-	return credentialID, nil
+	return payload.CredentialID, nil
 }
 
 func (a *AdminHandler) BatchUpdateStatus(c *gin.Context) {
@@ -285,7 +278,7 @@ func (a *AdminHandler) BatchUpdateStatus(c *gin.Context) {
 }
 
 func (a *AdminHandler) BatchDeleteCodex(c *gin.Context) {
-	var req batchDeleteCodexReq
+	var req batchDeleteReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -300,6 +293,7 @@ func (a *AdminHandler) BatchDeleteCodex(c *gin.Context) {
 		if id == "" {
 			continue
 		}
+
 		if err := a.store.DeleteCodex(ctx, id); err != nil {
 			errs = append(errs, batchError{
 				Input: id,
@@ -317,16 +311,11 @@ func (a *AdminHandler) BatchDeleteCodex(c *gin.Context) {
 	})
 }
 
-func (a *AdminHandler) refreshCredentials(ctx context.Context) {
-	if a.credRefresh != nil {
-		_ = a.credRefresh.RefreshAvailable(ctx)
-	}
-}
-
 func serializeCodexRows(rows []db.ListCodexRow) []codexListItem {
 	items := make([]codexListItem, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, codexListItem{
+			Handler:        string(utils.HandlerCodex),
 			ID:             row.ID,
 			Status:         row.Status,
 			Expired:        row.Expired,
@@ -349,4 +338,16 @@ func maskToken(token string) string {
 		return "***"
 	}
 	return token[:6] + "..." + token[len(token)-6:]
+}
+
+type batchUpdateStatusReq struct {
+	IDs    []string `json:"ids" binding:"required,min=1"`
+	Status string   `json:"status" binding:"required,oneof=enabled disabled"`
+}
+
+func (a *AdminHandler) refreshCredentials(ctx context.Context) {
+	if a == nil || a.credRefresh == nil {
+		return
+	}
+	_ = a.credRefresh.RefreshAvailable(ctx)
 }

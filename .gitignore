@@ -10,3 +10,4 @@ web/.output/
 *.db
 *.exe
 /.claude
+CLIProxyAPI/

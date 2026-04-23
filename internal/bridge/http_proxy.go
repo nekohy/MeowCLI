@@ -47,3 +47,12 @@ func copyUpstreamHeaders(dst, src http.Header, dropContentLength bool) {
 		}
 	}
 }
+
+func scrubLocalAuthHeaders(headers http.Header) {
+	if headers == nil {
+		return
+	}
+	headers.Del("X-Goog-Api-Key")
+	headers.Del("X-Api-Key")
+	headers.Del("Api-Key")
+}

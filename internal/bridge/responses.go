@@ -14,16 +14,33 @@ import (
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/maypok86/otter/v2"
 )
+
+type ResolvedModel struct {
+	Origin           string
+	Handler          utils.HandlerType
+	AllowedPlanTypes []string
+}
 
 // ModelStore 提供模型别名到上游模型名的映射
 type ModelStore interface {
-	ResolveModel(ctx context.Context, alias string) (origin string, handler utils.HandlerType, err error)
+	ResolveModel(ctx context.Context, alias string) (*ResolvedModel, error)
+}
+
+type ModelListItem struct {
+	Alias   string
+	Origin  string
+	Handler utils.HandlerType
+}
+
+type ModelLister interface {
+	ListModels(ctx context.Context) ([]ModelListItem, error)
 }
 
 // CredentialScheduler 提供凭证调度与状态记录（每个 HandlerType 独立一个）
 type CredentialScheduler interface {
-	Pick(ctx context.Context, headers http.Header) (credentialID string, err error)
+	Pick(ctx context.Context, headers http.Header, preferredCredentialID string, allowedPlanTypes []string) (credentialID string, err error)
 	// AuthHeaders 返回该凭证的认证头（如 Authorization, Account-Id 等），由各类型自行实现
 	AuthHeaders(ctx context.Context, credentialID string) (http.Header, error)
 	RecordSuccess(ctx context.Context, credentialID string, statusCode int32)
@@ -31,9 +48,12 @@ type CredentialScheduler interface {
 	HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, text string) bool
 }
 
-type modelInfo struct {
-	origin  string
-	handler utils.HandlerType
+type RetryDelayParser interface {
+	RetryDelay(statusCode int32, text string, headers http.Header) time.Duration
+}
+
+type GraceRetryDecider interface {
+	GraceRetry(statusCode int32, text string, retryAfter time.Duration) (time.Duration, bool)
 }
 
 // Handler 处理 /v1/responses 请求
@@ -42,6 +62,7 @@ type Handler struct {
 	models     ModelStore
 	schedulers map[utils.HandlerType]CredentialScheduler
 	settings   settings.Provider
+	sessions   *otter.Cache[string, string]
 }
 
 func NewHandler(models ModelStore, schedulers map[utils.HandlerType]CredentialScheduler, backends ...api.Backend) *Handler {
@@ -53,6 +74,7 @@ func NewHandler(models ModelStore, schedulers map[utils.HandlerType]CredentialSc
 		backends:   m,
 		models:     models,
 		schedulers: schedulers,
+		sessions:   newSessionAffinityCache(),
 	}
 }
 
@@ -69,12 +91,8 @@ func (h *Handler) Route(apiType utils.APIType) gin.HandlerFunc {
 	}
 }
 
-func (h *Handler) resolveModel(ctx context.Context, alias string) (*modelInfo, error) {
-	origin, handler, err := h.models.ResolveModel(ctx, alias)
-	if err != nil {
-		return nil, err
-	}
-	return &modelInfo{origin: origin, handler: handler}, nil
+func (h *Handler) resolveModel(ctx context.Context, alias string) (*ResolvedModel, error) {
+	return h.models.ResolveModel(ctx, alias)
 }
 
 func (h *Handler) maxRetries() int {
@@ -107,8 +125,8 @@ func (h *Handler) streamSSE(c *gin.Context, resp *http.Response, backend api.Bac
 		_ = Body.Close()
 	}(resp.Body)
 
-	// 不需要替换时直接透传
-	if alias == "" {
+	normalizePayload := alias != "" || backend.HandlerType() == utils.HandlerGemini
+	if !normalizePayload {
 		buf := make([]byte, 32*1024)
 		for {
 			n, err := resp.Body.Read(buf)
@@ -129,7 +147,7 @@ func (h *Handler) streamSSE(c *gin.Context, resp *http.Response, backend api.Bac
 		}
 	}
 
-	// 需要替换：逐行读取，替换 data 行中的 model 字段。
+	// 需要替换：逐行读取，替换 data 行中的 model 字段
 	reader := bufio.NewReaderSize(resp.Body, 32*1024)
 	for {
 		line, err := reader.ReadBytes('\n')

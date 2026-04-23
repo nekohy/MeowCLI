@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
-import { safeStringify, statusText, toneForStatus } from '~/lib/admin'
+import { joinPlanTypeInput, planTypeText, safeStringify, splitPlanTypeInput, statusText } from '~/lib/admin'
 import type { ModelItem } from '~/types/admin'
 
 function hasExtra(extra: unknown): boolean {
@@ -26,9 +26,34 @@ const modalOpen = ref(false)
 const modalMode = ref<'create' | 'edit'>('create')
 const modalAlias = ref('')
 const modalOrigin = ref('')
-const modalHandler = ref('codex')
+const modalHandler = ref('gemini')
+const modalPlanTypes = ref('')
 const modalExtra = ref('{}')
 const modalError = ref('')
+const planOrderOpen = ref(false)
+const planOrderDraft = ref<string[]>([])
+const dragIdx = ref<number | null>(null)
+
+const modalHandlerConfig = computed(() => (
+  admin.handlers.value.find((handler) => handler.key === modalHandler.value) || null
+))
+const modalAvailablePlanTypes = computed(() => modalHandlerConfig.value?.plan_list || [])
+const modalSelectedPlanTypes = computed(() => splitPlanTypeInput(modalPlanTypes.value))
+
+function defaultPlanTypesForHandler(handlerKey: string) {
+  return handlerKey === 'gemini' ? 'ultra,pro,free' : ''
+}
+
+const hintNoPlanTypes = computed(() => {
+  if (modalHandler.value === 'gemini') return '未限制，默认使用 ultra → pro → free'
+  return '未限制，调度器将使用所有可用套餐'
+})
+
+function syncPlanOrderDraft() {
+  const selected = modalSelectedPlanTypes.value
+  const remaining = modalAvailablePlanTypes.value.filter((planType) => !selected.includes(planType))
+  planOrderDraft.value = [...selected, ...remaining]
+}
 
 const filteredItems = computed(() => {
   const query = search.value.trim().toLowerCase()
@@ -39,7 +64,7 @@ const filteredItems = computed(() => {
     if (!query) {
       return true
     }
-    return [item.alias, item.origin, item.handler, safeStringify(item.extra)]
+    return [item.alias, item.origin, item.handler, item.plan_types, safeStringify(item.extra)]
       .some((value) => String(value || '').toLowerCase().includes(query))
   })
 })
@@ -64,8 +89,10 @@ function openCreateModal() {
   modalAlias.value = ''
   modalOrigin.value = ''
   modalHandler.value = admin.activeHandler.value?.key || admin.handlers.value[0]?.key || 'codex'
+  modalPlanTypes.value = defaultPlanTypesForHandler(modalHandler.value)
   modalExtra.value = '{}'
   modalError.value = ''
+  syncPlanOrderDraft()
   modalOpen.value = true
 }
 
@@ -74,14 +101,64 @@ function openEditModal(item: ModelItem) {
   modalAlias.value = item.alias
   modalOrigin.value = item.origin
   modalHandler.value = item.handler
+  modalPlanTypes.value = item.plan_types || defaultPlanTypesForHandler(item.handler)
   modalExtra.value = safeStringify(item.extra)
   modalError.value = ''
+  syncPlanOrderDraft()
   modalOpen.value = true
 }
 
 function closeModal() {
   modalOpen.value = false
   modalError.value = ''
+  planOrderOpen.value = false
+  dragIdx.value = null
+}
+
+function openPlanOrderModal() {
+  syncPlanOrderDraft()
+  planOrderOpen.value = true
+}
+
+function planOrderDraftSelected(planType: string) {
+  return modalSelectedPlanTypes.value.includes(planType)
+}
+
+function togglePlanType(planType: string) {
+  const selected = [...modalSelectedPlanTypes.value]
+  const idx = selected.indexOf(planType)
+  if (idx >= 0) {
+    selected.splice(idx, 1)
+  } else {
+    selected.push(planType)
+  }
+  modalPlanTypes.value = joinPlanTypeInput(selected)
+  syncPlanOrderDraft()
+}
+
+function onDragStart(idx: number) {
+  dragIdx.value = idx
+}
+
+function onDragOver(event: DragEvent, idx: number) {
+  event.preventDefault()
+  if (dragIdx.value === null || dragIdx.value === idx) {
+    return
+  }
+  const next = [...planOrderDraft.value]
+  const moved = next.splice(dragIdx.value, 1)[0]
+  if (!moved) {
+    return
+  }
+  next.splice(idx, 0, moved)
+  planOrderDraft.value = next
+  dragIdx.value = idx
+}
+
+function onDragEnd() {
+  dragIdx.value = null
+  const selected = new Set(modalSelectedPlanTypes.value)
+  modalPlanTypes.value = joinPlanTypeInput(planOrderDraft.value.filter((planType) => selected.has(planType)))
 }
 
 async function saveModel() {
@@ -99,6 +176,7 @@ async function saveModel() {
     const payload = {
       origin: modalOrigin.value.trim(),
       handler: modalHandler.value,
+      plan_types: joinPlanTypeInput(splitPlanTypeInput(modalPlanTypes.value)),
       extra,
     }
 
@@ -159,6 +237,23 @@ watch(
     if (ready) {
       void loadModels()
     }
+  },
+)
+
+watch(
+  () => modalHandler.value,
+  (handler, previous) => {
+    if (handler === previous) {
+      return
+    }
+    if (modalMode.value === 'create' || modalPlanTypes.value === defaultPlanTypesForHandler(previous || '')) {
+      modalPlanTypes.value = defaultPlanTypesForHandler(handler)
+    } else {
+      modalPlanTypes.value = joinPlanTypeInput(
+        modalSelectedPlanTypes.value.filter((planType) => modalAvailablePlanTypes.value.includes(planType)),
+      )
+    }
+    syncPlanOrderDraft()
   },
 )
 </script>
@@ -225,11 +320,10 @@ watch(
                 <div class="d-flex align-center ga-2 text-caption text-medium-emphasis">
                   <span class="text-truncate" style="max-width: 280px">{{ item.origin }}</span>
                   <VIcon icon="mdi-chevron-right" size="16" />
-                  <span class="text-primary font-weight-bold">{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
                 </div>
               </div>
-              <AdminBadge :tone="toneForStatus(admin.handlerLookup.value.get(item.handler)?.status || 'planned')" subtle>
-                {{ statusText(admin.handlerLookup.value.get(item.handler)?.status || 'planned') }}
+              <AdminBadge tone="secondary" subtle :icon="item.handler === 'gemini' ? 'mdi-google-circles-communities' : 'mdi-console'">
+                {{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}
               </AdminBadge>
             </div>
 
@@ -239,6 +333,24 @@ watch(
                 <span>JSON</span>
               </div>
               <code class="text-caption d-block" style="white-space: pre-wrap; overflow: auto; max-height: 80px">{{ safeStringify(item.extra) }}</code>
+            </VSheet>
+
+            <VSheet v-if="item.plan_types" color="surface-container-high" rounded="lg" class="pa-3">
+              <div class="text-caption text-medium-emphasis mb-2 d-flex align-center ga-1">
+                <VIcon icon="mdi-star-circle-outline" size="14" />
+                <span>套餐</span>
+              </div>
+              <div class="d-flex flex-wrap ga-2">
+                <AdminBadge
+                  v-for="(pt, idx) in splitPlanTypeInput(item.plan_types)"
+                  :key="pt"
+                  tone="secondary"
+                  subtle
+                  icon="mdi-sort"
+                >
+                  {{ idx + 1 }}. {{ planTypeText(pt) }}
+                </AdminBadge>
+              </div>
             </VSheet>
 
             <div class="d-flex ga-2">
@@ -301,6 +413,51 @@ watch(
             value: handler.key,
           }))"
         />
+        <VSheet
+          color="surface-container-high"
+          rounded="lg"
+          class="pa-4 d-grid ga-3"
+        >
+          <div class="d-flex justify-space-between align-center ga-3 flex-wrap">
+            <div>
+              <div class="text-subtitle-2 font-weight-bold">套餐类型</div>
+              <div class="text-caption text-medium-emphasis">
+                多选并排序，调度会按从左到右的顺序优先使用。
+              </div>
+            </div>
+            <AdminButton variant="secondary" size="sm" prepend-icon="mdi-swap-vertical" @click="openPlanOrderModal">
+              排序
+            </AdminButton>
+          </div>
+
+          <div class="d-flex flex-wrap ga-2">
+            <VChip
+              v-for="planType in modalAvailablePlanTypes"
+              :key="planType"
+              :color="planOrderDraftSelected(planType) ? 'primary' : undefined"
+              :variant="planOrderDraftSelected(planType) ? 'flat' : 'outlined'"
+              filter
+              @click="togglePlanType(planType)"
+            >
+              {{ planTypeText(planType) }}
+            </VChip>
+          </div>
+
+          <div class="d-flex flex-wrap ga-2">
+            <AdminBadge
+              v-for="(planType, idx) in modalSelectedPlanTypes"
+              :key="`${planType}-${idx}`"
+              tone="secondary"
+              subtle
+              icon="mdi-sort"
+            >
+              {{ idx + 1 }}. {{ planTypeText(planType) }}
+            </AdminBadge>
+            <span v-if="!modalSelectedPlanTypes.length" class="text-caption text-medium-emphasis">
+              {{ hintNoPlanTypes }}
+            </span>
+          </div>
+        </VSheet>
         <VTextarea
           v-model="modalExtra"
           rows="4"
@@ -329,6 +486,47 @@ watch(
     </ModalDialog>
 
     <ModalDialog
+      :open="planOrderOpen"
+      title="套餐类型排序"
+      description="拖动调整优先级，勾选决定是否启用。"
+      icon="mdi-sort"
+      :max-width="460"
+      @close="planOrderOpen = false"
+    >
+      <div class="plan-order-list">
+        <div
+          v-for="(planType, idx) in planOrderDraft"
+          :key="planType"
+          class="plan-order-item"
+          :class="{
+            'plan-order-item--selected': planOrderDraftSelected(planType),
+            'plan-order-item--dragging': dragIdx === idx,
+          }"
+          draggable="true"
+          @dragstart="onDragStart(idx)"
+          @dragover="(event) => onDragOver(event, idx)"
+          @dragend="onDragEnd"
+        >
+          <VIcon icon="mdi-drag" size="18" class="plan-order-drag text-medium-emphasis" />
+          <VCheckbox
+            :model-value="planOrderDraftSelected(planType)"
+            density="compact"
+            hide-details
+            @update:model-value="togglePlanType(planType)"
+            @click.stop
+          />
+          <span class="plan-order-label">{{ planTypeText(planType) }}</span>
+          <span v-if="planOrderDraftSelected(planType)" class="plan-order-rank text-medium-emphasis">
+            #{{ modalSelectedPlanTypes.indexOf(planType) + 1 }}
+          </span>
+        </div>
+      </div>
+      <template #footer>
+        <AdminButton variant="ghost" @click="planOrderOpen = false">关闭</AdminButton>
+      </template>
+    </ModalDialog>
+
+    <ModalDialog
       :open="confirm.open.value"
       :title="confirm.title.value"
       icon="mdi-delete-outline"
@@ -342,3 +540,40 @@ watch(
     </ModalDialog>
   </div>
 </template>
+
+<style scoped>
+.plan-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plan-order-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(var(--v-theme-outline), 0.24);
+  background: rgba(var(--v-theme-surface-container-high), 0.76);
+}
+
+.plan-order-item--selected {
+  border-color: rgba(var(--v-theme-primary), 0.34);
+}
+
+.plan-order-item--dragging {
+  opacity: 0.72;
+}
+
+.plan-order-label {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.plan-order-rank {
+  font-size: 0.85rem;
+}
+</style>

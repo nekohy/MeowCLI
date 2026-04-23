@@ -16,13 +16,13 @@ const (
 type HandlerType string
 
 const (
-	HandlerCodex     HandlerType = "codex"
-	HandlerGeminiCLI HandlerType = "gemini-cli"
+	HandlerCodex  HandlerType = "codex"
+	HandlerGemini HandlerType = "gemini"
 )
 
 func ParseHandlerType(s string) (HandlerType, bool) {
 	switch HandlerType(s) {
-	case HandlerCodex, HandlerGeminiCLI:
+	case HandlerCodex, HandlerGemini:
 		return HandlerType(s), true
 	default:
 		return "", false
