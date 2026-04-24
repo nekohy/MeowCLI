@@ -19,6 +19,18 @@ function progressValue(job: ImportJobSnapshot) {
   return Math.max(0, Math.min(100, Math.round((job.processed / job.total) * 100)))
 }
 
+function createdCount(job: ImportJobSnapshot) {
+  return job.created_count ?? job.created.length
+}
+
+function errorCount(job: ImportJobSnapshot) {
+  return job.error_count ?? job.errors.length
+}
+
+function latestError(job: ImportJobSnapshot) {
+  return job.errors[job.errors.length - 1]
+}
+
 function closeAll() {
   visibleJobs.value.forEach((job) => importJobs.dismiss(job.id))
 }
@@ -92,7 +104,7 @@ onBeforeUnmount(() => {
               <div class="import-job-row__copy">
                 <div class="text-body-2 font-weight-medium">{{ handlerLabel(job.handler) }}</div>
                 <div class="text-caption text-medium-emphasis">
-                  {{ job.processed }} / {{ job.total }}，成功 {{ job.created.length }}，失败 {{ job.errors.length }}
+                  {{ job.processed }} / {{ job.total }}，成功 {{ createdCount(job) }}，失败 {{ errorCount(job) }}
                 </div>
               </div>
               <VBtn
@@ -107,13 +119,13 @@ onBeforeUnmount(() => {
 
             <VProgressLinear
               :model-value="progressValue(job)"
-              :color="job.errors.length > 0 ? 'warning' : 'primary'"
+              :color="errorCount(job) > 0 ? 'warning' : 'primary'"
               height="8"
               rounded
             />
 
-            <div v-if="job.errors.length > 0" class="import-job-row__errors text-caption">
-              最近失败：{{ job.errors[job.errors.length - 1]?.input }}：{{ job.errors[job.errors.length - 1]?.error }}
+            <div v-if="latestError(job)" class="import-job-row__errors text-caption">
+              最近失败：{{ latestError(job)?.input }}：{{ latestError(job)?.error }}
             </div>
           </VSheet>
         </div>

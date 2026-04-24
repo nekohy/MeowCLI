@@ -240,6 +240,8 @@ export interface ImportJobSnapshot {
   processed: number
   created: Array<{ id: string }>
   errors: BatchOperationError[]
+  created_count?: number
+  error_count?: number
   done: boolean
   created_at: string
   updated_at: string

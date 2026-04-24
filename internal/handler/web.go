@@ -30,7 +30,7 @@ func ShouldServeAdminWeb(method, requestPath string) bool {
 	if trimmed == "/api" || strings.HasPrefix(trimmed, "/api/") {
 		return false
 	}
-	return strings.Contains(trimmed, ".")
+	return true
 }
 
 func ServeWeb() gin.HandlerFunc {

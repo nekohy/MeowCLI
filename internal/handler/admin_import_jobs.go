@@ -16,6 +16,7 @@ import (
 )
 
 const defaultImportConcurrency = 4
+const importJobResultPreviewLimit = 20
 
 type importJobStatus string
 
@@ -25,16 +26,18 @@ const (
 )
 
 type importJobSnapshot struct {
-	ID        string              `json:"id"`
-	Handler   string              `json:"handler"`
-	Status    importJobStatus     `json:"status"`
-	Total     int                 `json:"total"`
-	Processed int                 `json:"processed"`
-	Created   []batchCreateResult `json:"created"`
-	Errors    []batchError        `json:"errors"`
-	Done      bool                `json:"done"`
-	CreatedAt time.Time           `json:"created_at"`
-	UpdatedAt time.Time           `json:"updated_at"`
+	ID           string              `json:"id"`
+	Handler      string              `json:"handler"`
+	Status       importJobStatus     `json:"status"`
+	Total        int                 `json:"total"`
+	Processed    int                 `json:"processed"`
+	Created      []batchCreateResult `json:"created"`
+	Errors       []batchError        `json:"errors"`
+	CreatedCount int                 `json:"created_count"`
+	ErrorCount   int                 `json:"error_count"`
+	Done         bool                `json:"done"`
+	CreatedAt    time.Time           `json:"created_at"`
+	UpdatedAt    time.Time           `json:"updated_at"`
 }
 
 type importJob struct {
@@ -168,9 +171,25 @@ func (j *importJob) Snapshot() importJobSnapshot {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	snapshot := j.snapshot
-	snapshot.Created = append([]batchCreateResult(nil), j.snapshot.Created...)
-	snapshot.Errors = append([]batchError(nil), j.snapshot.Errors...)
+	snapshot.CreatedCount = len(j.snapshot.Created)
+	snapshot.ErrorCount = len(j.snapshot.Errors)
+	snapshot.Created = copyRecentCreated(j.snapshot.Created)
+	snapshot.Errors = copyRecentErrors(j.snapshot.Errors)
 	return snapshot
+}
+
+func copyRecentCreated(items []batchCreateResult) []batchCreateResult {
+	if len(items) > importJobResultPreviewLimit {
+		items = items[len(items)-importJobResultPreviewLimit:]
+	}
+	return append([]batchCreateResult(nil), items...)
+}
+
+func copyRecentErrors(items []batchError) []batchError {
+	if len(items) > importJobResultPreviewLimit {
+		items = items[len(items)-importJobResultPreviewLimit:]
+	}
+	return append([]batchError(nil), items...)
 }
 
 func (j *importJob) recordCreated(id string) {
