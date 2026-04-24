@@ -95,13 +95,10 @@ http://127.0.0.1:3000/admin
 
 ```bash
 # 生成SQL代码
-make sqlc
+sqlc generate
 
-# 仅启动后端（不编译前端）
-make serve
-
-# 启动前端开发服务器（Nuxt HMR）
-make dev-admin
+# 启动完整本地开发环境（Go 后端 + Nuxt HMR）
+make frontend-dev
 
 # 完整构建（前端 SSG + Go 二进制）
 make build
@@ -110,10 +107,7 @@ make build
 ### 常用命令
 
 ```bash
-make sqlc          # 重新生成 sqlc 代码
-make cross         # 交叉编译所有平台
 make release       # 生成发布二进制和 checksum
-make docker        # 构建 Docker 镜像
 make clean         # 清理构建产物
 ```
 

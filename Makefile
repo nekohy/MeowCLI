@@ -7,7 +7,9 @@ WEB_DIR := web
 BUILD_DIR := build
 DIST_DIR := dist
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
-SQLC ?= sqlc
+BACKEND_DEV_ADDR ?= :28582
+BACKEND_DEV_URL ?= http://127.0.0.1:28582
+FRONTEND_DEV_PORT ?= 39582
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -19,7 +21,7 @@ LDFLAGS := -s -w \
 	-X '$(MODULE)/internal/app.Commit=$(COMMIT)' \
 	-X '$(MODULE)/internal/app.BuildTime=$(BUILD_TIME)'
 
-.PHONY: frontend build serve dev-admin sqlc cross release docker clean
+.PHONY: frontend build frontend-dev release clean
 
 frontend:
 	npm --prefix $(WEB_DIR) ci --ignore-scripts
@@ -29,16 +31,12 @@ build: frontend
 	mkdir -p $(BUILD_DIR)
 	go build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME) .
 
-serve:
-	go run $(GOFLAGS) -ldflags "$(LDFLAGS)" .
+frontend-dev:
+	@trap 'kill 0' INT TERM EXIT; \
+	LISTEN_ADDR=$(BACKEND_DEV_ADDR) go run $(GOFLAGS) -ldflags "$(LDFLAGS)" . & \
+	MEOWCLI_BACKEND_URL=$(BACKEND_DEV_URL) npm --prefix $(WEB_DIR) run dev -- --port $(FRONTEND_DEV_PORT)
 
-dev-admin:
-	npm --prefix $(WEB_DIR) run dev
-
-sqlc:
-	$(SQLC) generate
-
-cross: frontend
+release: frontend
 	rm -rf $(DIST_DIR)
 	mkdir -p $(DIST_DIR)
 	for platform in $(PLATFORMS); do \
@@ -51,16 +49,7 @@ cross: frontend
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
 			go build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o "$$out" .; \
 	done
-
-release: cross
 	cd $(DIST_DIR) && sha256sum $(APP_NAME)-* > checksums-sha256.txt
-
-docker:
-	docker build \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg COMMIT=$(COMMIT) \
-		--build-arg BUILD_TIME=$(BUILD_TIME) \
-		-t $(APP_NAME):$(VERSION) .
 
 clean:
 	rm -rf $(BUILD_DIR) $(DIST_DIR) $(WEB_DIR)/.nuxt $(WEB_DIR)/.output $(WEB_DIR)/dist

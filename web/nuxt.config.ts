@@ -1,5 +1,6 @@
 const isDev = process.env.NODE_ENV === 'development'
 const baseURL = isDev ? '/' : '/admin/'
+const backendURL = process.env.MEOWCLI_BACKEND_URL || 'http://127.0.0.1:3000'
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-03-18',
@@ -49,6 +50,13 @@ export default defineNuxtConfig({
     },
   },
   nitro: {
+    routeRules: isDev
+      ? {
+          '/admin/api/**': { proxy: `${backendURL}/admin/api/**` },
+          '/v1/**': { proxy: `${backendURL}/v1/**` },
+          '/v1beta/**': { proxy: `${backendURL}/v1beta/**` },
+        }
+      : {},
     prerender: {
       routes: ['/', '/dashboard', '/settings', '/credentials', '/models', '/logs', '/keys'],
     },
