@@ -151,7 +151,7 @@ func (s *Scheduler) syncAllQuotas(ctx context.Context) {
 	}
 
 	for _, row := range rows {
-		token, err := s.manager.GetAccessToken(ctx, row.ID)
+		token, err := s.manager.AccessToken(ctx, row.ID, scheduling.UseCached)
 		if err != nil {
 			log.Error().Err(err).Str("credential", row.ID).Msg("codex quota-sync: get token")
 			continue
@@ -511,15 +511,7 @@ func availableRowByCredentialID(snap *availableSnapshot, credentialID string) (a
 }
 
 func (s *Scheduler) AuthHeaders(ctx context.Context, credentialID string) (http.Header, error) {
-	token, err := s.GetAccessToken(ctx, credentialID)
-	if err != nil {
-		return nil, err
-	}
-
-	headers := make(http.Header)
-	headers.Set("Authorization", "Bearer "+token)
-	headers.Set("Chatgpt-Account-Id", utils.AccountIDFromCredentialID(credentialID))
-	return headers, nil
+	return s.manager.AuthHeaders(ctx, credentialID, scheduling.UseCached)
 }
 
 func (s *Scheduler) InvalidateCredential(credentialID string) {
@@ -706,7 +698,7 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 
 // GetAccessToken 委托给令牌管理器获取访问令牌
 func (s *Scheduler) GetAccessToken(ctx context.Context, credentialID string) (string, error) {
-	return s.manager.GetAccessToken(ctx, credentialID)
+	return s.manager.AccessToken(ctx, credentialID, scheduling.UseCached)
 }
 
 // UpdateQuota 从 API 响应更新凭证配额（写入 DB + 刷新缓存）
@@ -837,7 +829,7 @@ func (s *Scheduler) validateCredentialUsageAfterRefresh(ctx context.Context, cre
 		return
 	}
 
-	token, err := s.manager.GetAccessToken(ctx, credentialID)
+	token, err := s.manager.AccessToken(ctx, credentialID, scheduling.UseCached)
 	if err != nil {
 		log.Warn().Err(err).Str("credential", credentialID).Msg("credential usage verification skipped because access token could not be loaded after refresh")
 		return
@@ -870,7 +862,7 @@ func (s *Scheduler) validateCredentialUsageAfterRefresh(ctx context.Context, cre
 }
 
 func (s *Scheduler) validateImportedCredential(ctx context.Context, credentialID string) {
-	token, err := s.manager.GetAccessToken(ctx, credentialID)
+	token, err := s.manager.AccessToken(ctx, credentialID, scheduling.UseCached)
 	if err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("sync-credentials: get token")
 		return

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	CodexAPI "github.com/nekohy/MeowCLI/api/codex"
+	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
+	"github.com/nekohy/MeowCLI/core/scheduling"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +18,8 @@ import (
 	"github.com/maypok86/otter/v2"
 	"github.com/rs/zerolog/log"
 )
+
+var _ scheduling.CredentialManager = (*Manager)(nil)
 
 var (
 	ErrCodexAPIRequired    = errors.New("codex api is required")
@@ -34,11 +38,16 @@ type CodexStore interface {
 	DeleteQuota(ctx context.Context, credentialID string) error
 }
 
+type Client interface {
+	RefreshAccessToken(ctx context.Context, refreshToken string) (*codexutils.CodexTokenData, bool, error)
+	FetchQuota(ctx context.Context, credentialID string, accessToken string) (*codexutils.Quota, error)
+}
+
 // ManagerConfig 配置 codex 令牌管理器
 type ManagerConfig struct {
 	Store    CodexStore
 	Cache    *otter.Cache[string, CodexCache]
-	CodexAPI *CodexAPI.Client
+	CodexAPI Client
 	Settings settings.Provider
 }
 
@@ -48,7 +57,7 @@ type ManagerConfig struct {
 type Manager struct {
 	store    CodexStore
 	cache    *otter.Cache[string, CodexCache]
-	codexAPI *CodexAPI.Client
+	codexAPI Client
 	settings settings.Provider
 	entries  sync.Map
 }
@@ -102,9 +111,39 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 // GetAccessToken 是请求链路的热路径
 // 优先使用 otter 缓存，仅在缓存未命中时才走 SQL/刷新流程
 func (m *Manager) GetAccessToken(ctx context.Context, id string) (string, error) {
-	entry := m.BuildCodexCache(id)
+	return m.AccessToken(ctx, id, scheduling.UseCached)
+}
+
+func (m *Manager) AccessToken(ctx context.Context, id string, mode scheduling.RefreshMode) (string, error) {
+	if mode == scheduling.ForceRefresh {
+		return m.forceRefreshCredential(ctx, id)
+	}
+	return m.cachedAccessToken(ctx, id)
+}
+
+func (m *Manager) AuthHeaders(ctx context.Context, id string, mode scheduling.RefreshMode) (http.Header, error) {
+	token, err := m.AccessToken(ctx, id, mode)
+	if err != nil {
+		return nil, err
+	}
+
+	headers := make(http.Header)
+	headers.Set("Authorization", "Bearer "+token)
+	headers.Set("Chatgpt-Account-Id", utils.AccountIDFromCredentialID(id))
+	return headers, nil
+}
+
+func (m *Manager) cachedAccessToken(ctx context.Context, id string) (string, error) {
+	entry := m.entry(id)
 
 	if snapshot, ok := m.readCache(id); ok {
+		return snapshot.AccessToken, nil
+	}
+	if entry.refreshing.Load() {
+		snapshot, err := m.waitForCachedToken(ctx, id)
+		if err != nil {
+			return "", err
+		}
 		return snapshot.AccessToken, nil
 	}
 
@@ -195,12 +234,31 @@ func (m *Manager) DeleteCredential(ctx context.Context, id string, reason string
 
 // RefreshCredential 强制使用 refresh token 校验并刷新指定凭证
 func (m *Manager) RefreshCredential(ctx context.Context, id string) error {
+	_, err := m.forceRefreshCredential(ctx, id)
+	return err
+}
+
+func (m *Manager) forceRefreshCredential(ctx context.Context, id string) (string, error) {
+	entry := m.entry(id)
+	if !entry.refreshing.CompareAndSwap(false, true) {
+		snapshot, err := m.waitForCachedToken(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		return snapshot.AccessToken, nil
+	}
+	defer entry.refreshing.Store(false)
+	m.invalidateCache(id)
+
 	row, err := m.store.GetCodex(ctx, id)
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = m.refreshAndWriteBack(ctx, row)
-	return err
+	refreshed, err := m.refreshAndWriteBack(ctx, row)
+	if err != nil {
+		return "", err
+	}
+	return refreshed.AccessToken, nil
 }
 
 // refreshAndWriteBack 刷新令牌、提取信息、持久化数据库，然后更新缓存
@@ -316,6 +374,22 @@ func (m *Manager) waitForNewToken(ctx context.Context, entry *CodexEntry, id str
 	}
 }
 
+func (m *Manager) waitForCachedToken(ctx context.Context, id string) (CodexCache, error) {
+	ticker := time.NewTicker(m.settingsSnapshot().PollInterval())
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return CodexCache{}, fmt.Errorf("waiting for forced codex token refresh: %w", ctx.Err())
+		case <-ticker.C:
+			if snapshot, ok := m.readCache(id); ok {
+				return snapshot, nil
+			}
+		}
+	}
+}
+
 // snapshotFromCodex 构建缓存快照
 func (m *Manager) snapshotFromCodex(row db.Codex) CodexCache {
 	return CodexCache{
@@ -325,8 +399,8 @@ func (m *Manager) snapshotFromCodex(row db.Codex) CodexCache {
 	}
 }
 
-// BuildCodexCache 获取或创建刷新协调条目
-func (m *Manager) BuildCodexCache(id string) *CodexEntry {
+// entry 获取或创建刷新协调条目
+func (m *Manager) entry(id string) *CodexEntry {
 	if actual, ok := m.entries.Load(id); ok {
 		return actual.(*CodexEntry)
 	}
@@ -340,15 +414,22 @@ func (m *Manager) InvalidateCredential(id string) {
 	if m == nil {
 		return
 	}
+	m.invalidateCache(id)
+	m.entries.Delete(id)
+}
+
+func (m *Manager) invalidateCache(id string) {
+	if m == nil {
+		return
+	}
 	if m.cache != nil {
 		m.cache.Invalidate(id)
 	}
-	m.entries.Delete(id)
 }
 
 // proactiveRefresh 缓存过期时主动刷新令牌，保持缓存常热
 func (m *Manager) proactiveRefresh(id string) {
-	entry := m.BuildCodexCache(id)
+	entry := m.entry(id)
 	if !entry.refreshing.CompareAndSwap(false, true) {
 		return
 	}

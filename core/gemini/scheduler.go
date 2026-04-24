@@ -144,7 +144,7 @@ func (s *Scheduler) syncAllQuotas(ctx context.Context) {
 	}
 
 	for _, row := range rows {
-		token, err := s.manager.GetAccessToken(ctx, row.ID)
+		token, err := s.manager.AccessToken(ctx, row.ID, scheduling.UseCached)
 		if err != nil {
 			log.Error().Err(err).Str("credential", row.ID).Msg("gemini quota-sync: get token")
 			continue
@@ -464,11 +464,7 @@ func availableRowByCredentialID(snap *availableSnapshot, credentialID string) (a
 }
 
 func (s *Scheduler) AuthHeaders(ctx context.Context, credentialID string) (http.Header, error) {
-	headers, err := s.manager.GetAuthHeaders(ctx, credentialID)
-	if err != nil {
-		return nil, err
-	}
-	return headers, nil
+	return s.manager.AuthHeaders(ctx, credentialID, scheduling.UseCached)
 }
 
 func (s *Scheduler) InvalidateCredential(credentialID string) {
@@ -769,8 +765,7 @@ func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string) {
 	defer cancel()
 	defer s.finishChecking(credentialID)
 
-	// For Gemini, try to re-obtain the credential (which triggers token refresh if needed).
-	_, err := s.manager.ensureCredential(ctx, credentialID)
+	err := s.manager.RefreshCredential(ctx, credentialID)
 	switch {
 	case err == nil:
 		log.Info().Str("credential", credentialID).Msg("gemini credential refresh verification succeeded after auth rejection response")
@@ -791,7 +786,7 @@ func (s *Scheduler) validateCredentialUsageAfterRefresh(ctx context.Context, cre
 		return
 	}
 
-	token, err := s.manager.GetAccessToken(ctx, credentialID)
+	token, err := s.manager.AccessToken(ctx, credentialID, scheduling.UseCached)
 	if err != nil {
 		log.Warn().Err(err).Str("credential", credentialID).Msg("gemini credential usage verification skipped because access token could not be loaded after refresh")
 		return
@@ -826,7 +821,7 @@ func (s *Scheduler) validateCredentialUsageAfterRefresh(ctx context.Context, cre
 }
 
 func (s *Scheduler) validateImportedCredential(ctx context.Context, credentialID string) {
-	token, err := s.manager.GetAccessToken(ctx, credentialID)
+	token, err := s.manager.AccessToken(ctx, credentialID, scheduling.UseCached)
 	if err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini sync-credentials: get token")
 		return

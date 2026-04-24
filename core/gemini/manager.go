@@ -10,6 +10,7 @@ import (
 	"time"
 
 	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
+	"github.com/nekohy/MeowCLI/core/scheduling"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	db "github.com/nekohy/MeowCLI/internal/store"
 
@@ -17,14 +18,21 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var _ scheduling.CredentialManager = (*Manager)(nil)
+
 type Store interface {
 	GetGeminiCLI(ctx context.Context, id string) (db.GeminiCredential, error)
 	UpdateGeminiTokens(ctx context.Context, arg db.UpdateGeminiTokensParams) (db.GeminiCredential, error)
 }
 
+type Client interface {
+	RefreshAccessToken(ctx context.Context, refreshToken string) (*geminiapi.TokenData, error)
+	ResolveProjectID(ctx context.Context, accessToken string) (string, error)
+}
+
 type Manager struct {
 	store    Store
-	client   *geminiapi.Client
+	client   Client
 	settings settings.Provider
 	cache    *otter.Cache[string, GeminiCache]
 	entries  sync.Map
@@ -32,7 +40,7 @@ type Manager struct {
 
 type ManagerConfig struct {
 	Store    Store
-	Client   *geminiapi.Client
+	Client   Client
 	Settings settings.Provider
 	Cache    *otter.Cache[string, GeminiCache]
 }
@@ -40,6 +48,7 @@ type ManagerConfig struct {
 type GeminiCache struct {
 	ID          string
 	AccessToken string
+	ProjectID   string
 	Expired     time.Time
 }
 
@@ -80,15 +89,11 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 }
 
 func (m *Manager) GetAccessToken(ctx context.Context, credentialID string) (string, error) {
-	row, err := m.ensureCredential(ctx, credentialID)
-	if err != nil {
-		return "", err
-	}
-	return row.AccessToken, nil
+	return m.AccessToken(ctx, credentialID, scheduling.UseCached)
 }
 
 func (m *Manager) GetProjectID(ctx context.Context, credentialID string) (string, error) {
-	row, err := m.ensureCredential(ctx, credentialID)
+	row, err := m.credential(ctx, credentialID, scheduling.UseCached)
 	if err != nil {
 		return "", err
 	}
@@ -96,7 +101,19 @@ func (m *Manager) GetProjectID(ctx context.Context, credentialID string) (string
 }
 
 func (m *Manager) GetAuthHeaders(ctx context.Context, credentialID string) (http.Header, error) {
-	row, err := m.ensureCredential(ctx, credentialID)
+	return m.AuthHeaders(ctx, credentialID, scheduling.UseCached)
+}
+
+func (m *Manager) AccessToken(ctx context.Context, credentialID string, mode scheduling.RefreshMode) (string, error) {
+	row, err := m.credential(ctx, credentialID, mode)
+	if err != nil {
+		return "", err
+	}
+	return row.AccessToken, nil
+}
+
+func (m *Manager) AuthHeaders(ctx context.Context, credentialID string, mode scheduling.RefreshMode) (http.Header, error) {
+	row, err := m.credential(ctx, credentialID, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -107,17 +124,29 @@ func (m *Manager) GetAuthHeaders(ctx context.Context, credentialID string) (http
 	return headers, nil
 }
 
-func (m *Manager) ensureCredential(ctx context.Context, credentialID string) (db.GeminiCredential, error) {
+func (m *Manager) credential(ctx context.Context, credentialID string, mode scheduling.RefreshMode) (db.GeminiCredential, error) {
+	if mode == scheduling.ForceRefresh {
+		return m.forceRefreshCredential(ctx, credentialID)
+	}
+	return m.cachedCredential(ctx, credentialID)
+}
+
+func (m *Manager) cachedCredential(ctx context.Context, credentialID string) (db.GeminiCredential, error) {
 	entry := m.entry(credentialID)
 	if snapshot, ok := m.readCache(credentialID); ok {
 		return m.credentialFromCache(snapshot), nil
+	}
+	if entry.refreshing.Load() {
+		return m.waitForCachedCredential(ctx, credentialID)
 	}
 
 	row, err := m.store.GetGeminiCLI(ctx, credentialID)
 	if err != nil {
 		return db.GeminiCredential{}, err
 	}
-	row.ProjectID = CredentialProjectID(row.ID)
+	if strings.TrimSpace(row.ProjectID) == "" {
+		row.ProjectID = CredentialProjectID(row.ID)
+	}
 	needsRefresh := strings.TrimSpace(row.AccessToken) == "" || m.shouldRefresh(row.Expired)
 	if !needsRefresh && strings.TrimSpace(row.ProjectID) != "" {
 		m.writeCache(row)
@@ -135,11 +164,37 @@ func (m *Manager) ensureCredential(ctx context.Context, credentialID string) (db
 	return m.waitForCredential(ctx, entry, credentialID)
 }
 
+func (m *Manager) RefreshCredential(ctx context.Context, credentialID string) error {
+	_, err := m.forceRefreshCredential(ctx, credentialID)
+	return err
+}
+
+func (m *Manager) forceRefreshCredential(ctx context.Context, credentialID string) (db.GeminiCredential, error) {
+	entry := m.entry(credentialID)
+	if !entry.refreshing.CompareAndSwap(false, true) {
+		return m.waitForCachedCredential(ctx, credentialID)
+	}
+	defer entry.refreshing.Store(false)
+	m.invalidateCache(credentialID)
+
+	row, err := m.store.GetGeminiCLI(ctx, credentialID)
+	if err != nil {
+		return db.GeminiCredential{}, err
+	}
+
+	row.AccessToken = ""
+	row.Expired = time.Time{}
+	return m.refreshAndWriteBack(ctx, row)
+}
+
 func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.GeminiCredential) (db.GeminiCredential, error) {
 	accessToken := strings.TrimSpace(row.AccessToken)
 	refreshToken := strings.TrimSpace(row.RefreshToken)
 	expiry := row.Expired
-	projectID := CredentialProjectID(row.ID)
+	projectID := strings.TrimSpace(row.ProjectID)
+	if projectID == "" {
+		projectID = CredentialProjectID(row.ID)
+	}
 	if strings.TrimSpace(accessToken) == "" || m.shouldRefresh(expiry) {
 		if refreshToken == "" {
 			return db.GeminiCredential{}, fmt.Errorf("gemini credential %s has no refresh token", row.ID)
@@ -149,15 +204,27 @@ func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.GeminiCredenti
 		if err != nil {
 			return db.GeminiCredential{}, err
 		}
-		accessToken = tokenData.AccessToken
-		refreshToken = tokenData.RefreshToken
+		if tokenData == nil {
+			return db.GeminiCredential{}, fmt.Errorf("refresh tokens for %s: empty token response", row.ID)
+		}
+		accessToken = strings.TrimSpace(tokenData.AccessToken)
+		refreshToken = strings.TrimSpace(tokenData.RefreshToken)
 		expiry = tokenData.Expiry
+		if accessToken == "" {
+			return db.GeminiCredential{}, fmt.Errorf("refresh tokens for %s: empty access token", row.ID)
+		}
+		if refreshToken == "" {
+			return db.GeminiCredential{}, fmt.Errorf("refresh tokens for %s: empty refresh token", row.ID)
+		}
+		if expiry.IsZero() {
+			return db.GeminiCredential{}, fmt.Errorf("refresh tokens for %s: zero expiry", row.ID)
+		}
 	}
 
 	if projectID == "" && accessToken != "" {
 		resolvedProjectID, err := m.client.ResolveProjectID(ctx, accessToken)
-		if err == nil {
-			projectID = resolvedProjectID
+		if err == nil && strings.TrimSpace(resolvedProjectID) != "" {
+			projectID = strings.TrimSpace(resolvedProjectID)
 		}
 	}
 
@@ -195,7 +262,9 @@ func (m *Manager) waitForCredential(ctx context.Context, entry *GeminiEntry, cre
 			if err != nil {
 				return db.GeminiCredential{}, err
 			}
-			row.ProjectID = CredentialProjectID(row.ID)
+			if strings.TrimSpace(row.ProjectID) == "" {
+				row.ProjectID = CredentialProjectID(row.ID)
+			}
 			if strings.TrimSpace(row.AccessToken) != "" && !m.shouldRefresh(row.Expired) && strings.TrimSpace(row.ProjectID) != "" {
 				m.writeCache(row)
 				if snapshot, ok := m.readCache(credentialID); ok {
@@ -212,6 +281,22 @@ func (m *Manager) waitForCredential(ctx context.Context, entry *GeminiEntry, cre
 	}
 }
 
+func (m *Manager) waitForCachedCredential(ctx context.Context, credentialID string) (db.GeminiCredential, error) {
+	ticker := time.NewTicker(m.settingsSnapshot().PollInterval())
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return db.GeminiCredential{}, fmt.Errorf("waiting for forced gemini token refresh: %w", ctx.Err())
+		case <-ticker.C:
+			if snapshot, ok := m.readCache(credentialID); ok {
+				return m.credentialFromCache(snapshot), nil
+			}
+		}
+	}
+}
+
 func (m *Manager) readCache(id string) (GeminiCache, bool) {
 	if m == nil || m.cache == nil {
 		return GeminiCache{}, false
@@ -220,7 +305,11 @@ func (m *Manager) readCache(id string) (GeminiCache, bool) {
 }
 
 func (m *Manager) writeCache(row db.GeminiCredential) {
-	if m == nil || m.cache == nil || strings.TrimSpace(row.AccessToken) == "" || CredentialProjectID(row.ID) == "" {
+	projectID := strings.TrimSpace(row.ProjectID)
+	if projectID == "" {
+		projectID = CredentialProjectID(row.ID)
+	}
+	if m == nil || m.cache == nil || strings.TrimSpace(row.AccessToken) == "" || projectID == "" {
 		return
 	}
 	ttl := time.Until(row.Expired.Add(-m.settingsSnapshot().RefreshBefore()))
@@ -230,6 +319,7 @@ func (m *Manager) writeCache(row db.GeminiCredential) {
 	snapshot := GeminiCache{
 		ID:          row.ID,
 		AccessToken: strings.TrimSpace(row.AccessToken),
+		ProjectID:   projectID,
 		Expired:     row.Expired,
 	}
 	m.cache.Set(row.ID, snapshot)
@@ -237,10 +327,14 @@ func (m *Manager) writeCache(row db.GeminiCredential) {
 }
 
 func (m *Manager) credentialFromCache(snapshot GeminiCache) db.GeminiCredential {
+	projectID := strings.TrimSpace(snapshot.ProjectID)
+	if projectID == "" {
+		projectID = CredentialProjectID(snapshot.ID)
+	}
 	return db.GeminiCredential{
 		ID:          snapshot.ID,
 		AccessToken: snapshot.AccessToken,
-		ProjectID:   CredentialProjectID(snapshot.ID),
+		ProjectID:   projectID,
 		Expired:     snapshot.Expired,
 	}
 }
@@ -258,10 +352,17 @@ func (m *Manager) InvalidateCredential(id string) {
 	if m == nil {
 		return
 	}
+	m.invalidateCache(id)
+	m.entries.Delete(id)
+}
+
+func (m *Manager) invalidateCache(id string) {
+	if m == nil {
+		return
+	}
 	if m.cache != nil {
 		m.cache.Invalidate(id)
 	}
-	m.entries.Delete(id)
 }
 
 func (m *Manager) proactiveRefresh(id string) {

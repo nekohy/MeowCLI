@@ -1,5 +1,24 @@
 package scheduling
 
+import (
+	"context"
+	"net/http"
+)
+
+type RefreshMode int
+
+const (
+	UseCached RefreshMode = iota
+	ForceRefresh
+)
+
+type CredentialManager interface {
+	AccessToken(ctx context.Context, credentialID string, mode RefreshMode) (string, error)
+	AuthHeaders(ctx context.Context, credentialID string, mode RefreshMode) (http.Header, error)
+	RefreshCredential(ctx context.Context, credentialID string) error
+	InvalidateCredential(credentialID string)
+}
+
 // CalcWeight returns the error-rate weight multiplier (1.0 - errorRate).
 func CalcWeight(errorRate float64) float64 {
 	return 1.0 - errorRate
