@@ -10,7 +10,6 @@ import (
 const (
 	planTypeFree       = "free"
 	planTypePlus       = "plus"
-	planTypeTeam       = "team"
 	planTypePro        = "pro"
 	planTypeBusiness   = "business"
 	planTypeEnterprise = "enterprise"
@@ -20,7 +19,7 @@ const (
 func NormalizePlanType(planType string) string {
 	normalized := strings.ToLower(strings.TrimSpace(planType))
 	switch normalized {
-	case planTypeFree, planTypePlus, planTypeTeam, planTypePro, planTypeBusiness, planTypeEnterprise, planTypeUnknown:
+	case planTypeFree, planTypePlus, planTypePro, planTypeBusiness, planTypeEnterprise, planTypeUnknown:
 		return normalized
 	default:
 		return ""
@@ -39,7 +38,6 @@ func PlanList() []string {
 	return []string{
 		planTypeFree,
 		planTypePlus,
-		planTypeTeam,
 		planTypePro,
 		planTypeBusiness,
 		planTypeEnterprise,
@@ -52,7 +50,6 @@ const planTypeCodeAny = -1
 const (
 	planTypeCodeFree = iota
 	planTypeCodePlus
-	planTypeCodeTeam
 	planTypeCodePro
 	planTypeCodeBusiness
 	planTypeCodeEnterprise
@@ -63,7 +60,6 @@ const planTypeCodeUnknown = 999
 var planTypeCodes = map[string]int{
 	planTypeFree:       planTypeCodeFree,
 	planTypePlus:       planTypeCodePlus,
-	planTypeTeam:       planTypeCodeTeam,
 	planTypePro:        planTypeCodePro,
 	planTypeBusiness:   planTypeCodeBusiness,
 	planTypeEnterprise: planTypeCodeEnterprise,

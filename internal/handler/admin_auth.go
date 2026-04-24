@@ -25,7 +25,7 @@ func extractAPIKey(c *gin.Context) string {
 	if key := extractBearerKey(c); key != "" {
 		return key
 	}
-	for _, header := range []string{"x-goog-api-key", "x-api-key", "api-key"} {
+	for _, header := range []string{"x-goog-api-key", "x-api-key"} {
 		if key := strings.TrimSpace(c.GetHeader(header)); key != "" {
 			return key
 		}

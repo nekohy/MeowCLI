@@ -3,8 +3,6 @@ package gemini
 import (
 	"fmt"
 	"net/http"
-	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/nekohy/MeowCLI/utils"
@@ -38,18 +36,6 @@ func ParseRetryDelay(errorBody []byte) (*time.Duration, error) {
 				if err == nil {
 					return &duration, nil
 				}
-			}
-		}
-	}
-
-	message := gjson.GetBytes(errorBody, "error.message").String()
-	if message != "" {
-		re := regexp.MustCompile(`after\s+(\d+)s\.?`)
-		if matches := re.FindStringSubmatch(message); len(matches) > 1 {
-			seconds, err := strconv.Atoi(matches[1])
-			if err == nil {
-				duration := time.Duration(seconds) * time.Second
-				return &duration, nil
 			}
 		}
 	}

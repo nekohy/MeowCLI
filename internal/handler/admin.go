@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nekohy/MeowCLI/api/codex"
+	"net/http"
+	"strings"
+	"sync"
+
+	codexapi "github.com/nekohy/MeowCLI/api/codex"
 	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
 	coregemini "github.com/nekohy/MeowCLI/core/gemini"
@@ -13,9 +17,6 @@ import (
 	"github.com/nekohy/MeowCLI/internal/settings"
 	db "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
-	"net/http"
-	"strings"
-	"sync"
 
 	"github.com/gin-gonic/gin"
 )
@@ -30,7 +31,7 @@ type CredentialRefresher interface {
 type AdminHandler struct {
 	store       db.Store
 	logStore    LogStore
-	codexAPI    *codex.Client
+	codexAPI    *codexapi.Client
 	geminiAPI   *geminiapi.Client
 	authCache   *auth.KeyCache
 	credRefresh CredentialRefresher
@@ -38,7 +39,7 @@ type AdminHandler struct {
 	mu          sync.Mutex
 }
 
-func NewAdminHandler(store db.Store, codexAPI *codex.Client, geminiAPI *geminiapi.Client) *AdminHandler {
+func NewAdminHandler(store db.Store, codexAPI *codexapi.Client, geminiAPI *geminiapi.Client) *AdminHandler {
 	return &AdminHandler{store: store, codexAPI: codexAPI, geminiAPI: geminiAPI}
 }
 

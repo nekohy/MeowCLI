@@ -54,5 +54,4 @@ func scrubLocalAuthHeaders(headers http.Header) {
 	}
 	headers.Del("X-Goog-Api-Key")
 	headers.Del("X-Api-Key")
-	headers.Del("Api-Key")
 }
