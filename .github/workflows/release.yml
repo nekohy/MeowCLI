@@ -21,31 +21,112 @@ defaults:
     shell: bash
 
 jobs:
-  release:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      short_sha: ${{ steps.values.outputs.short_sha }}
+      build_time: ${{ steps.values.outputs.build_time }}
+    steps:
+      - name: Set build metadata
+        id: values
+        run: |
+          echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+  frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      - name: Build frontend
+        run: make frontend
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    needs:
+      - metadata
+      - frontend
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            artifact: meowcli-linux-amd64
+          - os: linux
+            arch: arm64
+            artifact: meowcli-linux-arm64
+          - os: darwin
+            arch: amd64
+            artifact: meowcli-darwin-amd64
+          - os: darwin
+            arch: arm64
+            artifact: meowcli-darwin-arm64
+          - os: windows
+            arch: amd64
+            artifact: meowcli-windows-amd64.exe
+          - os: windows
+            arch: arm64
+            artifact: meowcli-windows-arm64.exe
+    steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Set build metadata
-        run: |
-          echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
-          echo "BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: web/dist
 
-      - name: Build release binaries
-        run: make release VERSION="${GITHUB_REF_NAME}" COMMIT="${SHORT_SHA}" BUILD_TIME="${BUILD_TIME}"
+      - name: Build release binary
+        run: |
+          make release \
+            VERSION="${GITHUB_REF_NAME}" \
+            COMMIT="${{ needs.metadata.outputs.short_sha }}" \
+            BUILD_TIME="${{ needs.metadata.outputs.build_time }}" \
+            RELEASE_OS="${{ matrix.os }}" \
+            RELEASE_ARCH="${{ matrix.arch }}"
+
+      - name: Upload release binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: make checksums
 
       - name: Upload Docker binaries
         uses: actions/upload-artifact@v4
@@ -101,6 +182,7 @@ jobs:
           flavor: |
             latest=auto
           tags: |
+            type=raw,value=latest
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
