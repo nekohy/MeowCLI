@@ -8,7 +8,6 @@ BUILD_DIR := build
 DIST_DIR := dist
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 SQLC ?= sqlc
-SQLC_VERSION ?= latest
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -26,11 +25,11 @@ frontend:
 	npm --prefix $(WEB_DIR) ci --ignore-scripts
 	npm --prefix $(WEB_DIR) run build:ssg
 
-build: sqlc frontend
+build: frontend
 	mkdir -p $(BUILD_DIR)
 	go build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME) .
 
-serve: sqlc
+serve:
 	go run $(GOFLAGS) -ldflags "$(LDFLAGS)" .
 
 dev-admin:
@@ -39,7 +38,7 @@ dev-admin:
 sqlc:
 	$(SQLC) generate
 
-cross: sqlc frontend
+cross: frontend
 	rm -rf $(DIST_DIR)
 	mkdir -p $(DIST_DIR)
 	for platform in $(PLATFORMS); do \
@@ -58,7 +57,6 @@ release: cross
 
 docker:
 	docker build \
-		--build-arg SQLC_VERSION=$(SQLC_VERSION) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) \
 		--build-arg BUILD_TIME=$(BUILD_TIME) \

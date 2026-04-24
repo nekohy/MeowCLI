@@ -1,0 +1,17 @@
+services:
+  meowcli:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+    image: meowcli:latest
+    container_name: meowcli
+    restart: unless-stopped
+    environment:
+      LISTEN_ADDR: ":3000"
+      DB_TYPE: sqlite
+      DATABASE_URL: /data/meowcli.db
+      TZ: Asia/Shanghai
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./meowcli/data:/data

@@ -10,7 +10,6 @@ RUN npm run build:ssg
 # ── Stage 2: Build Go binary ────────────────────────────────
 FROM golang:1.25-alpine AS builder
 
-ARG SQLC_VERSION=latest
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
@@ -20,13 +19,11 @@ ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-RUN go install github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_VERSION}
 
 COPY . .
 COPY --from=frontend /src/web/dist ./web/dist
 
-RUN /go/bin/sqlc generate && \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags "\
       -s -w \
       -X 'github.com/nekohy/MeowCLI/internal/app.Version=${VERSION}' \

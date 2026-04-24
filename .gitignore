@@ -1,7 +1,6 @@
 .ace-tool/
 build/
 dist/
-internal/db
 .idea/
 web/node_modules/
 web/.nuxt/

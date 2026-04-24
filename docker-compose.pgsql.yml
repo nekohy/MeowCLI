@@ -1,0 +1,37 @@
+services:
+  meowcli:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+    image: meowcli:latest
+    container_name: meowcli
+    restart: unless-stopped
+    environment:
+      LISTEN_ADDR: ":3000"
+      DB_TYPE: postgres
+      DATABASE_URL: postgres://meowcli:meowcli@postgres:5432/meowcli?sslmode=disable
+      TZ: Asia/Shanghai
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: meowcli-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: meowcli
+      POSTGRES_USER: meowcli
+      POSTGRES_PASSWORD: meowcli
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meowcli -d meowcli"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
