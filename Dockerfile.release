@@ -1,0 +1,11 @@
+FROM alpine:3.21
+
+ARG TARGETARCH
+
+RUN apk add --no-cache ca-certificates tzdata
+
+COPY docker-binaries/meowcli-linux-${TARGETARCH} /usr/local/bin/meowcli
+RUN chmod +x /usr/local/bin/meowcli
+
+EXPOSE 3000
+ENTRYPOINT ["meowcli"]
