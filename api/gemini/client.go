@@ -2,7 +2,6 @@ package gemini
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -84,9 +83,19 @@ func (c *Client) ReplaceModel(body []byte, model string) []byte {
 	return out
 }
 
-func (c *Client) GenerateContent(ctx context.Context, _ string, modelName string, action string, rawQuery string, body []byte, headers http.Header) (*http.Response, error) {
-	modelName = strings.TrimSpace(modelName)
-	action = strings.TrimSpace(action)
+func (c *Client) Chat(req *api.Request) (*http.Response, error) {
+	ctx := req.Ctx
+	body := req.Body
+	headers := req.Headers
+
+	var opts Options
+	if req.Opts != nil {
+		opts = *req.Opts.(*Options)
+	}
+	modelName := strings.TrimSpace(opts.ModelName)
+	action := strings.TrimSpace(opts.Action)
+	rawQuery := opts.RawQuery
+	projectID := strings.TrimSpace(opts.ProjectID)
 	if modelName == "" {
 		return nil, fmt.Errorf("model is required")
 	}
@@ -99,56 +108,26 @@ func (c *Client) GenerateContent(ctx context.Context, _ string, modelName string
 	if query != "" {
 		targetURL += "?" + query
 	}
-	projectID := strings.TrimSpace(headers.Get("X-Meow-Gemini-Project"))
 	wrappedBody := wrapCodeAssistBody(body, modelName, projectID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(wrappedBody))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(wrappedBody))
 	if err != nil {
 		return nil, err
 	}
-	copyHeaders(req.Header, headers)
-	req.Header.Del("X-Meow-Gemini-Project")
-	if strings.TrimSpace(req.Header.Get("Content-Type")) == "" {
-		req.Header.Set("Content-Type", "application/json")
+	copyHeaders(httpReq.Header, headers)
+	if strings.TrimSpace(httpReq.Header.Get("Content-Type")) == "" {
+		httpReq.Header.Set("Content-Type", "application/json")
 	}
-	if strings.TrimSpace(req.Header.Get("Accept")) == "" {
+	if strings.TrimSpace(httpReq.Header.Get("Accept")) == "" {
 		if action == "streamGenerateContent" {
-			req.Header.Set("Accept", "text/event-stream")
+			httpReq.Header.Set("Accept", "text/event-stream")
 		} else {
-			req.Header.Set("Accept", "application/json")
+			httpReq.Header.Set("Accept", "application/json")
 		}
 	}
-	req.Header.Set("User-Agent", geminiCLIUserAgent(modelName))
-	req.Header.Set("X-Goog-Api-Client", geminiCLIApiClientHeader)
+	httpReq.Header.Set("User-Agent", geminiCLIUserAgent(modelName))
+	httpReq.Header.Set("X-Goog-Api-Client", geminiCLIApiClientHeader)
 
-	resp, err := c.httpClient().Do(req)
-	if err != nil {
-		return nil, err
-	}
-	return resp, nil
-}
-
-func (c *Client) GetModels(ctx context.Context, _ string, modelName string, rawQuery string, headers http.Header) (*http.Response, error) {
-	targetURL := generativeLanguage + "/v1beta/models"
-	modelName = strings.TrimSpace(strings.TrimPrefix(modelName, "models/"))
-	if modelName != "" {
-		targetURL += "/" + url.PathEscape(modelName)
-	}
-	if strings.TrimSpace(rawQuery) != "" {
-		targetURL += "?" + strings.TrimSpace(rawQuery)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	copyHeaders(req.Header, headers)
-	if strings.TrimSpace(req.Header.Get("Accept")) == "" {
-		req.Header.Set("Accept", "application/json")
-	}
-	req.Header.Set("User-Agent", geminiCLIUserAgent(""))
-	req.Header.Set("X-Goog-Api-Client", geminiCLIApiClientHeader)
-
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.httpClient().Do(httpReq)
 	if err != nil {
 		return nil, err
 	}

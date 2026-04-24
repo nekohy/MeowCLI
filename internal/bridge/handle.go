@@ -87,12 +87,6 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 		upstreamBody = backend.ReplaceModel(body, info.Origin)
 	}
 
-	chatBackend, ok := backend.(api.ChatBackend)
-	if !ok {
-		writeRelayError(c, errBackendUnavailable)
-		return
-	}
-
 	h.relayWithRetry(c, relayConfig{
 		ctx:            ctx,
 		sched:          sched,
@@ -111,7 +105,13 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 			return preferred
 		},
 		doRequest: func(attemptCtx context.Context, credID string, headers http.Header) (*http.Response, error) {
-			return chatBackend.Chat(attemptCtx, credID, upstreamBody, headers, apiType)
+			return backend.Chat(&api.Request{
+				Ctx:     attemptCtx,
+				CredID:  credID,
+				Body:    upstreamBody,
+				Headers: headers,
+				APIType: apiType,
+			})
 		},
 		onSuccess: func(credID string) {
 			h.writeSessionRoute(sessionKey, credID)

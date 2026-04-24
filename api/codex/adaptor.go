@@ -109,7 +109,11 @@ func (c *Client) ReplaceModel(body []byte, model string) []byte {
 // Chat 向上游 Codex API 发送请求，返回原始 *http.Response（调用方负责关闭 Body）
 // headers 应已包含认证头（Authorization, Chatgpt-Account-Id 等），由调用方负责组合
 // OnBeforeRequest 最终强制 User-Agent 等默认头
-func (c *Client) Chat(ctx context.Context, credentialID string, body []byte, headers http.Header, _ utils.APIType) (*http.Response, error) {
+func (c *Client) Chat(req *api.Request) (*http.Response, error) {
+	ctx := req.Ctx
+	body := req.Body
+	credentialID := req.CredID
+	headers := req.Headers
 	// 预处理 body：读取 stream 标志，补充缺失的 instructions 字段
 	isStream := gjson.GetBytes(body, "stream").Bool()
 
@@ -119,18 +123,18 @@ func (c *Client) Chat(ctx context.Context, credentialID string, body []byte, hea
 		}
 	}
 
-	req := c.client.R().
+	r := c.client.R().
 		SetContext(ctx).
 		SetDoNotParseResponse(true).
 		SetBody(body)
 
 	for k, vs := range headers {
 		if len(vs) > 0 {
-			req.SetHeader(k, vs[0])
+			r.SetHeader(k, vs[0])
 		}
 	}
 
-	resp, err := req.Post(codexutils.ChatURL)
+	resp, err := r.Post(codexutils.ChatURL)
 	if err != nil {
 		return nil, err
 	}

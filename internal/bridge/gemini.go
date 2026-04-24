@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/nekohy/MeowCLI/api"
+	"github.com/nekohy/MeowCLI/api/gemini"
 	storedb "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
 
@@ -74,11 +75,6 @@ func (h *Handler) handleGemini(c *gin.Context) {
 		writeRelayError(c, errUnsupportedAPIType)
 		return
 	}
-	geminiBackend, ok := backend.(api.GeminiNativeBackend)
-	if !ok {
-		writeRelayError(c, errBackendUnavailable)
-		return
-	}
 
 	sched, ok := h.schedulers[info.Handler]
 	if !ok {
@@ -103,7 +99,18 @@ func (h *Handler) handleGemini(c *gin.Context) {
 			return graceCredID
 		},
 		doRequest: func(attemptCtx context.Context, credID string, headers http.Header) (*http.Response, error) {
-			return geminiBackend.GenerateContent(attemptCtx, credID, info.Origin, action, c.Request.URL.RawQuery, body, headers)
+			return backend.Chat(&api.Request{
+				Ctx:     attemptCtx,
+				CredID:  credID,
+				Body:    body,
+				Headers: headers,
+				Opts: &gemini.Options{
+					ModelName: info.Origin,
+					Action:    action,
+					RawQuery:  c.Request.URL.RawQuery,
+					ProjectID: headers.Get("X-Meow-Gemini-Project"),
+				},
+			})
 		},
 		onSuccess: nil,
 	})
