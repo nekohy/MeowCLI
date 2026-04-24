@@ -13,6 +13,7 @@ import (
 	"github.com/nekohy/MeowCLI/utils"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	coreCodex "github.com/nekohy/MeowCLI/core/codex"
@@ -89,9 +90,12 @@ func Run(ctx context.Context, cfg Config) error {
 	geminiScheduler := coreGemini.NewScheduler(store, geminiManager)
 	geminiScheduler.SetSettingsProvider(settingsSvc)
 	geminiScheduler.SetLogStore(logStore)
+	geminiScheduler.SetQuotaFetcher(geminiClient)
+	geminiScheduler.StartQuotaSyncer(ctx)
 
+	modelCache := &modelStoreAdapter{store: store}
 	h := bridge.NewHandler(
-		&modelStoreAdapter{store: store},
+		modelCache,
 		map[utils.HandlerType]bridge.CredentialScheduler{
 			utils.HandlerCodex:  codexScheduler,
 			utils.HandlerGemini: geminiScheduler,
@@ -103,7 +107,11 @@ func Run(ctx context.Context, cfg Config) error {
 
 	adminHandler := handler.NewAdminHandler(store, codexClient, geminiClient)
 	adminHandler.SetAuthCache(authCache)
-	adminHandler.SetCredentialRefresher(&credRefreshAdapter{s: codexScheduler})
+	adminHandler.SetModelCache(modelCache)
+	adminHandler.SetCredentialRefresher(&credRefreshAdapter{
+		codex:  codexScheduler,
+		gemini: geminiScheduler,
+	})
 	adminHandler.SetLogStore(logStore)
 	adminHandler.SetSettingsService(settingsSvc)
 
@@ -163,9 +171,17 @@ func openStore(ctx context.Context, cfg Config) (db.Store, error) {
 // modelStoreAdapter 适配 db.Store → bridge.ModelStore
 type modelStoreAdapter struct {
 	store db.Store
+	cache sync.Map
 }
 
 func (a *modelStoreAdapter) ResolveModel(ctx context.Context, alias string) (*bridge.ResolvedModel, error) {
+	alias = strings.TrimSpace(alias)
+	if cached, ok := a.cache.Load(alias); ok {
+		info := cached.(bridge.ResolvedModel)
+		info.AllowedPlanTypes = append([]string(nil), info.AllowedPlanTypes...)
+		return &info, nil
+	}
+
 	row, err := a.store.ReverseInfoFromModel(ctx, alias)
 	if err != nil {
 		return nil, err
@@ -174,11 +190,14 @@ func (a *modelStoreAdapter) ResolveModel(ctx context.Context, alias string) (*br
 	if !ok {
 		return nil, fmt.Errorf("unknown handler type: %q", row.Handler)
 	}
-	return &bridge.ResolvedModel{
+	info := bridge.ResolvedModel{
 		Origin:           row.Origin,
 		Handler:          ht,
 		AllowedPlanTypes: parseModelPlanTypes(ht, row.PlanTypes),
-	}, nil
+	}
+	a.cache.Store(alias, info)
+	info.AllowedPlanTypes = append([]string(nil), info.AllowedPlanTypes...)
+	return &info, nil
 }
 
 func (a *modelStoreAdapter) ListModels(ctx context.Context) ([]bridge.ModelListItem, error) {
@@ -201,6 +220,13 @@ func (a *modelStoreAdapter) ListModels(ctx context.Context) ([]bridge.ModelListI
 	return items, nil
 }
 
+func (a *modelStoreAdapter) InvalidateModel(alias string) {
+	if a == nil {
+		return
+	}
+	a.cache.Delete(strings.TrimSpace(alias))
+}
+
 func parseModelPlanTypes(handler utils.HandlerType, raw string) []string {
 	switch handler {
 	case utils.HandlerGemini:
@@ -210,16 +236,53 @@ func parseModelPlanTypes(handler utils.HandlerType, raw string) []string {
 	}
 }
 
-// credRefreshAdapter 适配 coreCodex.Scheduler → handler.CredentialRefresher
+// credRefreshAdapter dispatches credential refresh operations to the scheduler
+// that owns the changed credential type.
 type credRefreshAdapter struct {
-	s *coreCodex.Scheduler
+	codex  *coreCodex.Scheduler
+	gemini *coreGemini.Scheduler
 }
 
-func (a *credRefreshAdapter) RefreshAvailable(ctx context.Context) error {
-	_, err := a.s.RefreshAvailable(ctx)
-	return err
+func (a *credRefreshAdapter) RefreshAvailable(ctx context.Context, handler utils.HandlerType) error {
+	switch handler {
+	case utils.HandlerGemini:
+		_, err := a.gemini.RefreshAvailable(ctx)
+		return err
+	case utils.HandlerCodex:
+		_, err := a.codex.RefreshAvailable(ctx)
+		return err
+	default:
+		return fmt.Errorf("unsupported credential handler %q", handler)
+	}
 }
 
-func (a *credRefreshAdapter) SyncQuotas(ctx context.Context, ids []string) {
-	a.s.SyncCredentials(ctx, ids)
+func (a *credRefreshAdapter) SyncQuotas(ctx context.Context, handler utils.HandlerType, ids []string) {
+	switch handler {
+	case utils.HandlerGemini:
+		a.gemini.SyncCredentials(ctx, ids)
+	case utils.HandlerCodex:
+		a.codex.SyncCredentials(ctx, ids)
+	}
+}
+
+func (a *credRefreshAdapter) InvalidateCredentials(handler utils.HandlerType, ids []string) {
+	if a == nil || len(ids) == 0 {
+		return
+	}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		switch handler {
+		case utils.HandlerGemini:
+			if a.gemini != nil {
+				a.gemini.InvalidateCredential(id)
+			}
+		case utils.HandlerCodex:
+			if a.codex != nil {
+				a.codex.InvalidateCredential(id)
+			}
+		}
+	}
 }

@@ -6,7 +6,6 @@ import type {
   CredentialHandlerKey,
   CredentialItem,
   CreateAuthKeyResponse,
-  GeminiCredentialInput,
   ModelItem,
   OverviewResponse,
   LogItem,
@@ -128,11 +127,27 @@ type CredentialListFilters = {
   search?: string
   status?: 'enabled' | 'disabled'
   planType?: string
-  unsynced?: boolean
 }
 
-function credentialsPathForHandler(handler: CredentialHandlerKey) {
-  return handler === 'gemini' ? '/gemini' : '/codex'
+function normalizeCredentialEndpoint(endpoint = '') {
+  const trimmed = endpoint.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  let path = trimmed
+  try {
+    path = new URL(trimmed, window.location.origin).pathname
+  } catch {
+    path = trimmed
+  }
+
+  path = path.replace(/^\/admin\/api/, '')
+  return path.startsWith('/') ? path : `/${path}`
+}
+
+function credentialsPathForHandler(handler: CredentialHandlerKey, endpoint = '') {
+  return normalizeCredentialEndpoint(endpoint) || `/${encodeURIComponent(handler)}`
 }
 
 function buildPaginatedQuery<TExtra extends QueryOptions>(options: PaginationOptions, extraQuery?: TExtra): QueryOptions {
@@ -164,39 +179,37 @@ export const adminApi = {
       body: payload,
     })
   },
-  listCredentials(token: string, handler: CredentialHandlerKey, options: ListOptions<CredentialListFilters> = {}) {
+  listCredentials(token: string, handler: CredentialHandlerKey, options: ListOptions<CredentialListFilters> = {}, endpoint = '') {
     const {
       search = '',
       status,
       planType,
-      unsynced,
     } = options
-    return apiRequest<PaginatedResponse<CredentialItem>>(credentialsPathForHandler(handler), {
+    return apiRequest<PaginatedResponse<CredentialItem>>(credentialsPathForHandler(handler, endpoint), {
       token,
       query: buildPaginatedQuery(options, {
         search,
         status,
         plan_type: planType,
-        unsynced: handler === 'codex' ? unsynced : undefined,
       }),
     })
   },
-  createCredentials(token: string, handler: CredentialHandlerKey, payload: { tokens: string[] } | { credentials: GeminiCredentialInput[] }) {
-    return apiRequest<BatchCreateResponse>(credentialsPathForHandler(handler), {
+  createCredentials(token: string, handler: CredentialHandlerKey, payload: { tokens: string[] }, endpoint = '') {
+    return apiRequest<BatchCreateResponse>(credentialsPathForHandler(handler, endpoint), {
       token,
       method: 'POST',
       body: payload,
     })
   },
-  updateCredentialStatus(token: string, handler: CredentialHandlerKey, payload: { ids: string[]; status: string }) {
-    return apiRequest<BatchStatusResponse>(`${credentialsPathForHandler(handler)}/status`, {
+  updateCredentialStatus(token: string, handler: CredentialHandlerKey, payload: { ids: string[]; status: string }, endpoint = '') {
+    return apiRequest<BatchStatusResponse>(`${credentialsPathForHandler(handler, endpoint)}/status`, {
       token,
       method: 'PUT',
       body: payload,
     })
   },
-  deleteCredentials(token: string, handler: CredentialHandlerKey, payload: { ids: string[] }) {
-    return apiRequest<BatchDeleteResponse>(credentialsPathForHandler(handler), {
+  deleteCredentials(token: string, handler: CredentialHandlerKey, payload: { ids: string[] }, endpoint = '') {
+    return apiRequest<BatchDeleteResponse>(credentialsPathForHandler(handler, endpoint), {
       token,
       method: 'DELETE',
       body: payload,

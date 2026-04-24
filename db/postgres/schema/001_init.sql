@@ -15,13 +15,12 @@ CREATE TABLE IF NOT EXISTS codex (
     expired TIMESTAMPTZ NOT NULL,
     refresh_token TEXT NOT NULL,
     plan_type TEXT NOT NULL,
-    plan_expired TIMESTAMPTZ NOT NULL,
     reason TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_codex_status_expired ON codex(status, expired);
 
-CREATE TABLE IF NOT EXISTS gemini_cli (
+CREATE TABLE IF NOT EXISTS gemini (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'enabled',
     access_token TEXT NOT NULL,
@@ -35,19 +34,23 @@ CREATE TABLE IF NOT EXISTS gemini_cli (
     synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_gemini_cli_status_expired ON gemini_cli(status, expired);
+CREATE INDEX IF NOT EXISTS idx_gemini_status_expired ON gemini(status, expired);
 
-CREATE TABLE IF NOT EXISTS quota (
-    credential_id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS codex_quota (
+    credential_id TEXT PRIMARY KEY REFERENCES codex(id) ON DELETE CASCADE,
     quota_5h  FLOAT NOT NULL DEFAULT 1.0,
     quota_7d  FLOAT NOT NULL DEFAULT 1.0,
+    quota_spark_5h FLOAT NOT NULL DEFAULT 1.0,
+    quota_spark_7d FLOAT NOT NULL DEFAULT 1.0,
     reset_5h TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     reset_7d TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reset_spark_5h TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reset_spark_7d TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     throttled_until TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_quota_remaining ON quota(quota_5h DESC, quota_7d DESC);
+CREATE INDEX IF NOT EXISTS idx_codex_quota_remaining ON codex_quota(quota_5h DESC, quota_7d DESC);
 
 CREATE TABLE IF NOT EXISTS auth_keys (
     key  TEXT PRIMARY KEY,

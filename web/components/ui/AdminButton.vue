@@ -29,6 +29,7 @@ const variantMap = {
 const buttonColor = computed(() => variantMap[props.variant].color)
 const buttonVariant = computed(() => variantMap[props.variant].style)
 const buttonSize = computed(() => (props.size === 'sm' ? 'small' : 'default'))
+const buttonHeight = computed(() => (props.size === 'sm' ? 36 : 40))
 </script>
 
 <template>
@@ -40,9 +41,11 @@ const buttonSize = computed(() => (props.size === 'sm' ? 'small' : 'default'))
     :color="buttonColor"
     :variant="buttonVariant"
     :size="buttonSize"
+    :height="buttonHeight"
     :prepend-icon="prependIcon"
     :append-icon="appendIcon"
-    class="text-none font-weight-medium"
+    :slim="false"
+    class="admin-button text-none font-weight-medium"
   >
     <slot />
   </VBtn>

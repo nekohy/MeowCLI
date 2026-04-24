@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { planTypeText } from '~/lib/admin'
+
 defineProps<{
   open: boolean
   title: string
@@ -48,7 +50,7 @@ defineEmits<{
           @update:model-value="toggle(planType)"
           @click.stop
         />
-        <span class="plan-order-label">{{ planType }}</span>
+        <span class="plan-order-label">{{ planTypeText(planType) }}</span>
         <span v-if="isSelected(planType)" class="plan-order-rank text-medium-emphasis">
           #{{ rankOf(planType) }}
         </span>

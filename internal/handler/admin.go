@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/bytedance/sonic"
+
 	codexapi "github.com/nekohy/MeowCLI/api/codex"
 	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
@@ -23,8 +25,13 @@ import (
 
 // CredentialRefresher 凭证变更后刷新调度器缓存
 type CredentialRefresher interface {
-	RefreshAvailable(ctx context.Context) error
-	SyncQuotas(ctx context.Context, ids []string)
+	RefreshAvailable(ctx context.Context, handler utils.HandlerType) error
+	SyncQuotas(ctx context.Context, handler utils.HandlerType, ids []string)
+	InvalidateCredentials(handler utils.HandlerType, ids []string)
+}
+
+type ModelCache interface {
+	InvalidateModel(alias string)
 }
 
 // AdminHandler 管理后台 API
@@ -35,6 +42,7 @@ type AdminHandler struct {
 	geminiAPI   *geminiapi.Client
 	authCache   *auth.KeyCache
 	credRefresh CredentialRefresher
+	modelCache  ModelCache
 	settingsSvc *settings.Service
 	mu          sync.Mutex
 }
@@ -49,6 +57,10 @@ func (a *AdminHandler) SetLogStore(store LogStore) {
 
 func (a *AdminHandler) SetCredentialRefresher(r CredentialRefresher) {
 	a.credRefresh = r
+}
+
+func (a *AdminHandler) SetModelCache(cache ModelCache) {
+	a.modelCache = cache
 }
 
 func (a *AdminHandler) SetSettingsService(svc *settings.Service) {
@@ -149,7 +161,7 @@ func normalizeModelInput(alias, origin, handler string, planTypes string, extra 
 	}
 	if len(extra) == 0 {
 		extra = json.RawMessage("{}")
-	} else if !json.Valid(extra) {
+	} else if !sonic.Valid(extra) {
 		return "", "", "", "", nil, fmt.Errorf("extra must be valid JSON")
 	}
 	return alias, origin, string(parsedHandler), planTypes, extra, nil

@@ -242,18 +242,14 @@ func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.Codex) (db.Cod
 		return db.Codex{}, fmt.Errorf("parse token expiry: %w", err)
 	}
 
-	// 提取 planType 和 planExpired
+	// 提取 planType。
 	planType := latest.PlanType
-	planExpired := latest.PlanExpired
 	claims, err := utils.ParseJWT(tokenData.IDToken)
 	if err != nil {
 		log.Warn().Err(err).Str("credential", latest.ID).Msg("failed to parse ID token")
 	} else {
 		if pt := claims.GetPlanType(); pt != "" {
 			planType = pt
-		}
-		if until := claims.GetSubscriptionActiveUntil(); !until.IsZero() {
-			planExpired = until
 		}
 	}
 	refreshed, err := m.store.UpdateCodexTokens(ctx, db.UpdateCodexTokensParams{
@@ -263,7 +259,6 @@ func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.Codex) (db.Cod
 		Expired:      expire,
 		RefreshToken: tokenData.RefreshToken,
 		PlanType:     planType,
-		PlanExpired:  planExpired,
 	})
 	if err != nil {
 		return db.Codex{}, fmt.Errorf("update tokens for %s: %w", latest.ID, err)
@@ -339,6 +334,16 @@ func (m *Manager) BuildCodexCache(id string) *CodexEntry {
 	created := &CodexEntry{}
 	actual, _ := m.entries.LoadOrStore(id, created)
 	return actual.(*CodexEntry)
+}
+
+func (m *Manager) InvalidateCredential(id string) {
+	if m == nil {
+		return
+	}
+	if m.cache != nil {
+		m.cache.Invalidate(id)
+	}
+	m.entries.Delete(id)
 }
 
 // proactiveRefresh 缓存过期时主动刷新令牌，保持缓存常热

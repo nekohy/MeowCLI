@@ -104,7 +104,6 @@ watch(
 <template>
   <div class="page-grid">
     <PageHeader
-      eyebrow="监控"
       title="诊断日志"
       icon="mdi-text-box-search-outline"
     >
@@ -120,7 +119,6 @@ watch(
 
     <SectionCard
       title="数据筛选"
-      eyebrow="筛选"
       icon="mdi-filter-variant"
     >
       <div class="d-grid ga-5">
@@ -171,13 +169,12 @@ watch(
 
     <SectionCard
       title="日志列表"
-      eyebrow="记录"
       icon="mdi-format-list-bulleted"
     >
       <div class="d-grid ga-5">
         <div class="pagination-bar">
-          <div class="text-caption text-medium-emphasis">
-            第 {{ page }} / {{ maxPage }} 页 (共 {{ total }} 条)
+          <div class="text-body-2 text-medium-emphasis">
+            共 {{ total }} 条，当前第 {{ page }} / {{ maxPage }} 页
           </div>
           <VPagination
             :model-value="page"
@@ -221,7 +218,7 @@ watch(
         <EmptyState
           v-else
           title="这一页没有匹配的日志"
-          description="可以切换页码、调整筛选，或等待新的请求进入。"
+          description="可以切换页码、调整筛选，或等待新的请求进入"
           icon="mdi-text-box-remove-outline"
         />
       </div>

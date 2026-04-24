@@ -36,7 +36,7 @@ const authCardMeta = computed(() => {
     return {
       eyebrow: '引导',
       title: '保存管理员密钥',
-      description: '该密钥只展示一次。',
+      description: '该密钥只展示一次',
       chip: '已创建',
       color: 'success',
     }
@@ -44,9 +44,9 @@ const authCardMeta = computed(() => {
 
   if (admin.needSetup.value) {
     return {
-      eyebrow: '初始化',
-      title: '初始化管理员',
-      description: '创建首个管理员密钥。',
+      eyebrow: '',
+      title: '初始化',
+      description: '创建首个管理员密钥',
       chip: '首次启动',
       color: 'primary',
     }
@@ -55,7 +55,7 @@ const authCardMeta = computed(() => {
   return {
     eyebrow: '安全访问',
     title: '管理员登录',
-    description: '输入管理员密钥后进入控制台。',
+    description: '输入管理员密钥后进入控制台',
     chip: '需要验证',
     color: 'secondary',
   }
@@ -221,7 +221,7 @@ onBeforeUnmount(() => {
                       <div class="loading-copy">
                         <div class="text-overline loading-eyebrow">管理台</div>
                         <div class="text-h5 font-weight-bold">恢复控制台会话</div>
-                        <div class="text-body-2 text-medium-emphasis">正在恢复本地状态。</div>
+                        <div class="text-body-2 text-medium-emphasis">正在恢复本地状态</div>
                       </div>
                     </div>
                   <VProgressLinear indeterminate rounded color="primary" />
@@ -256,7 +256,7 @@ onBeforeUnmount(() => {
                       <VIcon icon="mdi-shield-lock-outline" color="primary" size="22" />
                     </VAvatar>
                   </template>
-                  <VCardSubtitle class="text-wrap">{{ authCardMeta.eyebrow }}</VCardSubtitle>
+                  <VCardSubtitle v-if="authCardMeta.eyebrow" class="text-wrap">{{ authCardMeta.eyebrow }}</VCardSubtitle>
                   <VCardTitle class="text-h5 font-weight-bold">{{ authCardMeta.title }}</VCardTitle>
                   <template #append>
                     <VChip :color="authCardMeta.color" variant="tonal" size="small">

@@ -89,6 +89,7 @@ export interface SettingsSnapshot {
   throttle_max_seconds: number
   logs_retention_seconds: number
   relay_max_retries: number
+  error_rate_window_seconds: number
 }
 
 export interface SettingsForm {
@@ -107,6 +108,7 @@ export interface SettingsForm {
   throttle_max_seconds: string
   logs_retention_seconds: string
   relay_max_retries: string
+  error_rate_window_seconds: string
 }
 
 export interface CodexItem {
@@ -118,11 +120,23 @@ export interface CodexItem {
   throttled_until: string
   quota_5h: number
   quota_7d: number
+  quota_spark_5h: number
+  quota_spark_7d: number
   reset_5h: string
   reset_7d: string
+  reset_spark_5h: string
+  reset_spark_7d: string
   plan_type: string | null
-  plan_expired: string
   reason: string
+  score: number
+  score_spark: number
+  spark_available: boolean
+  error_rate: number
+  weight: number
+  error_rate_spark: number
+  weight_spark: number
+  adjusted_score: number
+  adjusted_spark: number
 }
 
 export interface GeminiCredentialItem {
@@ -134,18 +148,43 @@ export interface GeminiCredentialItem {
   plan_type: string
   expired: string
   reason: string
+  quota_pro: number
+  reset_pro: string
+  quota_flash: number
+  reset_flash: string
+  quota_flashlite: number
+  reset_flashlite: string
   synced_at: string
   throttled_until: string
+  score_pro: number
+  score_flash: number
+  score_flashlite: number
+  error_rate_pro: number
+  weight_pro: number
+  error_rate_flash: number
+  weight_flash: number
+  error_rate_flashlite: number
+  weight_flashlite: number
+  adjusted_score_pro: number
+  adjusted_score_flash: number
+  adjusted_score_flashlite: number
 }
 
-export type CredentialItem = CodexItem | GeminiCredentialItem
-
-export interface GeminiCredentialInput {
-  id?: string
-  refresh_token: string
+export interface GenericCredentialItem {
+  handler: string
+  id: string
+  status: string
+  plan_type?: string | null
+  expired?: string
+  synced_at?: string
+  throttled_until?: string
+  reason?: string
+  [key: string]: unknown
 }
 
-export type CredentialHandlerKey = 'codex' | 'gemini'
+export type CredentialItem = CodexItem | GeminiCredentialItem | GenericCredentialItem
+
+export type CredentialHandlerKey = string
 
 export interface ModelItem {
   alias: string

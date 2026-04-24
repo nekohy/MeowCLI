@@ -32,11 +32,10 @@ type Organizations struct {
 
 // CodexAuthInfo 包含 Codex 特有的认证相关信息
 type CodexAuthInfo struct {
-	ChatgptAccountUserID           string          `json:"chatgpt_account_user_id"` // 是acc_id+user_id拼接的，原生
-	ChatgptPlanType                string          `json:"chatgpt_plan_type"`
-	ChatgptSubscriptionActiveUntil *string         `json:"chatgpt_subscription_active_until"`
-	Groups                         []any           `json:"groups"`
-	Organizations                  []Organizations `json:"organizations"`
+	ChatgptAccountUserID string          `json:"chatgpt_account_user_id"` // 是acc_id+user_id拼接的，原生
+	ChatgptPlanType      string          `json:"chatgpt_plan_type"`
+	Groups               []any           `json:"groups"`
+	Organizations        []Organizations `json:"organizations"`
 }
 
 // ParseJWT 解析 JWT 字符串并提取声明，不做签名验证
@@ -75,9 +74,14 @@ func (c *JWTClaims) GetAccountUserID() string {
 	return strings.TrimSpace(c.CodexAuthInfo.ChatgptAccountUserID)
 }
 
-// GetCredentialID 返回默认持久化/调度使用的凭据 ID
+// GetCredentialID 返回默认持久化/调度使用的凭据 ID: email__account_id.
 func (c *JWTClaims) GetCredentialID() string {
-	return c.GetAccountUserID()
+	email := strings.ToLower(strings.TrimSpace(c.GetEmail()))
+	accountID := AccountIDFromCredentialID(c.GetAccountUserID())
+	if email == "" || accountID == "" {
+		return ""
+	}
+	return email + "__" + accountID
 }
 
 // AccountIDFromCredentialID 从默认 credential id 中提取 account id
@@ -96,17 +100,6 @@ func AccountIDFromCredentialID(credentialID string) string {
 // GetPlanType 从 JWT 声明中提取 chatgpt_plan_type
 func (c *JWTClaims) GetPlanType() string {
 	return c.CodexAuthInfo.ChatgptPlanType
-}
-
-// GetSubscriptionActiveUntil 将 chatgpt_subscription_active_until（RFC3339 或 null）解析为 time.Time
-func (c *JWTClaims) GetSubscriptionActiveUntil() time.Time {
-	if c.CodexAuthInfo.ChatgptSubscriptionActiveUntil == nil {
-		return time.Time{}
-	}
-	if t, err := time.Parse(time.RFC3339, *c.CodexAuthInfo.ChatgptSubscriptionActiveUntil); err == nil {
-		return t
-	}
-	return time.Time{}
 }
 
 // GetExpiry 将 exp 声明转换为 time.Time

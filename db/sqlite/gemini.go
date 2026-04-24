@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"strings"
-	"time"
 
 	sqlcsqlite "github.com/nekohy/MeowCLI/internal/db/sqlite"
 	db "github.com/nekohy/MeowCLI/internal/store"
@@ -68,6 +67,12 @@ func (s *Store) ListGeminiCLI(ctx context.Context) ([]db.ListGeminiCLIRow, error
 			row.ProjectID,
 			row.PlanType,
 			row.Reason,
+			row.QuotaPro,
+			row.QuotaFlash,
+			row.QuotaFlashlite,
+			row.ResetPro,
+			row.ResetFlash,
+			row.ResetFlashlite,
 			row.ThrottledUntil,
 			row.SyncedAt,
 		)
@@ -99,6 +104,12 @@ func (s *Store) ListGeminiCLIPaged(ctx context.Context, arg db.ListCredentialPag
 			row.ProjectID,
 			row.PlanType,
 			row.Reason,
+			row.QuotaPro,
+			row.QuotaFlash,
+			row.QuotaFlashlite,
+			row.ResetPro,
+			row.ResetFlash,
+			row.ResetFlashlite,
 			row.ThrottledUntil,
 			row.SyncedAt,
 		)
@@ -145,23 +156,4 @@ func (s *Store) UpdateGeminiCLIStatus(ctx context.Context, id string, status str
 		return db.GeminiCredential{}, wrapError(err)
 	}
 	return geminiCredentialTo(row), nil
-}
-
-func (s *Store) SetGeminiCLIThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error {
-	return wrapError(s.queries.SetGeminiCLIThrottled(ctx, sqlcsqlite.SetGeminiCLIThrottledParams{
-		ThrottledUntil: fmtTime(throttledUntil),
-		ID:             credentialID,
-	}))
-}
-
-func (s *Store) ListAvailableGeminiCLI(ctx context.Context) ([]db.ListAvailableGeminiCLIRow, error) {
-	rows, err := s.queries.ListAvailableGeminiCLI(ctx)
-	if err != nil {
-		return nil, err
-	}
-	resolved := make([]db.ListAvailableGeminiCLIRow, len(rows))
-	for i, row := range rows {
-		resolved[i] = listAvailableGeminiCLIRowTo(row.ID, row.Email, row.ProjectID, row.PlanType, row.ThrottledUntil, row.SyncedAt)
-	}
-	return resolved, nil
 }

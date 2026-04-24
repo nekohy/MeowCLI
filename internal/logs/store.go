@@ -47,6 +47,7 @@ func (s *Store) InsertLog(ctx context.Context, arg db.InsertLogParams) error {
 		CredentialID: arg.CredentialID,
 		StatusCode:   arg.StatusCode,
 		Text:         arg.Text,
+		ModelTier:    arg.ModelTier,
 		CreatedAt:    now,
 	})
 	s.compactLocked()
@@ -100,6 +101,71 @@ func (s *Store) CountLogs(ctx context.Context) (int64, error) {
 	count := int64(len(s.rows) - s.head)
 	s.mu.RUnlock()
 	return count, nil
+}
+
+func (s *Store) ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, credentialIDs []string, window time.Duration) (map[string]float64, error) {
+	if err := contextErr(ctx); err != nil || s == nil {
+		return nil, err
+	}
+
+	idSet := make(map[string]struct{}, len(credentialIDs))
+	for _, id := range credentialIDs {
+		idSet[id] = struct{}{}
+	}
+
+	now := time.Now()
+	if window <= 0 {
+		window = time.Hour
+	}
+	cutoff := now.Add(-window)
+
+	s.mu.RLock()
+	type counters struct{ total, errors int }
+	counts := make(map[string]*counters, len(idSet))
+	for i := len(s.rows) - 1; i >= s.head; i-- {
+		row := &s.rows[i]
+		if !row.CreatedAt.After(cutoff) {
+			break
+		}
+		if row.Handler != handler {
+			continue
+		}
+		// When modelTier is specified, filter rows to that tier only.
+		// Special case: "default" also matches rows where ModelTier is
+		// empty — Codex records non-spark requests with ModelTier="".
+		if modelTier != "" {
+			if row.ModelTier != modelTier {
+				if modelTier != "default" || row.ModelTier != "" {
+					continue
+				}
+			}
+		}
+		if _, ok := idSet[row.CredentialID]; !ok {
+			continue
+		}
+		c := counts[row.CredentialID]
+		if c == nil {
+			c = &counters{}
+			counts[row.CredentialID] = c
+		}
+		c.total++
+		if isLogError(row.StatusCode) {
+			c.errors++
+		}
+	}
+	s.mu.RUnlock()
+
+	result := make(map[string]float64, len(counts))
+	for id, c := range counts {
+		if c.total > 0 {
+			result[id] = float64(c.errors) / float64(c.total)
+		}
+	}
+	return result, nil
+}
+
+func isLogError(statusCode int32) bool {
+	return statusCode >= 400 || statusCode == 0
 }
 
 func (s *Store) pruneLocked(now time.Time) {

@@ -80,6 +80,7 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   throttle_max_seconds: '1800',
   logs_retention_seconds: '86400',
   relay_max_retries: '3',
+  error_rate_window_seconds: '3600',
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -95,6 +96,7 @@ const ROLE_LABELS: Record<string, string> = {
 }
 
 const PLAN_TYPE_SPLIT_RE = /[,\s;]+/
+const CREDENTIAL_ID_SEPARATOR = '__'
 
 export function normalizeTheme(value?: string | null): ThemeMode {
   return value === 'dark' ? 'dark' : 'light'
@@ -236,7 +238,7 @@ export function safeStringify(value: unknown) {
   }
 }
 
-export function isUnsynced(value?: string | null) {
+export function isZeroTime(value?: string | null) {
   if (!value) {
     return true
   }
@@ -247,10 +249,6 @@ export function isUnsynced(value?: string | null) {
 
   const date = new Date(text)
   return Number.isNaN(date.getTime()) || date.getFullYear() <= 1
-}
-
-export function isZeroTime(value?: string | null) {
-  return isUnsynced(value)
 }
 
 export function isPastTime(value?: string | null) {
@@ -268,14 +266,35 @@ export function normalizePlanType(value?: string | null) {
     return ''
   }
   const text = value.trim().toLowerCase()
-  if (!text || text === 'unknown') {
+  if (!text) {
     return ''
+  }
+  if (text === '-') {
+    return 'unknown'
   }
   return text
 }
 
 export function planTypeText(value?: string | null) {
-  return normalizePlanType(value) || '-'
+  return normalizePlanType(value) || 'unknown'
+}
+
+export function codexCredentialEmail(id?: string | null) {
+  const text = id?.trim() || ''
+  const idx = text.lastIndexOf(CREDENTIAL_ID_SEPARATOR)
+  if (idx <= 0) {
+    return text || '-'
+  }
+  return text.slice(0, idx) || '-'
+}
+
+export function codexCredentialAccountID(id?: string | null) {
+  const text = id?.trim() || ''
+  const idx = text.lastIndexOf(CREDENTIAL_ID_SEPARATOR)
+  if (idx < 0 || idx + CREDENTIAL_ID_SEPARATOR.length >= text.length) {
+    return '-'
+  }
+  return text.slice(idx + CREDENTIAL_ID_SEPARATOR.length) || '-'
 }
 
 export function splitPlanTypeInput(value?: string | null) {
@@ -317,6 +336,7 @@ export function settingsToForm(data?: Partial<SettingsSnapshot>): SettingsForm {
     throttle_max_seconds: String(data?.throttle_max_seconds ?? DEFAULT_SETTINGS_FORM.throttle_max_seconds),
     logs_retention_seconds: String(data?.logs_retention_seconds ?? DEFAULT_SETTINGS_FORM.logs_retention_seconds),
     relay_max_retries: String(data?.relay_max_retries ?? DEFAULT_SETTINGS_FORM.relay_max_retries),
+    error_rate_window_seconds: String(data?.error_rate_window_seconds ?? DEFAULT_SETTINGS_FORM.error_rate_window_seconds),
   }
 }
 
@@ -337,5 +357,6 @@ export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
     throttle_max_seconds: Number(form.throttle_max_seconds),
     logs_retention_seconds: Number(form.logs_retention_seconds),
     relay_max_retries: Number(form.relay_max_retries),
+    error_rate_window_seconds: Number(form.error_rate_window_seconds),
   }
 }

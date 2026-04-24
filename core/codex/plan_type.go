@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/nekohy/MeowCLI/core/scheduling"
 	"github.com/nekohy/MeowCLI/utils"
 )
 
@@ -18,6 +19,9 @@ const (
 
 func NormalizePlanType(planType string) string {
 	normalized := strings.ToLower(strings.TrimSpace(planType))
+	if normalized == "-" {
+		return planTypeUnknown
+	}
 	switch normalized {
 	case planTypeFree, planTypePlus, planTypePro, planTypeBusiness, planTypeEnterprise, planTypeUnknown:
 		return normalized
@@ -45,8 +49,6 @@ func PlanList() []string {
 	}
 }
 
-const planTypeCodeAny = -1
-
 const (
 	planTypeCodeFree = iota
 	planTypeCodePlus
@@ -71,11 +73,7 @@ type planTypeCodec struct{}
 func newPlanTypeCodec() *planTypeCodec { return &planTypeCodec{} }
 
 func (c *planTypeCodec) code(planType string) int {
-	normalized := NormalizePlanType(planType)
-	if normalized == "" {
-		return planTypeCodeAny
-	}
-	if code, ok := planTypeCodes[normalized]; ok {
+	if code, ok := planTypeCodes[NormalizePlanType(planType)]; ok {
 		return code
 	}
 	return planTypeCodeUnknown
@@ -90,7 +88,7 @@ func (c *planTypeCodec) codesFor(planTypes []string) []int {
 	seen := make(map[int]struct{}, len(planTypes))
 	for _, planType := range planTypes {
 		code := c.code(planType)
-		if code == planTypeCodeAny {
+		if code == planTypeCodeUnknown {
 			continue
 		}
 		if _, ok := seen[code]; ok {
@@ -106,7 +104,7 @@ func (s *Scheduler) preferredPlanTypeCodes(headers http.Header) []int {
 	snapshot := s.settingsSnapshot()
 	codec := s.planTypeCodec()
 
-	return mergePlanTypeCodes(
+	return scheduling.MergePlanTypeCodes(
 		headerPlanTypeCodes(headers, snapshot.AllowUserPlanTypeHeader && snapshot.CodexAllowUserPlanTypeHeader, codec),
 		codec.codesFor(ParsePlanTypeList(snapshot.CodexPreferredPlanTypes)),
 	)

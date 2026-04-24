@@ -157,11 +157,21 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 
 	if c.OnQuota != nil {
 		rl := codexutils.ParseRateLimit(raw.Header)
-		q := rl.ToQuota()
-		c.OnQuota(ctx, credentialID, &q)
+		if rl.HasQuotaWindows() {
+			q := rl.ToQuotaForTier(resolveQuotaTierFromBody(body))
+			c.OnQuota(ctx, credentialID, &q)
+		}
 	}
 
 	return raw, nil
+}
+
+func resolveQuotaTierFromBody(body []byte) string {
+	model := strings.ToLower(gjson.GetBytes(body, "model").String())
+	if strings.Contains(model, "spark") {
+		return "spark"
+	}
+	return "default"
 }
 
 func translateCodexNonStreamResponse(resp *http.Response) (*http.Response, error) {

@@ -2,8 +2,10 @@ package gemini
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"github.com/bytedance/sonic"
 	"io"
 	"net"
 	"net/http"
@@ -190,6 +192,57 @@ func (c *Client) httpClient() *http.Client {
 		return http.DefaultClient
 	}
 	return c.client
+}
+
+// FetchQuota fetches the real remaining quota from the retrieveUserQuota API.
+// If projectID is empty, it is resolved automatically from the access token.
+func (c *Client) FetchQuota(ctx context.Context, _ string, accessToken string, projectID string) (*Quota, error) {
+	token := strings.TrimSpace(accessToken)
+	if token == "" {
+		return nil, fmt.Errorf("fetch gemini quota: access token is empty")
+	}
+
+	pid := strings.TrimSpace(projectID)
+	if pid == "" {
+		resolved, err := c.ResolveProjectID(ctx, token)
+		if err != nil {
+			return nil, fmt.Errorf("resolve project id for gemini quota: %w", err)
+		}
+		pid = resolved
+	}
+	if pid == "" {
+		return nil, fmt.Errorf("fetch gemini quota: project id is empty")
+	}
+
+	reqBody, _ := sonic.Marshal(map[string]string{"project": pid})
+	quotaURL := fmt.Sprintf("%s/%s:retrieveUserQuota", codeAssistEndpoint, codeAssistVersion)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, quotaURL, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("create gemini quota request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient().Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("fetch gemini quota: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := readLimitedBody(resp.Body, readBodyLimit)
+	if err != nil {
+		return nil, fmt.Errorf("read gemini quota response: %w", err)
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
+	}
+
+	return ParseQuotaFromBuckets(body), nil
 }
 
 type APIError = api.APIError

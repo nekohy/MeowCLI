@@ -13,8 +13,12 @@ func (s *Store) UpsertQuota(ctx context.Context, arg db.UpsertQuotaParams) error
 		CredentialID: arg.CredentialID,
 		Quota5h:      arg.Quota5h,
 		Quota7d:      arg.Quota7d,
+		QuotaSpark5h: arg.QuotaSpark5h,
+		QuotaSpark7d: arg.QuotaSpark7d,
 		Reset5h:      tsFrom(arg.Reset5h),
 		Reset7d:      tsFrom(arg.Reset7d),
+		ResetSpark5h: tsFrom(arg.ResetSpark5h),
+		ResetSpark7d: tsFrom(arg.ResetSpark7d),
 	})
 	return err
 }
@@ -45,7 +49,7 @@ func (s *Store) ListAvailableCodex(ctx context.Context) ([]db.ListAvailableCodex
 
 	resolved := make([]db.ListAvailableCodexRow, len(rows))
 	for i, row := range rows {
-		resolved[i] = listAvailableCodexRowTo(row.ID, row.PlanType, row.Quota5h, row.Quota7d, tsTo(row.Reset5h), tsTo(row.Reset7d), tsTo(row.ThrottledUntil), tsTo(row.SyncedAt))
+		resolved[i] = listAvailableCodexRowTo(row.ID, row.PlanType, row.Quota5h, row.Quota7d, row.QuotaSpark5h, row.QuotaSpark7d, tsTo(row.Reset5h), tsTo(row.Reset7d), tsTo(row.ResetSpark5h), tsTo(row.ResetSpark7d), tsTo(row.ThrottledUntil), tsTo(row.SyncedAt))
 	}
 
 	return resolved, nil

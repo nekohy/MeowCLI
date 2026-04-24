@@ -21,8 +21,7 @@ const chipVariant = computed(() => (props.subtle ? 'text' : 'tonal'))
     :color="chipColor"
     :variant="chipVariant"
     :prepend-icon="icon"
-    size="small"
-    class="font-weight-bold"
+    class="admin-badge font-weight-bold"
   >
     <slot />
   </VChip>

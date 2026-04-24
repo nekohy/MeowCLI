@@ -55,6 +55,7 @@ func (a *AdminHandler) CreateModel(c *gin.Context) {
 	if writeStoreError(c, err, "", "model alias already exists") {
 		return
 	}
+	a.invalidateModel(alias)
 	c.JSON(http.StatusCreated, row)
 }
 
@@ -81,6 +82,7 @@ func (a *AdminHandler) UpdateModel(c *gin.Context) {
 	if writeStoreError(c, err, "model not found", "") {
 		return
 	}
+	a.invalidateModel(alias)
 	c.JSON(http.StatusOK, row)
 }
 
@@ -93,5 +95,13 @@ func (a *AdminHandler) DeleteModel(c *gin.Context) {
 	if err := a.store.DeleteModel(c.Request.Context(), alias); writeStoreError(c, err, "model not found", "") {
 		return
 	}
+	a.invalidateModel(alias)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (a *AdminHandler) invalidateModel(alias string) {
+	if a == nil || a.modelCache == nil {
+		return
+	}
+	a.modelCache.InvalidateModel(alias)
 }

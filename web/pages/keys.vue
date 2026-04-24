@@ -189,7 +189,7 @@ function updateAuthKey(item: AuthKeyItem) {
 function deleteAuthKey(item: AuthKeyItem) {
   confirm.show({
     title: '删除 API 密钥',
-    message: `确认删除密钥 ${item.key} 吗？此操作不可撤销。`,
+    message: `确认删除密钥 ${item.key} 吗？此操作不可撤销`,
     confirmText: '确认删除',
     action: async () => {
       actionBusy.value = true
@@ -228,7 +228,6 @@ watch(
 <template>
   <div class="page-grid">
     <PageHeader
-      eyebrow="访问控制"
       title="API 密钥"
       icon="mdi-shield-key-outline"
     >
@@ -247,7 +246,6 @@ watch(
 
     <SectionCard
       title="筛选与状态"
-      eyebrow="浏览"
       icon="mdi-filter-variant"
     >
       <div class="d-grid ga-5">
@@ -361,7 +359,7 @@ watch(
       <EmptyState
         v-else
         title="还没有 API 密钥"
-        description="创建一个密钥后，就可以用于后台或接口访问。"
+        description="创建一个密钥后，就可以用于后台或接口访问"
         icon="mdi-key-plus"
       />
     </SectionCard>
@@ -369,7 +367,7 @@ watch(
     <ModalDialog
       :open="modalOpen"
       title="新建 API 密钥"
-      description="不填写自定义密钥时，系统会自动生成。"
+      description="不填写自定义密钥时，系统会自动生成"
       @close="closeModal"
     >
       <div class="d-grid ga-4">
@@ -414,7 +412,7 @@ watch(
     <ModalDialog
       :open="confirm.open.value"
       :title="confirm.title.value"
-      description="操作会立即影响当前密钥权限。"
+      description="操作会立即影响当前密钥权限"
       @close="confirm.close()"
     >
       <p class="text-body-1">{{ confirm.message.value }}</p>

@@ -2,10 +2,11 @@
 import { adminApi } from '~/composables/useAdminApi'
 import {
   PAGE_SIZE_OPTIONS,
+  codexCredentialAccountID,
+  codexCredentialEmail,
   formatPercent,
   formatTime,
   isPastTime,
-  isUnsynced,
   isZeroTime,
   normalizePlanType,
   planTypeText,
@@ -15,10 +16,9 @@ import {
 import type {
   CredentialHandlerKey,
   CodexItem,
-  CredentialField,
   CredentialItem,
-  GeminiCredentialInput,
   GeminiCredentialItem,
+  UiTone,
 } from '~/types/admin'
 
 definePageMeta({
@@ -35,7 +35,7 @@ const pageSize = ref(25)
 const loading = ref(false)
 const searchInput = ref('')
 const searchQuery = ref('')
-const statusFilter = ref<'all' | 'enabled' | 'disabled' | 'unsynced'>('all')
+const statusFilter = ref<'all' | 'enabled' | 'disabled'>('all')
 const planFilter = ref('all')
 const selectedIds = ref<string[]>([])
 const actionBusy = ref(false)
@@ -43,17 +43,22 @@ const actionBusy = ref(false)
 const importOpen = ref(false)
 const importTokens = ref('')
 const importError = ref('')
-const importForm = ref<Record<string, string>>({})
 
-const credentialHandlerKey = computed<CredentialHandlerKey>(() => (
-  admin.activeHandler.value?.key === 'gemini' ? 'gemini' : 'codex'
+const credentialHandlerKey = computed<CredentialHandlerKey>(() => admin.activeHandler.value?.key || '')
+const credentialEndpoint = computed(() => admin.activeHandler.value?.credential_endpoint || '')
+const activeHandlerLabel = computed(() => admin.activeHandler.value?.label || '当前处理器')
+const activeCredentialField = computed(() => (
+  admin.activeHandler.value?.credential_fields?.find((field) => field.preferred)
+  || admin.activeHandler.value?.credential_fields?.[0]
+  || null
 ))
 const isCodexHandler = computed(() => credentialHandlerKey.value === 'codex')
 const isGeminiHandler = computed(() => credentialHandlerKey.value === 'gemini')
-const activeCredentialFields = computed(() => admin.activeHandler.value?.credential_fields || [])
+const knownStatusOptions = ['enabled', 'disabled'] as const
 
 const codexRows = computed(() => rows.value.filter(isCodexItem))
-const geminiRows = computed(() => rows.value.filter((item): item is GeminiCredentialItem => !isCodexItem(item)))
+const geminiRows = computed(() => rows.value.filter(isGeminiItem))
+const genericRows = computed(() => rows.value.filter((item) => !isCodexItem(item) && !isGeminiItem(item)))
 
 const importLines = computed(() => (
   importTokens.value
@@ -61,69 +66,17 @@ const importLines = computed(() => (
     .map((line) => line.trim())
     .filter(Boolean)
 ))
-
-const summaryTiles = computed(() => {
-  if (isGeminiHandler.value) {
-    return [
-      {
-        label: '当前页',
-        value: geminiRows.value.length,
-        helper: '本次已加载的凭据数',
-        icon: 'mdi-file-document-outline',
-      },
-      {
-        label: '可用',
-        value: geminiRows.value.filter((item) => item.status === 'enabled').length,
-        helper: '启用且可参与调度',
-        icon: 'mdi-check-circle-outline',
-      },
-      {
-        label: '冷却中',
-        value: geminiRows.value.filter((item) => item.throttled_until && !isPastTime(item.throttled_until)).length,
-        helper: '当前被退避的凭据数',
-        icon: 'mdi-timer-sand',
-      },
-      {
-        label: '已选择',
-        value: selectedIds.value.length,
-        icon: 'mdi-checkbox-multiple-marked-outline',
-      },
-    ]
-  }
-
-  return [
-    {
-      label: '当前页',
-      value: codexRows.value.length,
-      helper: '本次已加载的凭据数',
-      icon: 'mdi-file-document-outline',
-    },
-    {
-      label: '可用',
-      value: codexRows.value.filter((item) => item.status === 'enabled').length,
-      helper: '启用且可参与调度',
-      icon: 'mdi-check-circle-outline',
-    },
-    {
-      label: '未同步',
-      value: codexRows.value.filter((item) => isUnsynced(item.synced_at)).length,
-      helper: '需要重新同步额度',
-      icon: 'mdi-sync-alert',
-    },
-    {
-      label: '已选择',
-      value: selectedIds.value.length,
-      icon: 'mdi-checkbox-multiple-marked-outline',
-    },
-  ]
-})
+const importInputLabel = computed(() => activeCredentialField.value?.label || '凭据列表')
+const importInputPlaceholder = computed(() => activeCredentialField.value?.placeholder || '每行填写一个凭据')
 
 const availablePlanTypes = computed(() => {
-  const configured = admin.activeHandler.value?.plan_list || []
-  if (configured.length) {
-    return ['all', ...configured]
-  }
   const planTypes = new Set<string>()
+  admin.activeHandler.value?.plan_list?.forEach((plan) => {
+    const planType = normalizePlanType(plan)
+    if (planType) {
+      planTypes.add(planType)
+    }
+  })
   rows.value.forEach((item) => {
     const planType = normalizePlanType(item.plan_type)
     if (planType) {
@@ -131,6 +84,31 @@ const availablePlanTypes = computed(() => {
     }
   })
   return ['all', ...planTypes]
+})
+
+const availableStatusFilters = computed(() => {
+  const statuses = new Set<string>(knownStatusOptions)
+  admin.activeHandler.value?.credential_status_options?.forEach((status) => {
+    if (status === 'enabled' || status === 'disabled') {
+      statuses.add(status)
+    }
+  })
+  rows.value.forEach((item) => {
+    if (item.status === 'enabled' || item.status === 'disabled') {
+      statuses.add(item.status)
+    }
+  })
+
+  const filters: Array<{ value: typeof statusFilter.value, label: string }> = [
+    { value: 'all', label: '全部状态' },
+  ]
+  if (statuses.has('enabled')) {
+    filters.push({ value: 'enabled', label: '启用' })
+  }
+  if (statuses.has('disabled')) {
+    filters.push({ value: 'disabled', label: '停用' })
+  }
+  return filters
 })
 
 const hasActiveFilters = computed(() => (
@@ -142,17 +120,15 @@ const emptyStateTitle = computed(() => {
   if (hasActiveFilters.value) {
     return '当前条件下没有匹配的凭据'
   }
-  return isGeminiHandler.value ? '还没有可管理的 Gemini CLI 凭据' : '还没有可管理的凭据'
+  return `还没有可管理的 ${activeHandlerLabel.value} 凭据`
 })
 const emptyStateDescription = computed(() => {
   if (hasActiveFilters.value) {
     return isGeminiHandler.value
-      ? '调整搜索、状态或套餐筛选，或者先新增一组 Gemini CLI 凭据。'
-      : '调整搜索、状态或套餐筛选，或者先导入新凭据。'
+      ? '调整搜索、状态或套餐筛选，或者先新增一组 Gemini CLI 凭据'
+      : '调整搜索、状态或套餐筛选，或者先导入新凭据'
   }
-  return isGeminiHandler.value
-    ? '先手工导入 refresh token，系统会在保存后自动纳入调度。'
-    : '先导入一批凭据，系统才会开始调度和额度同步。'
+  return activeCredentialField.value?.help_text || '先导入一批凭据，系统才会开始调度和额度同步'
 })
 const selectedSet = computed(() => new Set(selectedIds.value))
 const allVisibleSelected = computed(() => (
@@ -161,9 +137,7 @@ const allVisibleSelected = computed(() => (
 const maxPage = computed(() => Math.max(1, Math.ceil((total.value || 0) / (pageSize.value || 25))))
 const pageSizeOptions = PAGE_SIZE_OPTIONS
 const importDescription = computed(() => (
-  isGeminiHandler.value
-    ? '手工导入一组 Gemini CLI refresh token，保存后即可加入凭据池。'
-    : '一行一个令牌，支持 Refresh Token 或 Access Token。'
+  activeCredentialField.value?.help_text || '一行一个凭据，保存后会纳入当前处理器调度'
 ))
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -173,17 +147,24 @@ function isCodexItem(item: CredentialItem): item is CodexItem {
   return item.handler === 'codex'
 }
 
-function resetImportForm() {
-  importForm.value = Object.fromEntries(
-    activeCredentialFields.value.map((field) => [field.key, '']),
-  )
+function isGeminiItem(item: CredentialItem): item is GeminiCredentialItem {
+  return item.handler === 'gemini'
+}
+
+function genericDetailEntries(item: CredentialItem) {
+  return [
+    { label: '凭据 ID', value: item.id },
+    { label: '套餐类型', value: planTypeText(item.plan_type || '') },
+    { label: '到期时间', value: item.expired ? formatTime(String(item.expired)) : '-' },
+    { label: '最近同步', value: item.synced_at ? formatTime(String(item.synced_at)) : '-' },
+    { label: '退避截止', value: item.throttled_until && !isPastTime(String(item.throttled_until)) ? formatTime(String(item.throttled_until)) : '-' },
+  ].filter((entry) => entry.value && entry.value !== 'unknown')
 }
 
 function closeImportModal() {
   importOpen.value = false
   importTokens.value = ''
   importError.value = ''
-  resetImportForm()
 }
 
 function toggleSelectAll() {
@@ -200,10 +181,14 @@ function toggleSelectOne(id: string) {
     : [...selectedIds.value, id]
 }
 
-function quotaPercentValue(item: CodexItem, quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
-  if (isUnsynced(item.synced_at)) {
+function quotaPercentValue(item: CodexItem, quotaKey: 'quota_5h' | 'quota_7d' | 'quota_spark_5h' | 'quota_spark_7d', resetKey: 'reset_5h' | 'reset_7d' | 'reset_spark_5h' | 'reset_spark_7d') {
+  if (item[quotaKey] === 1 && isZeroTime(item[resetKey])) {
     return null
   }
+  return Math.max(0, Math.min(100, Math.round((item[quotaKey] || 0) * 100)))
+}
+
+function geminiQuotaPercentValue(item: GeminiCredentialItem, quotaKey: 'quota_pro' | 'quota_flash' | 'quota_flashlite', resetKey: 'reset_pro' | 'reset_flash' | 'reset_flashlite') {
   if (item[quotaKey] === 1 && isZeroTime(item[resetKey])) {
     return null
   }
@@ -223,14 +208,40 @@ function quotaTone(percent: number | null) {
   return 'danger'
 }
 
-function renderQuotaValue(item: CodexItem, quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
-  if (isUnsynced(item.synced_at)) {
-    return '未同步'
-  }
+function renderQuotaValue(item: CodexItem, quotaKey: 'quota_5h' | 'quota_7d' | 'quota_spark_5h' | 'quota_spark_7d', resetKey: 'reset_5h' | 'reset_7d' | 'reset_spark_5h' | 'reset_spark_7d') {
   if (item[quotaKey] === 1 && isZeroTime(item[resetKey])) {
     return '不适用'
   }
   return formatPercent(item[quotaKey])
+}
+
+function renderGeminiQuotaValue(item: GeminiCredentialItem, quotaKey: 'quota_pro' | 'quota_flash' | 'quota_flashlite', resetKey: 'reset_pro' | 'reset_flash' | 'reset_flashlite') {
+  if (item[quotaKey] === 1 && isZeroTime(item[resetKey])) {
+    return '不适用'
+  }
+  return formatPercent(item[quotaKey])
+}
+
+function isSparkAvailable(item: CodexItem) {
+  return item.spark_available
+}
+
+function scoreTone(score: number): UiTone {
+  if (score < 0) return 'danger'
+  if (score >= 800) return 'success'
+  if (score >= 400) return 'warning'
+  return 'danger'
+}
+
+function formatScore(score: number): string {
+  if (score < 0) return '不可用'
+  return Math.round(score).toString()
+}
+
+function errorRateTone(rate: number): UiTone {
+  if (rate <= 0) return 'success'
+  if (rate < 0.2) return 'warning'
+  return 'danger'
 }
 
 function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.value) {
@@ -242,7 +253,6 @@ function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.valu
       ? statusFilter.value
       : undefined,
     planType: planFilter.value !== 'all' ? planFilter.value : undefined,
-    unsynced: isCodexHandler.value && statusFilter.value === 'unsynced' ? true : undefined,
   }
 }
 
@@ -259,7 +269,7 @@ async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.va
 
   loading.value = true
   try {
-    const data = await adminApi.listCredentials(admin.token.value, credentialHandlerKey.value, currentQueryOptions(nextPage, nextPageSize))
+    const data = await adminApi.listCredentials(admin.token.value, credentialHandlerKey.value, currentQueryOptions(nextPage, nextPageSize), credentialEndpoint.value)
     if (requestToken !== latestLoadToken) {
       return
     }
@@ -279,42 +289,19 @@ async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.va
   }
 }
 
-function buildGeminiCredentialPayload(): GeminiCredentialInput {
-  const next: GeminiCredentialInput = {
-    refresh_token: (importForm.value.refresh_token || '').trim(),
-  }
-
-  for (const key of ['id'] as const) {
-    const value = (importForm.value[key] || '').trim()
-    if (value) {
-      next[key] = value
-    }
-  }
-
-  if (!next.refresh_token) {
-    throw new Error('请填写 refresh token')
-  }
-
-  return next
-}
-
 async function createCredential() {
   actionBusy.value = true
   importError.value = ''
 
   try {
-    if (!isGeminiHandler.value && importLines.value.length === 0) {
+    if (importLines.value.length === 0) {
       importError.value = '请至少输入一行令牌'
       return
     }
 
-    const result = isGeminiHandler.value
-      ? await adminApi.createCredentials(admin.token.value, 'gemini', {
-          credentials: [buildGeminiCredentialPayload()],
-        })
-      : await adminApi.createCredentials(admin.token.value, 'codex', {
-          tokens: importLines.value,
-        })
+    const result = await adminApi.createCredentials(admin.token.value, credentialHandlerKey.value, {
+      tokens: importLines.value,
+    }, credentialEndpoint.value)
 
     const createdCount = result.created?.length || 0
     const errorCount = result.errors?.length || 0
@@ -329,7 +316,7 @@ async function createCredential() {
       }
     } else {
       closeImportModal()
-      admin.notify(isGeminiHandler.value ? `已新增 ${createdCount} 条 Gemini CLI 凭据` : `已导入 ${createdCount} 条凭据`)
+      admin.notify(`已导入 ${createdCount} 条凭据`)
     }
 
     await Promise.all([
@@ -357,7 +344,7 @@ function batchSetStatus(status: string) {
     action: async () => {
       actionBusy.value = true
       try {
-        const result = await adminApi.updateCredentialStatus(admin.token.value, credentialHandlerKey.value, { ids, status })
+        const result = await adminApi.updateCredentialStatus(admin.token.value, credentialHandlerKey.value, { ids, status }, credentialEndpoint.value)
         const updatedCount = result.updated?.length || 0
         const errorCount = result.errors?.length || 0
         admin.notify(
@@ -387,12 +374,12 @@ function batchDelete() {
 
   confirm.show({
     title: '删除凭据',
-    message: `确认删除 ${ids.length} 个凭据吗？此操作不可撤销。`,
+    message: `确认删除 ${ids.length} 个凭据吗？此操作不可撤销`,
     confirmText: '确认删除',
     action: async () => {
       actionBusy.value = true
       try {
-        const result = await adminApi.deleteCredentials(admin.token.value, credentialHandlerKey.value, { ids })
+        const result = await adminApi.deleteCredentials(admin.token.value, credentialHandlerKey.value, { ids }, credentialEndpoint.value)
         const deletedCount = result.deleted?.length || 0
         const errorCount = result.errors?.length || 0
         admin.notify(
@@ -414,24 +401,6 @@ function batchDelete() {
   })
 }
 
-function fieldInputType(field: CredentialField) {
-  switch (field.kind) {
-    case 'password':
-      return 'password'
-    case 'url':
-      return 'url'
-    default:
-      return 'text'
-  }
-}
-
-onMounted(() => {
-  resetImportForm()
-  if (admin.authReady.value) {
-    void loadCredentials()
-  }
-})
-
 watch(searchInput, (value) => {
   if (searchTimer) {
     clearTimeout(searchTimer)
@@ -448,13 +417,7 @@ watch(
       void loadCredentials(1, pageSize.value)
     }
   },
-)
-
-watch(
-  () => activeCredentialFields.value.map((field) => field.key).join(','),
-  () => {
-    resetImportForm()
-  },
+  { immediate: true },
 )
 
 watch(
@@ -464,10 +427,6 @@ watch(
     planFilter.value = 'all'
     searchInput.value = ''
     searchQuery.value = ''
-    resetImportForm()
-    if (admin.authReady.value) {
-      void loadCredentials(1, pageSize.value)
-    }
   },
 )
 
@@ -490,7 +449,6 @@ onBeforeUnmount(() => {
 <template>
   <div class="page-grid">
     <PageHeader
-      eyebrow="令牌池"
       title="凭据管理"
       icon="mdi-key-chain-variant"
     >
@@ -508,14 +466,13 @@ onBeforeUnmount(() => {
           prepend-icon="mdi-import"
           @click="importOpen = true"
         >
-          {{ isGeminiHandler ? '新增凭据' : '导入凭据' }}
+          导入凭据
         </AdminButton>
       </template>
     </PageHeader>
 
     <SectionCard
-      title="服务处理器"
-      eyebrow="切换"
+      title="后端服务"
       icon="mdi-cpu-64-bit"
     >
       <HandlerSwitchGrid
@@ -527,29 +484,17 @@ onBeforeUnmount(() => {
 
     <SectionCard
       title="凭据列表"
-      :eyebrow="admin.activeHandler.value?.label || '当前处理器'"
       icon="mdi-table-large"
     >
       <div class="d-grid ga-5">
         <template v-if="admin.activeHandler.value?.supports_credentials">
-          <div class="summary-grid">
-            <MetricCard
-              v-for="tile in summaryTiles"
-              :key="tile.label"
-              :label="tile.label"
-              :value="tile.value"
-              :helper="tile.helper"
-              :icon="tile.icon"
-            />
-          </div>
-
           <div class="toolbar-panel">
             <div class="filter-toolbar">
               <VTextField
                 v-model="searchInput"
                 class="filter-grow"
                 label="搜索"
-                :placeholder="isGeminiHandler ? '凭据 ID / 邮箱 / 状态' : '凭据 ID / 状态 / 套餐'"
+                :placeholder="isGeminiHandler ? '凭据 ID / 邮箱 / 状态' : isCodexHandler ? '邮箱 / Account ID / 状态 / 套餐' : '凭据 ID / 状态 / 套餐'"
                 prepend-inner-icon="mdi-magnify"
                 clearable
               />
@@ -563,13 +508,17 @@ onBeforeUnmount(() => {
             </div>
 
             <VChipGroup v-model="statusFilter" mandatory color="primary">
-              <VChip value="all" filter>全部状态</VChip>
-              <VChip value="enabled" filter>启用</VChip>
-              <VChip value="disabled" filter>停用</VChip>
-              <VChip v-if="isCodexHandler" value="unsynced" filter>未同步</VChip>
+              <VChip
+                v-for="status in availableStatusFilters"
+                :key="status.value"
+                :value="status.value"
+                filter
+              >
+                {{ status.label }}
+              </VChip>
             </VChipGroup>
 
-            <VChipGroup v-if="availablePlanTypes.length > 1" v-model="planFilter" mandatory color="secondary">
+            <VChipGroup v-if="availablePlanTypes.length > 1 || planFilter !== 'all'" v-model="planFilter" mandatory color="secondary">
               <VChip value="all" filter>全部套餐</VChip>
               <VChip
                 v-for="plan in availablePlanTypes.filter((item) => item !== 'all')"
@@ -619,7 +568,7 @@ onBeforeUnmount(() => {
                           @update:model-value="() => toggleSelectOne(item.id)"
                         />
                         <div class="stack-card-copy">
-                          <div class="stack-card-title">{{ item.id }}</div>
+                          <div class="stack-card-title">{{ codexCredentialEmail(item.id) }}</div>
                           <div class="stack-card-meta">
                             <AdminBadge :tone="toneForStatus(item.status)">
                               {{ statusText(item.status) }}
@@ -627,12 +576,14 @@ onBeforeUnmount(() => {
                             <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
                               {{ planTypeText(item.plan_type) }}
                             </AdminBadge>
-                            <AdminBadge
-                              :tone="isUnsynced(item.synced_at) ? 'warning' : 'success'"
-                              subtle
-                              icon="mdi-sync"
-                            >
-                              {{ isUnsynced(item.synced_at) ? '待同步' : '已同步' }}
+                            <AdminBadge :tone="errorRateTone(item.error_rate)" subtle icon="mdi-alert-circle-outline">
+                              错误率 {{ formatPercent(item.error_rate) }}
+                            </AdminBadge>
+                            <AdminBadge v-if="isSparkAvailable(item)" :tone="errorRateTone(item.error_rate_spark)" subtle icon="mdi-alert-circle-outline">
+                              Spark错误 {{ formatPercent(item.error_rate_spark) }}
+                            </AdminBadge>
+                            <AdminBadge v-else tone="secondary" subtle icon="mdi-cancel">
+                              Spark不可用
                             </AdminBadge>
                           </div>
                         </div>
@@ -643,36 +594,72 @@ onBeforeUnmount(() => {
                       <div class="quota-card">
                         <div class="quota-row">
                           <div class="quota-label text-medium-emphasis">5 小时额度</div>
-                          <AdminBadge :tone="quotaTone(quotaPercentValue(item, 'quota_5h', 'reset_5h'))" subtle>
+                          <span :class="'text-' + quotaTone(quotaPercentValue(item, 'quota_5h', 'reset_5h'))" class="quota-value font-weight-bold">
                             {{ renderQuotaValue(item, 'quota_5h', 'reset_5h') }}
-                          </AdminBadge>
+                          </span>
                         </div>
                         <VProgressLinear
                           :model-value="quotaPercentValue(item, 'quota_5h', 'reset_5h') ?? 0"
                           :color="quotaTone(quotaPercentValue(item, 'quota_5h', 'reset_5h'))"
                           rounded
-                          height="10"
+                          height="8"
                         />
                         <div class="quota-caption text-medium-emphasis">
-                          重置时间 {{ formatTime(item.reset_5h) }}
+                          重置 {{ formatTime(item.reset_5h) }}
                         </div>
                       </div>
 
                       <div class="quota-card">
                         <div class="quota-row">
                           <div class="quota-label text-medium-emphasis">7 天额度</div>
-                          <AdminBadge :tone="quotaTone(quotaPercentValue(item, 'quota_7d', 'reset_7d'))" subtle>
+                          <span :class="'text-' + quotaTone(quotaPercentValue(item, 'quota_7d', 'reset_7d'))" class="quota-value font-weight-bold">
                             {{ renderQuotaValue(item, 'quota_7d', 'reset_7d') }}
-                          </AdminBadge>
+                          </span>
                         </div>
                         <VProgressLinear
                           :model-value="quotaPercentValue(item, 'quota_7d', 'reset_7d') ?? 0"
                           :color="quotaTone(quotaPercentValue(item, 'quota_7d', 'reset_7d'))"
                           rounded
-                          height="10"
+                          height="8"
                         />
                         <div class="quota-caption text-medium-emphasis">
-                          重置时间 {{ formatTime(item.reset_7d) }}
+                          重置 {{ formatTime(item.reset_7d) }}
+                        </div>
+                      </div>
+
+                      <div v-if="isSparkAvailable(item)" class="quota-card">
+                        <div class="quota-row">
+                          <div class="quota-label text-medium-emphasis">Spark 5h</div>
+                          <span :class="'text-' + quotaTone(quotaPercentValue(item, 'quota_spark_5h', 'reset_spark_5h'))" class="quota-value font-weight-bold">
+                            {{ renderQuotaValue(item, 'quota_spark_5h', 'reset_spark_5h') }}
+                          </span>
+                        </div>
+                        <VProgressLinear
+                          :model-value="quotaPercentValue(item, 'quota_spark_5h', 'reset_spark_5h') ?? 0"
+                          :color="quotaTone(quotaPercentValue(item, 'quota_spark_5h', 'reset_spark_5h'))"
+                          rounded
+                          height="8"
+                        />
+                        <div class="quota-caption text-medium-emphasis">
+                          重置 {{ formatTime(item.reset_spark_5h) }}
+                        </div>
+                      </div>
+
+                      <div v-if="isSparkAvailable(item)" class="quota-card">
+                        <div class="quota-row">
+                          <div class="quota-label text-medium-emphasis">Spark 7d</div>
+                          <span :class="'text-' + quotaTone(quotaPercentValue(item, 'quota_spark_7d', 'reset_spark_7d'))" class="quota-value font-weight-bold">
+                            {{ renderQuotaValue(item, 'quota_spark_7d', 'reset_spark_7d') }}
+                          </span>
+                        </div>
+                        <VProgressLinear
+                          :model-value="quotaPercentValue(item, 'quota_spark_7d', 'reset_spark_7d') ?? 0"
+                          :color="quotaTone(quotaPercentValue(item, 'quota_spark_7d', 'reset_spark_7d'))"
+                          rounded
+                          height="8"
+                        />
+                        <div class="quota-caption text-medium-emphasis">
+                          重置 {{ formatTime(item.reset_spark_7d) }}
                         </div>
                       </div>
                     </div>
@@ -683,12 +670,12 @@ onBeforeUnmount(() => {
                         <div class="detail-value">{{ formatTime(item.expired) }}</div>
                       </div>
                       <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">套餐到期</div>
-                        <div class="detail-value">{{ formatTime(item.plan_expired) }}</div>
+                        <div class="detail-label text-medium-emphasis">Account ID</div>
+                        <div class="detail-value">{{ codexCredentialAccountID(item.id) }}</div>
                       </div>
                       <div class="detail-block">
                         <div class="detail-label text-medium-emphasis">最近同步</div>
-                        <div class="detail-value">{{ isUnsynced(item.synced_at) ? '未同步' : formatTime(item.synced_at) }}</div>
+                        <div class="detail-value">{{ formatTime(item.synced_at) }}</div>
                       </div>
                       <div class="detail-block">
                         <div class="detail-label text-medium-emphasis">退避截止</div>
@@ -704,7 +691,7 @@ onBeforeUnmount(() => {
                 </VCard>
               </template>
 
-              <template v-else>
+              <template v-else-if="isGeminiHandler">
                 <VCard
                   v-for="item in geminiRows"
                   :key="item.id"
@@ -724,29 +711,84 @@ onBeforeUnmount(() => {
                             <AdminBadge :tone="toneForStatus(item.status)">
                               {{ statusText(item.status) }}
                             </AdminBadge>
-                            <AdminBadge tone="secondary" subtle icon="mdi-identifier">
-                              {{ item.id }}
-                            </AdminBadge>
                             <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
                               {{ planTypeText(item.plan_type) }}
+                            </AdminBadge>
+                            <AdminBadge :tone="errorRateTone(item.error_rate_pro)" subtle icon="mdi-alert-circle-outline">
+                              Pro错误 {{ formatPercent(item.error_rate_pro) }}
+                            </AdminBadge>
+                            <AdminBadge :tone="errorRateTone(item.error_rate_flash)" subtle icon="mdi-alert-circle-outline">
+                              Flash错误 {{ formatPercent(item.error_rate_flash) }}
+                            </AdminBadge>
+                            <AdminBadge :tone="errorRateTone(item.error_rate_flashlite)" subtle icon="mdi-alert-circle-outline">
+                              Lite错误 {{ formatPercent(item.error_rate_flashlite) }}
                             </AdminBadge>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <div class="detail-grid">
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">账号邮箱</div>
-                        <div class="detail-value">{{ item.email || '-' }}</div>
+                    <div class="quota-grid">
+                      <div class="quota-card">
+                        <div class="quota-row">
+                          <div class="quota-label text-medium-emphasis">Pro 额度</div>
+                          <span :class="'text-' + quotaTone(geminiQuotaPercentValue(item, 'quota_pro', 'reset_pro'))" class="quota-value font-weight-bold">
+                            {{ renderGeminiQuotaValue(item, 'quota_pro', 'reset_pro') }}
+                          </span>
+                        </div>
+                        <VProgressLinear
+                          :model-value="geminiQuotaPercentValue(item, 'quota_pro', 'reset_pro') ?? 0"
+                          :color="quotaTone(geminiQuotaPercentValue(item, 'quota_pro', 'reset_pro'))"
+                          rounded
+                          height="8"
+                        />
+                        <div class="quota-caption text-medium-emphasis">
+                          重置 {{ formatTime(item.reset_pro) }}
+                        </div>
                       </div>
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">项目 ID</div>
-                        <div class="detail-value">{{ item.project_id || '-' }}</div>
+
+                      <div class="quota-card">
+                        <div class="quota-row">
+                          <div class="quota-label text-medium-emphasis">Flash 额度</div>
+                          <span :class="'text-' + quotaTone(geminiQuotaPercentValue(item, 'quota_flash', 'reset_flash'))" class="quota-value font-weight-bold">
+                            {{ renderGeminiQuotaValue(item, 'quota_flash', 'reset_flash') }}
+                          </span>
+                        </div>
+                        <VProgressLinear
+                          :model-value="geminiQuotaPercentValue(item, 'quota_flash', 'reset_flash') ?? 0"
+                          :color="quotaTone(geminiQuotaPercentValue(item, 'quota_flash', 'reset_flash'))"
+                          rounded
+                          height="8"
+                        />
+                        <div class="quota-caption text-medium-emphasis">
+                          重置 {{ formatTime(item.reset_flash) }}
+                        </div>
+                      </div>
+
+                      <div class="quota-card">
+                        <div class="quota-row">
+                          <div class="quota-label text-medium-emphasis">Lite 额度</div>
+                          <span :class="'text-' + quotaTone(geminiQuotaPercentValue(item, 'quota_flashlite', 'reset_flashlite'))" class="quota-value font-weight-bold">
+                            {{ renderGeminiQuotaValue(item, 'quota_flashlite', 'reset_flashlite') }}
+                          </span>
+                        </div>
+                        <VProgressLinear
+                          :model-value="geminiQuotaPercentValue(item, 'quota_flashlite', 'reset_flashlite') ?? 0"
+                          :color="quotaTone(geminiQuotaPercentValue(item, 'quota_flashlite', 'reset_flashlite'))"
+                          rounded
+                          height="8"
+                        />
+                        <div class="quota-caption text-medium-emphasis">
+                          重置 {{ formatTime(item.reset_flashlite) }}
+                        </div>
                       </div>
                     </div>
 
                     <div class="detail-grid">
+                      <div class="detail-block">
+                        <div class="detail-label text-medium-emphasis">项目 ID</div>
+                        <div class="detail-value">{{ item.project_id || '-' }}</div>
+                      </div>
                       <div class="detail-block">
                         <div class="detail-label text-medium-emphasis">到期时间</div>
                         <div class="detail-value">{{ formatTime(item.expired) }}</div>
@@ -755,12 +797,56 @@ onBeforeUnmount(() => {
                         <div class="detail-label text-medium-emphasis">最近同步</div>
                         <div class="detail-value">{{ item.synced_at ? formatTime(item.synced_at) : '-' }}</div>
                       </div>
-                    </div>
-
-                    <div class="detail-grid">
                       <div class="detail-block">
                         <div class="detail-label text-medium-emphasis">退避截止</div>
                         <div class="detail-value">{{ item.throttled_until && !isPastTime(item.throttled_until) ? formatTime(item.throttled_until) : '-' }}</div>
+                      </div>
+                    </div>
+
+                    <div v-if="item.status === 'disabled' && item.reason" class="reason-block">
+                      <div class="reason-label">停用原因</div>
+                      <div class="reason-value">{{ item.reason }}</div>
+                    </div>
+                  </VCardText>
+                </VCard>
+              </template>
+
+              <template v-else>
+                <VCard
+                  v-for="item in genericRows"
+                  :key="item.id"
+                  color="surface-container"
+                  variant="flat"
+                >
+                  <VCardText class="stack-card-body">
+                    <div class="stack-card-top">
+                      <div class="d-flex align-start ga-3" style="min-width: 0">
+                        <VCheckboxBtn
+                          :model-value="selectedSet.has(item.id)"
+                          @update:model-value="() => toggleSelectOne(item.id)"
+                        />
+                        <div class="stack-card-copy">
+                          <div class="stack-card-title">{{ item.id }}</div>
+                          <div class="stack-card-meta">
+                            <AdminBadge :tone="toneForStatus(item.status)">
+                              {{ statusText(item.status) }}
+                            </AdminBadge>
+                            <AdminBadge v-if="item.plan_type" tone="secondary" subtle icon="mdi-star-circle-outline">
+                              {{ planTypeText(item.plan_type) }}
+                            </AdminBadge>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="detail-grid">
+                      <div
+                        v-for="entry in genericDetailEntries(item)"
+                        :key="entry.label"
+                        class="detail-block"
+                      >
+                        <div class="detail-label text-medium-emphasis">{{ entry.label }}</div>
+                        <div class="detail-value">{{ entry.value }}</div>
                       </div>
                     </div>
 
@@ -782,7 +868,7 @@ onBeforeUnmount(() => {
           >
             <template #action>
               <AdminButton prepend-icon="mdi-import" @click="importOpen = true">
-                {{ isGeminiHandler ? '新增凭据' : '导入凭据' }}
+                导入凭据
               </AdminButton>
             </template>
           </EmptyState>
@@ -804,7 +890,7 @@ onBeforeUnmount(() => {
         <EmptyState
           v-else
           title="该处理器暂不支持凭据导入"
-          description="可以切换到其他处理器，或前往模型页面查看映射能力。"
+          description="可以切换到其他处理器，或前往模型页面查看映射能力"
           icon="mdi-key-remove"
         />
       </div>
@@ -812,58 +898,28 @@ onBeforeUnmount(() => {
 
     <ModalDialog
       :open="importOpen"
-      :title="admin.activeHandler.value ? `${isGeminiHandler ? '新增' : '导入'} ${admin.activeHandler.value.label} 凭据` : '导入凭据'"
+      :title="admin.activeHandler.value ? `导入 ${admin.activeHandler.value.label} 凭据` : '导入凭据'"
       :description="importDescription"
       max-width="720"
       @close="closeImportModal"
     >
       <div class="d-grid ga-4">
-        <template v-if="isGeminiHandler">
-          <div
-            v-for="field in activeCredentialFields"
-            :key="field.key"
-            class="d-grid ga-2"
-          >
-            <VTextarea
-              v-if="field.kind === 'textarea'"
-              v-model="importForm[field.key]"
-              :rows="field.preferred ? 6 : 4"
-              :label="field.label"
-              :placeholder="field.placeholder"
-            />
-            <VTextField
-              v-else
-              v-model="importForm[field.key]"
-              :type="fieldInputType(field)"
-              :label="field.label"
-              :placeholder="field.placeholder"
-              variant="outlined"
-              density="comfortable"
-            />
-            <div v-if="field.help_text" class="text-caption text-medium-emphasis">
-              {{ field.help_text }}
-            </div>
-          </div>
-        </template>
+        <VTextarea
+          v-model="importTokens"
+          rows="8"
+          :label="importInputLabel"
+          :placeholder="importInputPlaceholder"
+          prepend-inner-icon="mdi-text-box-plus-outline"
+        />
 
-        <template v-else>
-          <VTextarea
-            v-model="importTokens"
-            rows="8"
-            label="令牌列表"
-            placeholder="每行填写一个令牌"
-            prepend-inner-icon="mdi-text-box-plus-outline"
-          />
-
-          <div class="d-flex flex-wrap ga-2">
-            <AdminBadge tone="secondary" subtle icon="mdi-counter">
-              待导入 {{ importLines.length }} 条
-            </AdminBadge>
-            <AdminBadge tone="neutral" subtle icon="mdi-information-outline">
-              自动识别令牌类型
-            </AdminBadge>
-          </div>
-        </template>
+        <div class="d-flex flex-wrap ga-2">
+          <AdminBadge tone="secondary" subtle icon="mdi-counter">
+            待导入 {{ importLines.length }} 条
+          </AdminBadge>
+          <AdminBadge v-if="activeCredentialField?.help_text" tone="neutral" subtle icon="mdi-information-outline">
+            {{ activeCredentialField.help_text }}
+          </AdminBadge>
+        </div>
 
         <VAlert
           v-if="importError"
@@ -881,7 +937,7 @@ onBeforeUnmount(() => {
           :loading="actionBusy"
           @click="createCredential"
         >
-          {{ isGeminiHandler ? '保存凭据' : '开始导入' }}
+          开始导入
         </AdminButton>
       </template>
     </ModalDialog>
@@ -889,7 +945,7 @@ onBeforeUnmount(() => {
     <ModalDialog
       :open="confirm.open.value"
       :title="confirm.title.value"
-      description="操作会立即提交到后台。"
+      description="操作会立即提交到后台"
       @close="confirm.close()"
     >
       <p class="text-body-1">{{ confirm.message.value }}</p>

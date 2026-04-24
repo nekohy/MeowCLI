@@ -6,9 +6,6 @@ const router = useRouter()
 
 const summary = computed(() => admin.overview.value.summary)
 const recentLogs = computed(() => admin.overview.value.recent_logs)
-const onlineHandlers = computed(() => (
-  admin.handlers.value.filter((item) => item.status === 'enabled' || item.status === 'available').length
-))
 
 function previewLog(text: string) {
   const line = text
@@ -32,68 +29,97 @@ async function openPage(path: string) {
 <template>
   <div class="page-grid">
     <PageHeader
-      eyebrow="控制台"
       title="运行概览"
       icon="mdi-view-dashboard"
-    >
-      <template #meta>
-        <AdminBadge tone="success" icon="mdi-check-circle">
-          在线服务 {{ onlineHandlers }}
-        </AdminBadge>
-        <AdminBadge tone="secondary" icon="mdi-history">
-          历史记录 {{ summary.logs_total || 0 }}
-        </AdminBadge>
-      </template>
-    </PageHeader>
+    />
 
-    <div class="summary-grid">
-      <MetricCard
-        label="在线处理器"
-        :value="onlineHandlers"
-        helper="活跃组件"
-        icon="mdi-server"
-      />
-      <MetricCard
-        label="就绪凭据"
-        :value="summary.credentials_enabled"
-        helper="令牌池状态"
-        icon="mdi-shield-check"
-      />
-      <MetricCard
-        label="总计凭据"
-        :value="summary.credentials_total"
-        helper="全部导入"
-        icon="mdi-key-chain"
-      />
-      <MetricCard
-        label="映射规则"
-        :value="summary.models_total"
-        helper="模型映射"
-        icon="mdi-vector-link"
-      />
-      <MetricCard
-        label="访问密钥"
-        :value="summary.auth_keys_total"
-        helper="权限控制"
-        icon="mdi-shield-lock"
-      />
+    <div class="dashboard-action-grid">
+      <VCard
+        class="interactive-card dashboard-action-card"
+        color="surface-container"
+        variant="flat"
+        border
+        role="button"
+        tabindex="0"
+        @click="openPage('/models')"
+        @keyup.enter="openPage('/models')"
+      >
+        <VCardText class="dashboard-action-shell">
+          <div class="dashboard-action-copy">
+            <div class="dashboard-action-label">映射规则</div>
+            <div class="dashboard-action-value">{{ summary.models_total }}</div>
+            <div class="dashboard-action-helper text-medium-emphasis">管理模型别名、上游模型和处理器绑定</div>
+          </div>
+          <VAvatar size="54" color="primary-container" rounded="xl">
+            <VIcon icon="mdi-vector-link" color="primary" size="26" />
+          </VAvatar>
+        </VCardText>
+      </VCard>
+
+      <VCard
+        class="interactive-card dashboard-action-card"
+        color="surface-container"
+        variant="flat"
+        border
+        role="button"
+        tabindex="0"
+        @click="openPage('/keys')"
+        @keyup.enter="openPage('/keys')"
+      >
+        <VCardText class="dashboard-action-shell">
+          <div class="dashboard-action-copy">
+            <div class="dashboard-action-label">访问密钥</div>
+            <div class="dashboard-action-value">{{ summary.auth_keys_total }}</div>
+            <div class="dashboard-action-helper text-medium-emphasis">维护后台和 API 共用的访问凭证</div>
+          </div>
+          <VAvatar size="54" color="secondary-container" rounded="xl">
+            <VIcon icon="mdi-shield-lock" color="secondary" size="26" />
+          </VAvatar>
+        </VCardText>
+      </VCard>
     </div>
 
     <SectionCard
       title="服务处理器"
-      eyebrow="组件"
       icon="mdi-cpu-64-bit"
     >
-      <HandlerSwitchGrid
-        :handlers="admin.handlers.value"
-        :selected="admin.selectedHandler.value"
-        @select="openHandler($event, admin.handlerLookup.value.get($event)?.supports_credentials ?? false)"
-      />
+      <div class="dashboard-handler-grid">
+        <VCard
+          v-for="handler in admin.handlers.value"
+          :key="handler.key"
+          class="interactive-card dashboard-handler-card"
+          color="surface-container"
+          variant="flat"
+          border
+          role="button"
+          tabindex="0"
+          @click="openHandler(handler.key, handler.supports_credentials)"
+          @keyup.enter="openHandler(handler.key, handler.supports_credentials)"
+        >
+          <VCardText class="dashboard-handler-shell">
+            <div class="dashboard-handler-main">
+              <div class="dashboard-handler-title">{{ handler.label }}</div>
+              <AdminBadge :tone="toneForStatus(handler.status)">
+                {{ statusText(handler.status) }}
+              </AdminBadge>
+            </div>
+            <div class="dashboard-handler-stats">
+              <div>
+                <div class="dashboard-handler-stat-label">凭据</div>
+                <div class="dashboard-handler-stat-value">{{ handler.credentials_total || 0 }}</div>
+              </div>
+              <div>
+                <div class="dashboard-handler-stat-label">可用</div>
+                <div class="dashboard-handler-stat-value">{{ handler.credentials_enabled || 0 }}</div>
+              </div>
+            </div>
+          </VCardText>
+        </VCard>
+      </div>
     </SectionCard>
 
     <SectionCard
-      title="实时诊断"
-      eyebrow="日志"
+      title="最近请求"
       icon="mdi-pulse"
     >
       <VExpansionPanels
@@ -133,7 +159,7 @@ async function openPage(path: string) {
       <EmptyState
         v-else
         title="暂无请求日志"
-        description="请求到达后会自动出现在这里。"
+        description="收到请求后，日志会显示在这里"
         icon="mdi-file-document-outline"
       />
     </SectionCard>

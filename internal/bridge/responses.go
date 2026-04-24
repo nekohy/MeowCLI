@@ -43,9 +43,9 @@ type CredentialScheduler interface {
 	Pick(ctx context.Context, headers http.Header, preferredCredentialID string, allowedPlanTypes []string) (credentialID string, err error)
 	// AuthHeaders 返回该凭证的认证头（如 Authorization, Account-Id 等），由各类型自行实现
 	AuthHeaders(ctx context.Context, credentialID string) (http.Header, error)
-	RecordSuccess(ctx context.Context, credentialID string, statusCode int32)
-	RecordFailure(ctx context.Context, credentialID string, statusCode int32, text string, retryAfter time.Duration)
-	HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, text string) bool
+	RecordSuccess(ctx context.Context, credentialID string, statusCode int32, modelTier string)
+	RecordFailure(ctx context.Context, credentialID string, statusCode int32, text string, retryAfter time.Duration, modelTier string)
+	HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) bool
 }
 
 type RetryDelayParser interface {
@@ -54,6 +54,15 @@ type RetryDelayParser interface {
 
 type GraceRetryDecider interface {
 	GraceRetry(statusCode int32, text string, retryAfter time.Duration) (time.Duration, bool)
+}
+
+// ModelTierPicker is an optional extension of CredentialScheduler that supports
+// model-tier-aware credential selection. When a scheduler implements this interface,
+// the relay layer will call PickWithTier instead of Pick, passing the model tier
+// (e.g., "pro", "flash", "flashlite") so the scheduler can score credentials
+// based on the relevant quota fields.
+type ModelTierPicker interface {
+	PickWithTier(ctx context.Context, headers http.Header, preferredCredentialID string, allowedPlanTypes []string, modelTier string) (credentialID string, err error)
 }
 
 // Handler 处理 /v1/responses 请求

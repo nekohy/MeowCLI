@@ -44,6 +44,9 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 			if _, err := conn.ExecContext(context.Background(), "PRAGMA busy_timeout=5000", nil); err != nil {
 				return err
 			}
+			if _, err := conn.ExecContext(context.Background(), "PRAGMA foreign_keys=ON", nil); err != nil {
+				return err
+			}
 			return nil
 		})
 	})
@@ -55,6 +58,10 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if _, err := d.ExecContext(ctx, "PRAGMA busy_timeout=5000"); err != nil {
 		d.Close()
 		return nil, fmt.Errorf("sqlite pragma busy_timeout: %w", err)
+	}
+	if _, err := d.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
+		d.Close()
+		return nil, fmt.Errorf("sqlite pragma foreign_keys: %w", err)
 	}
 
 	if _, err := d.ExecContext(ctx, schemaSQL); err != nil {
@@ -80,62 +87,11 @@ func (s *Store) Close() {
 	s.db.Close()
 }
 
-// migrateSchema applies incremental schema changes for existing databases.
-// New databases already have the latest schema from schema.sql.
+// migrateSchema is intentionally empty: this project currently treats schema
+// changes as fresh-start only, so schema.sql is the single source of truth.
 func migrateSchema(ctx context.Context, d *sql.DB) error {
-	if err := addColumnIfNotExists(ctx, d, "codex", "reason", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return err
-	}
-	if _, err := d.ExecContext(ctx, `
-CREATE TABLE IF NOT EXISTS gemini_cli (
-    id TEXT PRIMARY KEY,
-    status TEXT NOT NULL DEFAULT 'enabled',
-    access_token TEXT NOT NULL,
-    refresh_token TEXT NOT NULL,
-    expired TEXT NOT NULL,
-    email TEXT NOT NULL,
-    project_id TEXT NOT NULL DEFAULT '',
-    plan_type TEXT NOT NULL DEFAULT 'free',
-    reason TEXT NOT NULL DEFAULT '',
-    throttled_until TEXT NOT NULL DEFAULT (datetime('now')),
-    synced_at TEXT NOT NULL DEFAULT (datetime('now'))
-)`); err != nil {
-		return fmt.Errorf("create gemini_cli table: %w", err)
-	}
-	if err := addColumnIfNotExists(ctx, d, "models", "plan_types", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return err
-	}
-	return nil
-}
-
-// addColumnIfNotExists checks via PRAGMA table_info and adds the column if missing.
-func addColumnIfNotExists(ctx context.Context, d *sql.DB, table, column, colDef string) error {
-	rows, err := d.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
-	if err != nil {
-		return fmt.Errorf("pragma table_info(%s): %w", table, err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var cid int
-		var name, colType string
-		var notNull, pk int
-		var dflt sql.NullString
-		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
-			return fmt.Errorf("scan table_info(%s): %w", table, err)
-		}
-		if name == column {
-			return nil // column already exists
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	_, err = d.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, colDef))
-	if err != nil {
-		return fmt.Errorf("alter table %s add column %s: %w", table, column, err)
-	}
+	_ = ctx
+	_ = d
 	return nil
 }
 

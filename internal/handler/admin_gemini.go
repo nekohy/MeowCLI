@@ -9,36 +9,50 @@ import (
 	"strings"
 	"time"
 
+	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
 	coregemini "github.com/nekohy/MeowCLI/core/gemini"
+	"github.com/nekohy/MeowCLI/core/scheduling"
 	db "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
-	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
 )
 
 const defaultGeminiPageSize = 25
 
-type geminiCredentialInput struct {
-	ID           string `json:"id"`
-	RefreshToken string `json:"refresh_token" binding:"required"`
-}
-
 type batchCreateGeminiReq struct {
-	Credentials []geminiCredentialInput `json:"credentials" binding:"required,min=1"`
+	Tokens []string `json:"tokens" binding:"required,min=1"`
 }
 
 type geminiListItem struct {
-	Handler        string    `json:"handler"`
-	ID             string    `json:"id"`
-	Status         string    `json:"status"`
-	Email          string    `json:"email"`
-	ProjectID      string    `json:"project_id"`
-	PlanType       string    `json:"plan_type"`
-	Expired        time.Time `json:"expired"`
-	Reason         string    `json:"reason"`
-	SyncedAt       time.Time `json:"synced_at"`
-	ThrottledUntil time.Time `json:"throttled_until"`
+	Handler            string    `json:"handler"`
+	ID                 string    `json:"id"`
+	Status             string    `json:"status"`
+	Email              string    `json:"email"`
+	ProjectID          string    `json:"project_id"`
+	PlanType           string    `json:"plan_type"`
+	Expired            time.Time `json:"expired"`
+	Reason             string    `json:"reason"`
+	QuotaPro           float64   `json:"quota_pro"`
+	ResetPro           time.Time `json:"reset_pro"`
+	QuotaFlash         float64   `json:"quota_flash"`
+	ResetFlash         time.Time `json:"reset_flash"`
+	QuotaFlashlite     float64   `json:"quota_flashlite"`
+	ResetFlashlite     time.Time `json:"reset_flashlite"`
+	ThrottledUntil     time.Time `json:"throttled_until"`
+	SyncedAt           time.Time `json:"synced_at"`
+	ScorePro           float64   `json:"score_pro"`
+	ScoreFlash         float64   `json:"score_flash"`
+	ScoreFlashlite     float64   `json:"score_flashlite"`
+	ErrorRatePro       float64   `json:"error_rate_pro"`
+	WeightPro          float64   `json:"weight_pro"`
+	ErrorRateFlash     float64   `json:"error_rate_flash"`
+	WeightFlash        float64   `json:"weight_flash"`
+	ErrorRateFlashlite float64   `json:"error_rate_flashlite"`
+	WeightFlashlite    float64   `json:"weight_flashlite"`
+	AdjustedScorePro   float64   `json:"adjusted_score_pro"`
+	AdjustedScoreFlash float64   `json:"adjusted_score_flash"`
+	AdjustedScoreLite  float64   `json:"adjusted_score_flashlite"`
 }
 
 func (a *AdminHandler) ListGemini(c *gin.Context) {
@@ -94,19 +108,25 @@ func (a *AdminHandler) BatchCreateGemini(c *gin.Context) {
 	var created []batchCreateResult
 	var errs []batchError
 
-	for _, input := range req.Credentials {
-		id, err := a.createGeminiCredential(c.Request.Context(), input)
+	for _, token := range req.Tokens {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		id, err := a.upsertGeminiCredential(c.Request.Context(), token)
 		if err != nil {
 			errs = append(errs, batchError{
-				Input: firstNonEmpty(strings.TrimSpace(input.ID), "gemini"),
+				Input: truncateToken(token),
 				Error: err.Error(),
 			})
 			continue
 		}
-		created = append(created, batchCreateResult{ID: id})
+		created = append(created, batchCreateResult{ID: id.ID})
 	}
 
-	a.refreshCredentials(c.Request.Context())
+	createdIDs := resultIDs(created)
+	a.refreshCredentials(c.Request.Context(), utils.HandlerGemini, createdIDs)
+	a.syncCredentialQuotas(c.Request.Context(), utils.HandlerGemini, createdIDs)
 	c.JSON(http.StatusOK, gin.H{
 		"created": created,
 		"errors":  errs,
@@ -141,7 +161,10 @@ func (a *AdminHandler) BatchUpdateGeminiStatus(c *gin.Context) {
 		updated = append(updated, id)
 	}
 
-	a.refreshCredentials(ctx)
+	a.refreshCredentials(ctx, utils.HandlerGemini, updated)
+	if req.Status == "enabled" {
+		a.syncCredentialQuotas(ctx, utils.HandlerGemini, updated)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"updated": updated,
 		"errors":  errs,
@@ -175,7 +198,7 @@ func (a *AdminHandler) BatchDeleteGemini(c *gin.Context) {
 		deleted = append(deleted, id)
 	}
 
-	a.refreshCredentials(ctx)
+	a.refreshCredentials(ctx, utils.HandlerGemini, deleted)
 	c.JSON(http.StatusOK, gin.H{
 		"deleted": deleted,
 		"errors":  errs,
@@ -197,37 +220,77 @@ func (a *AdminHandler) listGeminiCredentials(ctx context.Context, page, pageSize
 		return 0, nil, err
 	}
 
+	snap := a.currentSettings()
+	ws := snap.QuotaWindowGeminiSeconds()
+
+	ids := make([]string, len(rows))
+	for i, row := range rows {
+		ids[i] = row.ID
+	}
+
+	var ratesPro, ratesFlash, ratesFlashlite map[string]float64
+	if a.logStore != nil && len(ids) > 0 {
+		window := snap.ErrorRateWindow()
+		ratesPro, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), coregemini.ModelTierPro, ids, window)
+		ratesFlash, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), coregemini.ModelTierFlash, ids, window)
+		ratesFlashlite, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), coregemini.ModelTierFlashLite, ids, window)
+	}
+
 	items := make([]geminiListItem, len(rows))
 	for i, row := range rows {
+		scorePro := coregemini.CalcScoreForTier(row.QuotaPro, row.QuotaFlash, row.QuotaFlashlite, row.ResetPro, row.ResetFlash, row.ResetFlashlite, coregemini.ModelTierPro, ws)
+		scoreFlash := coregemini.CalcScoreForTier(row.QuotaPro, row.QuotaFlash, row.QuotaFlashlite, row.ResetPro, row.ResetFlash, row.ResetFlashlite, coregemini.ModelTierFlash, ws)
+		scoreFlashlite := coregemini.CalcScoreForTier(row.QuotaPro, row.QuotaFlash, row.QuotaFlashlite, row.ResetPro, row.ResetFlash, row.ResetFlashlite, coregemini.ModelTierFlashLite, ws)
+
+		var erPro, erFlash, erFlashlite float64
+		if ratesPro != nil {
+			erPro = ratesPro[row.ID]
+		}
+		if ratesFlash != nil {
+			erFlash = ratesFlash[row.ID]
+		}
+		if ratesFlashlite != nil {
+			erFlashlite = ratesFlashlite[row.ID]
+		}
+		wPro := scheduling.CalcWeight(erPro)
+		wFlash := scheduling.CalcWeight(erFlash)
+		wFlashlite := scheduling.CalcWeight(erFlashlite)
+
 		items[i] = geminiListItem{
-			Handler:        string(utils.HandlerGemini),
-			ID:             row.ID,
-			Status:         row.Status,
-			Email:          row.Email,
-			ProjectID:      row.ProjectID,
-			PlanType:       row.PlanType,
-			Expired:        row.Expired,
-			Reason:         row.Reason,
-			SyncedAt:       row.SyncedAt,
-			ThrottledUntil: row.ThrottledUntil,
+			Handler:            string(utils.HandlerGemini),
+			ID:                 row.ID,
+			Status:             row.Status,
+			Email:              row.Email,
+			ProjectID:          row.ProjectID,
+			PlanType:           row.PlanType,
+			Expired:            row.Expired,
+			Reason:             row.Reason,
+			QuotaPro:           row.QuotaPro,
+			ResetPro:           row.ResetPro,
+			QuotaFlash:         row.QuotaFlash,
+			ResetFlash:         row.ResetFlash,
+			QuotaFlashlite:     row.QuotaFlashlite,
+			ResetFlashlite:     row.ResetFlashlite,
+			ThrottledUntil:     row.ThrottledUntil,
+			SyncedAt:           row.SyncedAt,
+			ScorePro:           scorePro,
+			ScoreFlash:         scoreFlash,
+			ScoreFlashlite:     scoreFlashlite,
+			ErrorRatePro:       erPro,
+			WeightPro:          wPro,
+			ErrorRateFlash:     erFlash,
+			WeightFlash:        wFlash,
+			ErrorRateFlashlite: erFlashlite,
+			WeightFlashlite:    wFlashlite,
+			AdjustedScorePro:   scheduling.AdjustedScore(scorePro, wPro),
+			AdjustedScoreFlash: scheduling.AdjustedScore(scoreFlash, wFlash),
+			AdjustedScoreLite:  scheduling.AdjustedScore(scoreFlashlite, wFlashlite),
 		}
 	}
 	return total, items, nil
 }
 
-func (a *AdminHandler) createGeminiCredential(ctx context.Context, input geminiCredentialInput) (string, error) {
-	saved, err := a.upsertGeminiCredential(
-		ctx,
-		strings.TrimSpace(input.ID),
-		strings.TrimSpace(input.RefreshToken),
-	)
-	if err != nil {
-		return "", err
-	}
-	return saved.ID, nil
-}
-
-func (a *AdminHandler) upsertGeminiCredential(ctx context.Context, preferredID string, refreshToken string) (db.GeminiCredential, error) {
+func (a *AdminHandler) upsertGeminiCredential(ctx context.Context, refreshToken string) (db.GeminiCredential, error) {
 	if a == nil || a.geminiAPI == nil {
 		return db.GeminiCredential{}, fmt.Errorf("gemini backend is unavailable")
 	}
@@ -241,26 +304,23 @@ func (a *AdminHandler) upsertGeminiCredential(ctx context.Context, preferredID s
 	if err != nil {
 		return db.GeminiCredential{}, err
 	}
-	return a.upsertGeminiCredentialFromTokenData(ctx, preferredID, tokenData)
+	return a.upsertGeminiCredentialFromTokenData(ctx, tokenData)
 }
 
-func (a *AdminHandler) upsertGeminiCredentialFromTokenData(ctx context.Context, preferredID string, tokenData *geminiapi.TokenData) (db.GeminiCredential, error) {
+func (a *AdminHandler) upsertGeminiCredentialFromTokenData(ctx context.Context, tokenData *geminiapi.TokenData) (db.GeminiCredential, error) {
 	email, err := a.geminiAPI.FetchUserEmail(ctx, tokenData.AccessToken)
 	if err != nil {
 		return db.GeminiCredential{}, err
 	}
-	credentialID := strings.TrimSpace(preferredID)
-	if credentialID == "" {
-		credentialID = strings.ToLower(strings.TrimSpace(email))
-	}
+	projectID, _ := a.geminiAPI.ResolveProjectID(ctx, tokenData.AccessToken)
+	credentialID := coregemini.DefaultCredentialID(email, projectID)
 	if credentialID == "" {
 		return db.GeminiCredential{}, fmt.Errorf("gemini credential id is required")
 	}
-	projectID, _ := a.geminiAPI.ResolveProjectID(ctx, tokenData.AccessToken)
 	planType := coregemini.PlanTypeFree
 	if current, getErr := a.store.GetGeminiCLI(ctx, credentialID); getErr == nil {
 		if projectID == "" {
-			projectID = strings.TrimSpace(current.ProjectID)
+			projectID = coregemini.CredentialProjectID(current.ID)
 		}
 		if normalized := coregemini.NormalizePlanType(current.PlanType); normalized != "" {
 			planType = normalized
@@ -298,11 +358,9 @@ func (a *AdminHandler) geminiCounts(ctx context.Context) (int64, int64, bool, er
 	return total, enabled, true, nil
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
+func truncateToken(token string) string {
+	if len(token) > 16 {
+		return token[:16] + "..."
 	}
-	return ""
+	return token
 }

@@ -3,16 +3,27 @@ package codex
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
+
 	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
 	"github.com/nekohy/MeowCLI/utils"
-	"time"
 )
 
 type usageResponse struct {
-	RateLimit struct {
-		PrimaryWindow   *rateLimitWindow `json:"primary_window"`
-		SecondaryWindow *rateLimitWindow `json:"secondary_window"`
-	} `json:"rate_limit"`
+	RateLimit            usageRateLimit        `json:"rate_limit"`
+	AdditionalRateLimits []additionalRateLimit `json:"additional_rate_limits"`
+}
+
+type usageRateLimit struct {
+	PrimaryWindow   *rateLimitWindow `json:"primary_window"`
+	SecondaryWindow *rateLimitWindow `json:"secondary_window"`
+}
+
+type additionalRateLimit struct {
+	LimitName      string         `json:"limit_name"`
+	MeteredFeature string         `json:"metered_feature"`
+	RateLimit      usageRateLimit `json:"rate_limit"`
 }
 
 type rateLimitWindow struct {
@@ -37,10 +48,45 @@ func (c *Client) FetchQuota(ctx context.Context, credentialID, accessToken strin
 		return nil, fmt.Errorf("fetch quota: %w", err)
 	}
 
-	q := &codexutils.Quota{Quota5h: 1.0, Quota7d: 1.0}
+	return parseUsageQuota(usage), nil
+}
+
+func parseUsageQuota(usage usageResponse) *codexutils.Quota {
+	q := &codexutils.Quota{
+		Quota5h:         1.0,
+		Quota7d:         1.0,
+		QuotaSpark5h:    1.0,
+		QuotaSpark7d:    1.0,
+		HasDefaultQuota: true,
+	}
+	applyUsageRateLimit(q, usage.RateLimit, false)
+
+	sparkFound := false
+	for _, extra := range usage.AdditionalRateLimits {
+		if !isSparkUsageRateLimit(extra) {
+			continue
+		}
+		if !sparkFound {
+			q.QuotaSpark5h = 1.0
+			q.QuotaSpark7d = 1.0
+		}
+		sparkFound = true
+		q.HasSparkQuota = true
+		applyUsageRateLimit(q, extra.RateLimit, true)
+	}
+
+	return q
+}
+
+func isSparkUsageRateLimit(extra additionalRateLimit) bool {
+	return strings.EqualFold(extra.MeteredFeature, "codex_bengalfox") ||
+		strings.Contains(strings.ToLower(extra.LimitName), "spark")
+}
+
+func applyUsageRateLimit(q *codexutils.Quota, rl usageRateLimit, spark bool) {
 	for _, w := range []*rateLimitWindow{
-		usage.RateLimit.PrimaryWindow,
-		usage.RateLimit.SecondaryWindow,
+		rl.PrimaryWindow,
+		rl.SecondaryWindow,
 	} {
 		if w == nil {
 			continue
@@ -49,13 +95,21 @@ func (c *Client) FetchQuota(ctx context.Context, credentialID, accessToken strin
 		resetAt := time.Unix(w.ResetAt, 0)
 		switch w.LimitWindowSeconds {
 		case int64((5 * time.Hour).Seconds()): // 18000
-			q.Quota5h = remaining
-			q.Reset5h = resetAt
+			if spark {
+				q.QuotaSpark5h = remaining
+				q.ResetSpark5h = resetAt
+			} else {
+				q.Quota5h = remaining
+				q.Reset5h = resetAt
+			}
 		case int64((7 * 24 * time.Hour).Seconds()): // 604800
-			q.Quota7d = remaining
-			q.Reset7d = resetAt
+			if spark {
+				q.QuotaSpark7d = remaining
+				q.ResetSpark7d = resetAt
+			} else {
+				q.Quota7d = remaining
+				q.Reset7d = resetAt
+			}
 		}
 	}
-
-	return q, nil
 }

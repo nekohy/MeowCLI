@@ -41,7 +41,6 @@ func (s *Store) UpdateCodexTokens(ctx context.Context, arg db.UpdateCodexTokensP
 		Expired:      fmtTime(arg.Expired),
 		RefreshToken: arg.RefreshToken,
 		PlanType:     arg.PlanType,
-		PlanExpired:  fmtTime(arg.PlanExpired),
 	})
 	if err != nil {
 		return db.Codex{}, wrapError(err)
@@ -63,12 +62,15 @@ func (s *Store) ListCodex(ctx context.Context) ([]db.ListCodexRow, error) {
 			row.Expired,
 			row.RefreshToken,
 			row.PlanType,
-			row.PlanExpired,
 			row.Reason,
 			row.Quota5h,
 			row.Quota7d,
+			row.QuotaSpark5h,
+			row.QuotaSpark7d,
 			row.Reset5h,
 			row.Reset7d,
+			row.ResetSpark5h,
+			row.ResetSpark7d,
 			row.ThrottledUntil,
 			row.SyncedAt,
 		)
@@ -97,12 +99,15 @@ func (s *Store) ListCodexPaged(ctx context.Context, arg db.ListCredentialPagedPa
 			row.Expired,
 			row.RefreshToken,
 			row.PlanType,
-			row.PlanExpired,
 			row.Reason,
 			row.Quota5h,
 			row.Quota7d,
+			row.QuotaSpark5h,
+			row.QuotaSpark7d,
 			row.Reset5h,
 			row.Reset7d,
+			row.ResetSpark5h,
+			row.ResetSpark7d,
 			row.ThrottledUntil,
 			row.SyncedAt,
 		)
@@ -133,7 +138,6 @@ func (s *Store) CreateCodex(ctx context.Context, arg db.CreateCodexParams) (db.C
 		Expired:      fmtTime(arg.Expired),
 		RefreshToken: arg.RefreshToken,
 		PlanType:     arg.PlanType,
-		PlanExpired:  fmtTime(arg.PlanExpired),
 	})
 	if err != nil {
 		return db.Codex{}, wrapError(err)

@@ -17,7 +17,6 @@ SET
     expired = $4,
     refresh_token = $5,
     plan_type = $6,
-    plan_expired = $7,
     reason = ''
 WHERE id = $1
 RETURNING *;
@@ -28,7 +27,7 @@ SELECT COUNT(*) FROM codex;
 -- name: CountCodexFiltered :one
 SELECT COUNT(*)
 FROM codex c
-LEFT JOIN quota q ON q.credential_id = c.id
+LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE
     (sqlc.arg(search) = '' OR LOWER(c.id) LIKE sqlc.arg(search) OR LOWER(c.status) LIKE sqlc.arg(search) OR LOWER(c.plan_type) LIKE sqlc.arg(search))
     AND (sqlc.arg(status) = '' OR c.status = sqlc.arg(status))
@@ -40,12 +39,16 @@ SELECT
     c.*,
     COALESCE(q.quota_5h, 1.0) AS quota_5h,
     COALESCE(q.quota_7d, 1.0) AS quota_7d,
+    COALESCE(q.quota_spark_5h, 1.0) AS quota_spark_5h,
+    COALESCE(q.quota_spark_7d, 1.0) AS quota_spark_7d,
     COALESCE(q.reset_5h, '0001-01-01'::timestamptz) AS reset_5h,
     COALESCE(q.reset_7d, '0001-01-01'::timestamptz) AS reset_7d,
+    COALESCE(q.reset_spark_5h, '0001-01-01'::timestamptz) AS reset_spark_5h,
+    COALESCE(q.reset_spark_7d, '0001-01-01'::timestamptz) AS reset_spark_7d,
     COALESCE(q.throttled_until, '0001-01-01'::timestamptz) AS throttled_until,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
 FROM codex c
-LEFT JOIN quota q ON q.credential_id = c.id
+LEFT JOIN codex_quota q ON q.credential_id = c.id
 ORDER BY c.id;
 
 -- name: ListCodexPaged :many
@@ -53,12 +56,16 @@ SELECT
     c.*,
     COALESCE(q.quota_5h, 1.0) AS quota_5h,
     COALESCE(q.quota_7d, 1.0) AS quota_7d,
+    COALESCE(q.quota_spark_5h, 1.0) AS quota_spark_5h,
+    COALESCE(q.quota_spark_7d, 1.0) AS quota_spark_7d,
     COALESCE(q.reset_5h, '0001-01-01'::timestamptz) AS reset_5h,
     COALESCE(q.reset_7d, '0001-01-01'::timestamptz) AS reset_7d,
+    COALESCE(q.reset_spark_5h, '0001-01-01'::timestamptz) AS reset_spark_5h,
+    COALESCE(q.reset_spark_7d, '0001-01-01'::timestamptz) AS reset_spark_7d,
     COALESCE(q.throttled_until, '0001-01-01'::timestamptz) AS throttled_until,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
 FROM codex c
-LEFT JOIN quota q ON q.credential_id = c.id
+LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE
     (sqlc.arg(search) = '' OR LOWER(c.id) LIKE sqlc.arg(search) OR LOWER(c.status) LIKE sqlc.arg(search) OR LOWER(c.plan_type) LIKE sqlc.arg(search))
     AND (sqlc.arg(status) = '' OR c.status = sqlc.arg(status))
@@ -68,8 +75,8 @@ ORDER BY c.id
 LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CreateCodex :one
-INSERT INTO codex (id, status, access_token, expired, refresh_token, plan_type, plan_expired)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO codex (id, status, access_token, expired, refresh_token, plan_type)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
 -- name: DeleteCodex :execrows

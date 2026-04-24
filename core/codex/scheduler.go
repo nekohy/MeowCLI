@@ -12,7 +12,7 @@ import (
 
 	codexclient "github.com/nekohy/MeowCLI/api/codex"
 	codexAPI "github.com/nekohy/MeowCLI/api/codex/utils"
-
+	"github.com/nekohy/MeowCLI/core/scheduling"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	db "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
@@ -49,11 +49,24 @@ type availableSnapshot struct {
 	bestByPlanType map[int]int
 }
 
-// availableRow 缓存中的单条凭证，Score 由 calcScore 计算用于排序选择
+// availableRow 缓存中的单条凭证，Score 由 CalcScore 计算用于排序选择
 type availableRow struct {
-	ID           string
-	PlanTypeCode int
-	Score        float64
+	ID             string
+	PlanTypeCode   int
+	Quota5h        float64
+	Quota7d        float64
+	QuotaSpark5h   float64
+	QuotaSpark7d   float64
+	Reset5h        time.Time
+	Reset7d        time.Time
+	ResetSpark5h   time.Time
+	ResetSpark7d   time.Time
+	Score          float64
+	ScoreSpark     float64
+	ErrorRate      float64
+	Weight         float64
+	ErrorRateSpark float64
+	WeightSpark    float64
 }
 
 // Scheduler 根据配额比率和重置时间优先级选择最佳可用凭证，
@@ -132,14 +145,14 @@ func (s *Scheduler) syncAllQuotas(ctx context.Context) {
 
 	rows, err := s.store.ListAvailableCodex(ctx)
 	if err != nil {
-		log.Error().Err(err).Msg("quota-sync: list credentials")
+		log.Error().Err(err).Msg("codex quota-sync: list credentials")
 		return
 	}
 
 	for _, row := range rows {
 		token, err := s.manager.GetAccessToken(ctx, row.ID)
 		if err != nil {
-			log.Error().Err(err).Str("credential", row.ID).Msg("quota-sync: get token")
+			log.Error().Err(err).Str("credential", row.ID).Msg("codex quota-sync: get token")
 			continue
 		}
 
@@ -148,10 +161,10 @@ func (s *Scheduler) syncAllQuotas(ctx context.Context) {
 		cancel()
 		if err != nil {
 			if statusCode, body, ok := codexclient.ParseAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
-				s.HandleUnauthorized(ctx, row.ID, int32(statusCode), body)
+				s.HandleUnauthorized(ctx, row.ID, int32(statusCode), body, "")
 				continue
 			}
-			log.Error().Err(err).Str("credential", row.ID).Msg("quota-sync: fetch quota")
+			log.Error().Err(err).Str("credential", row.ID).Msg("codex quota-sync: fetch quota")
 			continue
 		}
 
@@ -161,14 +174,14 @@ func (s *Scheduler) syncAllQuotas(ctx context.Context) {
 			Float64("quota_7d", q.Quota7d).
 			Time("reset_5h", q.Reset5h).
 			Time("reset_7d", q.Reset7d).
-			Msg("quota-sync: fetched")
+			Msg("codex quota-sync: fetched")
 
 		s.UpdateQuota(ctx, row.ID, q)
 	}
 
 	// 同步完成后刷新可用凭证缓存，确保新增/移除的凭证被感知
 	if _, err := s.RefreshAvailable(ctx); err != nil {
-		log.Error().Err(err).Msg("quota-sync: refresh available cache")
+		log.Error().Err(err).Msg("codex quota-sync: refresh available cache")
 	}
 }
 
@@ -176,46 +189,62 @@ func (s *Scheduler) syncAllQuotas(ctx context.Context) {
 // 调用方可传入一个偏好的 credentialID；若不可用，再回退到常规 planType 调度
 func (s *Scheduler) Pick(ctx context.Context, headers http.Header, preferredCredentialID string, allowedPlanTypes []string) (string, error) {
 	codec := s.planTypeCodec()
-	return s.pickPreferred(ctx, s.preferredPlanTypeCodes(headers), codec.codesFor(allowedPlanTypes), preferredCredentialID)
+	return s.pickPreferred(ctx, s.preferredPlanTypeCodes(headers), codec.codesFor(allowedPlanTypes), preferredCredentialID, "")
 }
 
-func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, allowedCodes []int, preferredCredentialID string) (string, error) {
+// PickWithTier selects the best available credential for a specific model tier.
+// When modelTier is "spark", scoring only considers spark quota.
+func (s *Scheduler) PickWithTier(ctx context.Context, headers http.Header, preferredCredentialID string, allowedPlanTypes []string, modelTier string) (string, error) {
+	codec := s.planTypeCodec()
+	return s.pickPreferred(ctx, s.preferredPlanTypeCodes(headers), codec.codesFor(allowedPlanTypes), preferredCredentialID, modelTier)
+}
+
+func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, allowedCodes []int, preferredCredentialID string, modelTier string) (string, error) {
 	snap, err := s.listAvailable(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	allowed := planTypeCodeSet(allowedCodes)
+	allowed := scheduling.PlanTypeCodeSet(allowedCodes)
 	if preferredCredentialID != "" {
-		if row, ok := availableRowByCredentialID(snap, preferredCredentialID); ok && row.Score >= 0 && planTypeAllowed(row.PlanTypeCode, allowed) {
+		if row, ok := availableRowByCredentialID(snap, preferredCredentialID); ok && s.rowScoreForTier(row, modelTier) >= 0 && scheduling.PlanTypeAllowed(row.PlanTypeCode, allowed) {
 			return preferredCredentialID, nil
 		}
 	}
 
 	for _, code := range preferredCodes {
-		if !planTypeAllowed(code, allowed) {
+		if !scheduling.PlanTypeAllowed(code, allowed) {
 			continue
 		}
-		idx, ok := snap.bestByPlanType[code]
-		if !ok {
-			continue
-		}
-		if idx >= 0 && idx < len(snap.rows) {
-			return snap.rows[idx].ID, nil
+		for _, row := range snap.rows {
+			if row.PlanTypeCode != code {
+				continue
+			}
+			if s.rowScoreForTier(row, modelTier) >= 0 {
+				return row.ID, nil
+			}
 		}
 	}
 
 	for _, r := range snap.rows {
-		if r.Score < 0 {
+		if s.rowScoreForTier(r, modelTier) < 0 {
 			continue
 		}
-		if !planTypeAllowed(r.PlanTypeCode, allowed) {
+		if !scheduling.PlanTypeAllowed(r.PlanTypeCode, allowed) {
 			continue
 		}
 		return r.ID, nil
 	}
 
 	return "", ErrNoAvailableCredential
+}
+
+// rowScoreForTier returns the score for a row considering the requested model tier.
+func (s *Scheduler) rowScoreForTier(row availableRow, modelTier string) float64 {
+	if modelTier == ModelTierSpark {
+		return scheduling.AdjustedScore(row.ScoreSpark, row.WeightSpark)
+	}
+	return scheduling.AdjustedScore(row.Score, row.Weight)
 }
 
 // listAvailable 返回内存缓存中的可用凭证列表
@@ -266,12 +295,25 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 		rows = append(rows, availableRow{
 			ID:           r.ID,
 			PlanTypeCode: planTypes.code(r.PlanType),
-			Score:        calcScore(r.Quota5h, r.Quota7d, r.Reset5h, r.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()),
+			Quota5h:      r.Quota5h,
+			Quota7d:      r.Quota7d,
+			QuotaSpark5h: r.QuotaSpark5h,
+			QuotaSpark7d: r.QuotaSpark7d,
+			Reset5h:      r.Reset5h,
+			Reset7d:      r.Reset7d,
+			ResetSpark5h: r.ResetSpark5h,
+			ResetSpark7d: r.ResetSpark7d,
+			Score:        CalcScore(r.Quota5h, r.Quota7d, r.Reset5h, r.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()),
+			ScoreSpark:   CalcScoreSpark(r.QuotaSpark5h, r.QuotaSpark7d, r.ResetSpark5h, r.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()),
+			Weight:       1.0,
+			WeightSpark:  1.0,
 		})
 	}
 
+	s.computeErrorRates(ctx, rows)
+
 	sort.Slice(rows, func(i, j int) bool {
-		return rows[i].Score > rows[j].Score
+		return scheduling.AdjustedScore(rows[i].Score, rows[i].Weight) > scheduling.AdjustedScore(rows[j].Score, rows[j].Weight)
 	})
 
 	s.available.Store(buildAvailableSnapshot(rows))
@@ -295,16 +337,89 @@ func (s *Scheduler) updateAvailableQuota(id string, q *codexAPI.Quota) {
 
 	for i := range updated {
 		if updated[i].ID == id {
-			updated[i].Score = calcScore(q.Quota5h, q.Quota7d, q.Reset5h, q.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
+			newScore := CalcScore(q.Quota5h, q.Quota7d, q.Reset5h, q.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
+			newScoreSpark := CalcScoreSpark(q.QuotaSpark5h, q.QuotaSpark7d, q.ResetSpark5h, q.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
+			if updated[i].Score < 0 && newScore >= 0 {
+				updated[i].ErrorRate = 0
+				updated[i].Weight = 1.0
+			}
+			if updated[i].ScoreSpark < 0 && newScoreSpark >= 0 {
+				updated[i].ErrorRateSpark = 0
+				updated[i].WeightSpark = 1.0
+			}
+			updated[i].Quota5h = q.Quota5h
+			updated[i].Quota7d = q.Quota7d
+			updated[i].QuotaSpark5h = q.QuotaSpark5h
+			updated[i].QuotaSpark7d = q.QuotaSpark7d
+			updated[i].Reset5h = q.Reset5h
+			updated[i].Reset7d = q.Reset7d
+			updated[i].ResetSpark5h = q.ResetSpark5h
+			updated[i].ResetSpark7d = q.ResetSpark7d
+			updated[i].Score = newScore
+			updated[i].ScoreSpark = newScoreSpark
 			break
 		}
 	}
 
 	sort.Slice(updated, func(i, j int) bool {
-		return updated[i].Score > updated[j].Score
+		return scheduling.AdjustedScore(updated[i].Score, updated[i].Weight) > scheduling.AdjustedScore(updated[j].Score, updated[j].Weight)
 	})
 
 	s.available.Store(buildAvailableSnapshot(updated))
+}
+
+func (s *Scheduler) mergeQuotaUpdate(credentialID string, q *codexAPI.Quota) codexAPI.Quota {
+	merged := *q
+	if q.HasDefaultQuota && q.HasSparkQuota {
+		return merged
+	}
+	if !q.HasDefaultQuota && !q.HasSparkQuota {
+		return merged
+	}
+
+	current, ok := s.availableQuota(credentialID)
+	if !ok {
+		return merged
+	}
+
+	if !q.HasDefaultQuota {
+		merged.Quota5h = current.Quota5h
+		merged.Quota7d = current.Quota7d
+		merged.Reset5h = current.Reset5h
+		merged.Reset7d = current.Reset7d
+	}
+	if !q.HasSparkQuota {
+		merged.QuotaSpark5h = current.QuotaSpark5h
+		merged.QuotaSpark7d = current.QuotaSpark7d
+		merged.ResetSpark5h = current.ResetSpark5h
+		merged.ResetSpark7d = current.ResetSpark7d
+	}
+	merged.HasDefaultQuota = true
+	merged.HasSparkQuota = true
+	return merged
+}
+
+func (s *Scheduler) availableQuota(credentialID string) (codexAPI.Quota, bool) {
+	snap := s.available.Load()
+	if snap == nil {
+		return codexAPI.Quota{}, false
+	}
+	for _, row := range snap.rows {
+		if row.ID != credentialID {
+			continue
+		}
+		return codexAPI.Quota{
+			Quota5h:      row.Quota5h,
+			Quota7d:      row.Quota7d,
+			QuotaSpark5h: row.QuotaSpark5h,
+			QuotaSpark7d: row.QuotaSpark7d,
+			Reset5h:      row.Reset5h,
+			Reset7d:      row.Reset7d,
+			ResetSpark5h: row.ResetSpark5h,
+			ResetSpark7d: row.ResetSpark7d,
+		}, true
+	}
+	return codexAPI.Quota{}, false
 }
 
 // removeFromAvailable 从缓存中移除指定凭证（被节流时调用）
@@ -327,10 +442,39 @@ func (s *Scheduler) removeFromAvailable(id string) {
 	s.available.Store(buildAvailableSnapshot(filtered))
 }
 
+func (s *Scheduler) markTierUnavailable(id string, modelTier string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	snap := s.available.Load()
+	if snap == nil {
+		return
+	}
+
+	updated := make([]availableRow, len(snap.rows))
+	copy(updated, snap.rows)
+	for i := range updated {
+		if updated[i].ID != id {
+			continue
+		}
+		switch modelTier {
+		case ModelTierSpark:
+			updated[i].ScoreSpark = -1
+		case ModelTierDefault:
+			updated[i].Score = -1
+		default:
+			return
+		}
+		break
+	}
+
+	s.available.Store(buildAvailableSnapshot(updated))
+}
+
 func buildAvailableSnapshot(rows []availableRow) *availableSnapshot {
 	bestByPlanType := make(map[int]int, len(rows))
 	for i, row := range rows {
-		if row.Score < 0 {
+		if scheduling.AdjustedScore(row.Score, row.Weight) < 0 {
 			continue
 		}
 		if _, ok := bestByPlanType[row.PlanTypeCode]; ok {
@@ -356,32 +500,6 @@ func availableRowByCredentialID(snap *availableSnapshot, credentialID string) (a
 	return availableRow{}, false
 }
 
-func planTypeCodeSet(codes []int) map[int]struct{} {
-	if len(codes) == 0 {
-		return nil
-	}
-
-	set := make(map[int]struct{}, len(codes))
-	for _, code := range codes {
-		if code == planTypeCodeAny {
-			continue
-		}
-		set[code] = struct{}{}
-	}
-	if len(set) == 0 {
-		return nil
-	}
-	return set
-}
-
-func planTypeAllowed(code int, allowed map[int]struct{}) bool {
-	if len(allowed) == 0 {
-		return true
-	}
-	_, ok := allowed[code]
-	return ok
-}
-
 func (s *Scheduler) AuthHeaders(ctx context.Context, credentialID string) (http.Header, error) {
 	token, err := s.GetAccessToken(ctx, credentialID)
 	if err != nil {
@@ -394,6 +512,13 @@ func (s *Scheduler) AuthHeaders(ctx context.Context, credentialID string) (http.
 	return headers, nil
 }
 
+func (s *Scheduler) InvalidateCredential(credentialID string) {
+	if s == nil || s.manager == nil || credentialID == "" {
+		return
+	}
+	s.manager.InvalidateCredential(credentialID)
+}
+
 func (s *Scheduler) planTypeCodec() *planTypeCodec {
 	if s.planTypes == nil {
 		s.planTypes = newPlanTypeCodec()
@@ -401,34 +526,14 @@ func (s *Scheduler) planTypeCodec() *planTypeCodec {
 	return s.planTypes
 }
 
-func mergePlanTypeCodes(groups ...[]int) []int {
-	var merged []int
-	seen := make(map[int]struct{})
-
-	for _, group := range groups {
-		for _, code := range group {
-			if code == planTypeCodeAny {
-				continue
-			}
-			if _, ok := seen[code]; ok {
-				continue
-			}
-			seen[code] = struct{}{}
-			merged = append(merged, code)
-		}
-	}
-
-	return merged
-}
-
-// calcScore 根据配额比率和重置时间计算综合优先级评分
+// CalcScore 根据配额比率和重置时间计算综合优先级评分
 // 分数越高越优先使用采用分层加权：
 //
 //  1. 7d 重置紧迫度（权重 1000）— 优先使用即将重置的凭证
 //  2. 7d 剩余配额  （权重 100） — 同等紧迫度下优先配额充沛的
 //  3. 5h 重置紧迫度（权重 10）  — 优先使用即将重置的凭证
 //  4. 5h 剩余配额  （权重 1）   — 最终决胜因子
-func calcScore(quota5h, quota7d float64, reset5h, reset7d time.Time, window5hSeconds, window7dSeconds int64) float64 {
+func CalcScore(quota5h, quota7d float64, reset5h, reset7d time.Time, window5hSeconds, window7dSeconds int64) float64 {
 	// 任一窗口的配额完全耗尽（0%）则不可用，避免浪费请求触发 429
 	// 注意：无此窗口时 quota 默认 1.0（满配额），不会触发此条件
 	if quota5h == 0 || quota7d == 0 {
@@ -437,31 +542,27 @@ func calcScore(quota5h, quota7d float64, reset5h, reset7d time.Time, window5hSec
 
 	now := time.Now().Unix()
 
-	u7d := urgencyFactor(reset7d.Unix(), now, window7dSeconds)
-	u5h := urgencyFactor(reset5h.Unix(), now, window5hSeconds)
+	u7d := scheduling.UrgencyFactor(reset7d.Unix(), now, window7dSeconds)
+	u5h := scheduling.UrgencyFactor(reset5h.Unix(), now, window5hSeconds)
 
 	return u7d*1000 + quota7d*100 + u5h*10 + quota5h
 }
 
-// urgencyFactor 返回凭证窗口重置的紧迫程度（秒级精度）
-// 0.0 = 刚刚重置（距离下次重置很远），1.0 = 即将重置或已过期
-func urgencyFactor(resetAtUnix, nowUnix, windowSeconds int64) float64 {
-	if resetAtUnix == 0 || windowSeconds == 0 {
-		return 0.0
+// CalcScoreSpark computes a priority score for the spark model tier.
+// Uses the same 5h/7d layered weighting as CalcScore.
+// If either spark window quota is exhausted (0%), returns -1 (unusable for spark).
+func CalcScoreSpark(quotaSpark5h, quotaSpark7d float64, resetSpark5h, resetSpark7d time.Time, window5hSeconds, window7dSeconds int64) float64 {
+	if quotaSpark5h == 0 || quotaSpark7d == 0 {
+		return -1
 	}
-	remaining := resetAtUnix - nowUnix
-	if remaining <= 0 {
-		return 1.0
-	}
-	ratio := float64(remaining) / float64(windowSeconds)
-	if ratio >= 1.0 {
-		return 0.0
-	}
-	return 1.0 - ratio
+	now := time.Now().Unix()
+	u7d := scheduling.UrgencyFactor(resetSpark7d.Unix(), now, window7dSeconds)
+	u5h := scheduling.UrgencyFactor(resetSpark5h.Unix(), now, window5hSeconds)
+	return u7d*1000 + quotaSpark7d*100 + u5h*10 + quotaSpark5h
 }
 
 // RecordSuccess 记录成功请求并重置退避状态
-func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, statusCode int32) {
+func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, statusCode int32, modelTier string) {
 	s.mu.Lock()
 	delete(s.throttle, credentialID)
 	s.mu.Unlock()
@@ -471,6 +572,7 @@ func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, status
 		CredentialID: credentialID,
 		StatusCode:   statusCode,
 		Text:         "",
+		ModelTier:    modelTier,
 	}); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert success log")
 	}
@@ -479,7 +581,7 @@ func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, status
 // RecordFailure 记录失败请求并临时禁用凭证
 // 当 retryAfter > 0 时直接使用该时长；否则使用指数退避：
 // 基础 1 分钟 × 2^(连续失败次数-1)，上限 30 分钟
-func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, statusCode int32, text string, retryAfter time.Duration) {
+func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, statusCode int32, text string, retryAfter time.Duration, modelTier string) {
 	// 使用 background context：日志记录和节流是服务端内务操作，
 	// 不应受客户端请求 context 取消的影响
 	bgCtx := context.Background()
@@ -489,8 +591,14 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 		CredentialID: credentialID,
 		StatusCode:   statusCode,
 		Text:         text,
+		ModelTier:    modelTier,
 	}); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert failure log")
+	}
+
+	if statusCode == http.StatusTooManyRequests && modelTier != "" {
+		s.markTierUnavailable(credentialID, modelTier)
+		return
 	}
 
 	now := time.Now()
@@ -533,7 +641,7 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 }
 
 // HandleUnauthorized 先将 401/402 凭证踢出可用池，再异步用 refresh token + usage 校验
-func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, text string) bool {
+func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) bool {
 	if !isCredentialRejectedStatus(int(statusCode)) {
 		return false
 	}
@@ -543,6 +651,7 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 		CredentialID: credentialID,
 		StatusCode:   statusCode,
 		Text:         text,
+		ModelTier:    modelTier,
 	}); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert invalidation log")
 	}
@@ -592,13 +701,22 @@ func (s *Scheduler) GetAccessToken(ctx context.Context, credentialID string) (st
 // UpdateQuota 从 API 响应更新凭证配额（写入 DB + 刷新缓存）
 // Quota 中的 Reset5h/Reset7d 为 API 直接提供的绝对时间戳，无需二次计算
 func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *codexAPI.Quota) {
+	if q == nil {
+		return
+	}
+	merged := s.mergeQuotaUpdate(credentialID, q)
+	q = &merged
 	s.updateAvailableQuota(credentialID, q)
 	if err := s.store.UpsertQuota(ctx, db.UpsertQuotaParams{
 		CredentialID: credentialID,
 		Quota5h:      q.Quota5h,
 		Quota7d:      q.Quota7d,
+		QuotaSpark5h: q.QuotaSpark5h,
+		QuotaSpark7d: q.QuotaSpark7d,
 		Reset5h:      q.Reset5h,
 		Reset7d:      q.Reset7d,
+		ResetSpark5h: q.ResetSpark5h,
+		ResetSpark7d: q.ResetSpark7d,
 	}); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: upsert quota")
 	}
@@ -788,4 +906,38 @@ func (s *Scheduler) insertLog(ctx context.Context, arg db.InsertLogParams) error
 		return nil
 	}
 	return s.logStore.InsertLog(ctx, arg)
+}
+
+func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) {
+	if s.logStore == nil || len(rows) == 0 {
+		return
+	}
+
+	window := s.settingsSnapshot().ErrorRateWindow()
+	ids := make([]string, len(rows))
+	for i := range rows {
+		ids[i] = rows[i].ID
+	}
+
+	ratesDefault, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerCodex), ModelTierDefault, ids, window)
+	if err != nil {
+		log.Warn().Err(err).Msg("scheduler: compute default error rates")
+		return
+	}
+	ratesSpark, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerCodex), ModelTierSpark, ids, window)
+	if err != nil {
+		log.Warn().Err(err).Msg("scheduler: compute spark error rates")
+		return
+	}
+
+	for i := range rows {
+		if rate, ok := ratesDefault[rows[i].ID]; ok && rate > 0 {
+			rows[i].ErrorRate = rate
+			rows[i].Weight = scheduling.CalcWeight(rate)
+		}
+		if rate, ok := ratesSpark[rows[i].ID]; ok && rate > 0 {
+			rows[i].ErrorRateSpark = rate
+			rows[i].WeightSpark = scheduling.CalcWeight(rate)
+		}
+	}
 }

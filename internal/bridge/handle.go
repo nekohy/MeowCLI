@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nekohy/MeowCLI/api"
+	corecodex "github.com/nekohy/MeowCLI/core/codex"
 	storedb "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
 
@@ -87,6 +88,11 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 		upstreamBody = backend.ReplaceModel(body, info.Origin)
 	}
 
+	modelTier := ""
+	if info.Handler == utils.HandlerCodex {
+		modelTier = corecodex.ResolveModelTier(info.Origin)
+	}
+
 	h.relayWithRetry(c, relayConfig{
 		ctx:            ctx,
 		sched:          sched,
@@ -94,6 +100,7 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 		allowedPlans:   info.AllowedPlanTypes,
 		streamRequest:  req.Stream,
 		modelAlias:     alias,
+		modelTier:      modelTier,
 		backend:        backend,
 		needReplace:    needReplace,
 		responseAlias:  alias,

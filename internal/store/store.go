@@ -13,7 +13,6 @@ type Codex struct {
 	Expired      time.Time `json:"expired"`
 	RefreshToken string    `json:"refresh_token"`
 	PlanType     string    `json:"plan_type"`
-	PlanExpired  time.Time `json:"plan_expired"`
 	Reason       string    `json:"reason"`
 }
 
@@ -38,7 +37,6 @@ type UpdateCodexTokensParams struct {
 	Expired      time.Time
 	RefreshToken string
 	PlanType     string
-	PlanExpired  time.Time
 }
 
 type UpdateGeminiTokensParams struct {
@@ -57,14 +55,29 @@ type InsertLogParams struct {
 	CredentialID string
 	StatusCode   int32
 	Text         string
+	ModelTier    string
 }
 
 type UpsertQuotaParams struct {
 	CredentialID string
 	Quota5h      float64
 	Quota7d      float64
+	QuotaSpark5h float64
+	QuotaSpark7d float64
 	Reset5h      time.Time
 	Reset7d      time.Time
+	ResetSpark5h time.Time
+	ResetSpark7d time.Time
+}
+
+type UpsertGeminiQuotaParams struct {
+	CredentialID   string
+	QuotaPro       float64
+	ResetPro       time.Time
+	QuotaFlash     float64
+	ResetFlash     time.Time
+	QuotaFlashlite float64
+	ResetFlashlite time.Time
 }
 
 type ReverseInfoFromModelRow struct {
@@ -79,8 +92,12 @@ type ListAvailableCodexRow struct {
 	PlanType       string    `json:"plan_type"`
 	Quota5h        float64   `json:"quota_5h"`
 	Quota7d        float64   `json:"quota_7d"`
+	QuotaSpark5h   float64   `json:"quota_spark_5h"`
+	QuotaSpark7d   float64   `json:"quota_spark_7d"`
 	Reset5h        time.Time `json:"reset_5h"`
 	Reset7d        time.Time `json:"reset_7d"`
+	ResetSpark5h   time.Time `json:"reset_spark_5h"`
+	ResetSpark7d   time.Time `json:"reset_spark_7d"`
 	ThrottledUntil time.Time `json:"throttled_until"`
 	SyncedAt       time.Time `json:"synced_at"`
 }
@@ -92,12 +109,15 @@ type ListCodexRow struct {
 	Expired        time.Time `json:"expired"`
 	RefreshToken   string    `json:"-"`
 	PlanType       string    `json:"plan_type"`
-	PlanExpired    time.Time `json:"plan_expired"`
 	Reason         string    `json:"reason"`
 	Quota5h        float64   `json:"quota_5h"`
 	Quota7d        float64   `json:"quota_7d"`
+	QuotaSpark5h   float64   `json:"quota_spark_5h"`
+	QuotaSpark7d   float64   `json:"quota_spark_7d"`
 	Reset5h        time.Time `json:"reset_5h"`
 	Reset7d        time.Time `json:"reset_7d"`
+	ResetSpark5h   time.Time `json:"reset_spark_5h"`
+	ResetSpark7d   time.Time `json:"reset_spark_7d"`
 	ThrottledUntil time.Time `json:"throttled_until"`
 	SyncedAt       time.Time `json:"synced_at"`
 }
@@ -107,6 +127,12 @@ type ListAvailableGeminiCLIRow struct {
 	Email          string    `json:"email"`
 	ProjectID      string    `json:"project_id"`
 	PlanType       string    `json:"plan_type"`
+	QuotaPro       float64   `json:"quota_pro"`
+	ResetPro       time.Time `json:"reset_pro"`
+	QuotaFlash     float64   `json:"quota_flash"`
+	ResetFlash     time.Time `json:"reset_flash"`
+	QuotaFlashlite float64   `json:"quota_flashlite"`
+	ResetFlashlite time.Time `json:"reset_flashlite"`
 	ThrottledUntil time.Time `json:"throttled_until"`
 	SyncedAt       time.Time `json:"synced_at"`
 }
@@ -121,6 +147,12 @@ type ListGeminiCLIRow struct {
 	ProjectID      string    `json:"project_id"`
 	PlanType       string    `json:"plan_type"`
 	Reason         string    `json:"reason"`
+	QuotaPro       float64   `json:"quota_pro"`
+	ResetPro       time.Time `json:"reset_pro"`
+	QuotaFlash     float64   `json:"quota_flash"`
+	ResetFlash     time.Time `json:"reset_flash"`
+	QuotaFlashlite float64   `json:"quota_flashlite"`
+	ResetFlashlite time.Time `json:"reset_flashlite"`
 	ThrottledUntil time.Time `json:"throttled_until"`
 	SyncedAt       time.Time `json:"synced_at"`
 }
@@ -132,7 +164,6 @@ type CreateCodexParams struct {
 	Expired      time.Time
 	RefreshToken string
 	PlanType     string
-	PlanExpired  time.Time
 }
 
 type UpsertGeminiCLIParams struct {
@@ -176,6 +207,7 @@ type LogRow struct {
 	CredentialID string    `json:"credential_id"`
 	StatusCode   int32     `json:"status_code"`
 	Text         string    `json:"text"`
+	ModelTier    string    `json:"model_tier"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -225,6 +257,7 @@ type LogStore interface {
 	InsertLog(ctx context.Context, arg InsertLogParams) error
 	ListLogs(ctx context.Context, arg ListLogsParams) ([]LogRow, error)
 	CountLogs(ctx context.Context) (int64, error)
+	ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, credentialIDs []string, window time.Duration) (map[string]float64, error)
 }
 
 type Store interface {
@@ -263,8 +296,11 @@ type Store interface {
 	SetQuotaThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error
 	DeleteQuota(ctx context.Context, credentialID string) error
 	ListAvailableCodex(ctx context.Context) ([]ListAvailableCodexRow, error)
-	SetGeminiCLIThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error
 	ListAvailableGeminiCLI(ctx context.Context) ([]ListAvailableGeminiCLIRow, error)
+
+	UpsertGeminiQuota(ctx context.Context, arg UpsertGeminiQuotaParams) error
+	SetGeminiQuotaThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error
+	DeleteGeminiQuota(ctx context.Context, credentialID string) error
 
 	ListAuthKeys(ctx context.Context) ([]AuthKey, error)
 	GetAuthKey(ctx context.Context, key string) (AuthKey, error)

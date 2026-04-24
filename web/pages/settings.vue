@@ -20,7 +20,7 @@ const actionBusy = ref(false)
 const form = ref<SettingsForm>({ ...DEFAULT_SETTINGS_FORM })
 
 const availablePlanTypes = computed(() => admin.activeHandler.value?.plan_list || [])
-const geminiPlanTypes = ['ultra', 'pro', 'free']
+const geminiPlanTypes = ['ultra', 'pro', 'free', 'unknown']
 
 const codexPlanOrder = usePlanOrderModal(
   () => form.value.codex_preferred_plan_types,
@@ -84,6 +84,13 @@ const numericFields = [
     min: 1,
     suffix: '秒',
   },
+  {
+    key: 'error_rate_window_seconds',
+    label: '错误率窗口',
+    hint: '计算凭据错误率的回溯时长',
+    min: 1,
+    suffix: '秒',
+  },
 ] as const satisfies Array<{
   key: keyof SettingsForm
   label: string
@@ -105,7 +112,7 @@ const numericGroups = [
   },
   {
     title: '数据保留',
-    fields: ['quota_sync_interval_seconds', 'logs_retention_seconds'] as NumericFieldKey[],
+    fields: ['quota_sync_interval_seconds', 'logs_retention_seconds', 'error_rate_window_seconds'] as NumericFieldKey[],
   },
   {
     title: '指数退避',
@@ -188,7 +195,6 @@ watch(
 <template>
   <div class="page-grid">
     <PageHeader
-      eyebrow="系统"
       title="系统设置"
       icon="mdi-cog-outline"
     >
@@ -224,8 +230,7 @@ watch(
           <VTextField
             v-model="form.global_proxy"
             placeholder="http://127.0.0.1:7890"
-            variant="outlined"
-            density="comfortable"
+            hide-details
             class="settings-item-control"
           />
         </div>
@@ -242,8 +247,7 @@ watch(
               type="number"
               :min="field!.min"
               :suffix="field!.suffix"
-              variant="outlined"
-              density="comfortable"
+              hide-details
               class="settings-item-control settings-item-control--number"
             />
           </div>
@@ -262,8 +266,7 @@ watch(
           <VTextField
             v-model="form.codex_proxy"
             placeholder="http://127.0.0.1:7890"
-            variant="outlined"
-            density="comfortable"
+            hide-details
             class="settings-item-control"
           />
         </div>
@@ -293,13 +296,12 @@ watch(
         <div class="settings-item">
           <div class="settings-item-copy">
             <div class="settings-item-title">Gemini CLI 代理</div>
-            <div class="settings-item-description text-medium-emphasis">供 Gemini CLI 上游请求使用，未设置时回退到全局代理。</div>
+            <div class="settings-item-description text-medium-emphasis">供 Gemini CLI 上游请求使用，未设置时回退到全局代理</div>
           </div>
           <VTextField
             v-model="form.gemini_proxy"
             placeholder="http://127.0.0.1:7890"
-            variant="outlined"
-            density="comfortable"
+            hide-details
             class="settings-item-control"
           />
         </div>
@@ -308,7 +310,7 @@ watch(
           <div class="settings-item-copy">
             <div class="settings-item-title">调用套餐顺序</div>
             <div class="settings-item-description text-medium-emphasis">
-              优先使用的套餐类型及顺序：{{ geminiPlanOrder.preview.value.length ? geminiPlanOrder.preview.value.join(' → ') : '未配置（默认 ultra → pro → free）' }}
+              优先使用的套餐类型及顺序：{{ geminiPlanOrder.preview.value.length ? geminiPlanOrder.preview.value.join(' → ') : '未配置' }}
             </div>
           </div>
           <VIcon icon="mdi-chevron-right" />

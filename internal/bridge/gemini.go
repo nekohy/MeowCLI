@@ -2,8 +2,8 @@ package bridge
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"github.com/bytedance/sonic"
 	"io"
 	"net/http"
 	"net/url"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/api/gemini"
+	coreGemini "github.com/nekohy/MeowCLI/core/gemini"
 	storedb "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
 
@@ -84,6 +85,7 @@ func (h *Handler) handleGemini(c *gin.Context) {
 
 	streamRequest := action == "streamGenerateContent"
 	needReplace := alias != info.Origin
+	modelTier := coreGemini.ResolveModelTier(info.Origin)
 
 	h.relayWithRetry(c, relayConfig{
 		ctx:            ctx,
@@ -92,6 +94,7 @@ func (h *Handler) handleGemini(c *gin.Context) {
 		allowedPlans:   info.AllowedPlanTypes,
 		streamRequest:  streamRequest,
 		modelAlias:     alias,
+		modelTier:      modelTier,
 		backend:        backend,
 		needReplace:    needReplace,
 		responseAlias:  alias,
@@ -166,7 +169,7 @@ func (h *Handler) handleGeminiModels(c *gin.Context) {
 			"supportedGenerationMethods": []string{"generateContent", "streamGenerateContent"},
 		})
 	}
-	body, err := json.Marshal(map[string]any{"models": models})
+	body, err := sonic.Marshal(map[string]any{"models": models})
 	if err != nil {
 		writeRelayError(c, errRelayResponseFailed)
 		return

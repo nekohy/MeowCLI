@@ -20,6 +20,7 @@ type relayConfig struct {
 	allowedPlans   []string
 	streamRequest  bool
 	modelAlias     string
+	modelTier      string
 	backend        api.Backend
 	needReplace    bool
 	responseAlias  string
@@ -42,7 +43,13 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 
 	for attempt := 0; attempt < h.maxAttempts(); attempt++ {
 		preferredCredentialID := cfg.resolvePreferred(graceCredentialID)
-		credID, err := cfg.sched.Pick(cfg.ctx, cfg.requestHeaders, preferredCredentialID, cfg.allowedPlans)
+		var credID string
+		var err error
+		if tierPicker, ok := cfg.sched.(ModelTierPicker); ok && cfg.modelTier != "" {
+			credID, err = tierPicker.PickWithTier(cfg.ctx, cfg.requestHeaders, preferredCredentialID, cfg.allowedPlans, cfg.modelTier)
+		} else {
+			credID, err = cfg.sched.Pick(cfg.ctx, cfg.requestHeaders, preferredCredentialID, cfg.allowedPlans)
+		}
 		if err != nil {
 			if haveLastRelayErr {
 				break
@@ -56,7 +63,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			if cfg.ctx.Err() != nil {
 				return
 			}
-			cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), 0)
+			cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), 0, cfg.modelTier)
 			lastRelayErr = errUpstreamAuthFailed
 			haveLastRelayErr = true
 			log.Warn().Err(err).Str("credential", credID).Msg("get auth headers failed, retrying")
@@ -77,7 +84,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			if cfg.ctx.Err() != nil {
 				return
 			}
-			cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), 0)
+			cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), 0, cfg.modelTier)
 			lastRelayErr = errUpstreamRequestFailed
 			haveLastRelayErr = true
 			log.Warn().Err(err).Str("credential", credID).Int("attempt", attempt+1).Msg("upstream request failed, retrying")
@@ -90,7 +97,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 				if cfg.ctx.Err() != nil {
 					return
 				}
-				cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), 0)
+				cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), 0, cfg.modelTier)
 				log.Warn().Err(err).Str("credential", credID).Int("status", resp.StatusCode).Msg("relay response write failed")
 				if !c.Writer.Written() {
 					writeRelayError(c, errRelayResponseFailed)
@@ -102,7 +109,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			if cfg.onSuccess != nil {
 				cfg.onSuccess(credID)
 			}
-			cfg.sched.RecordSuccess(cfg.ctx, credID, int32(resp.StatusCode))
+			cfg.sched.RecordSuccess(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier)
 			return
 		}
 
@@ -114,7 +121,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 		lastRelayErr = relayErrorForUpstreamStatus(resp.StatusCode)
 		haveLastRelayErr = true
 
-		if cfg.sched.HandleUnauthorized(cfg.ctx, credID, int32(resp.StatusCode), errText) {
+		if cfg.sched.HandleUnauthorized(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier) {
 			graceCredentialID = ""
 			log.Warn().
 				Int("status", resp.StatusCode).
@@ -153,10 +160,10 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 				}
 			}
 			graceCredentialID = ""
-			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, retryAfter)
+			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, retryAfter, cfg.modelTier)
 		} else {
 			graceCredentialID = ""
-			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, 0)
+			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, 0, cfg.modelTier)
 		}
 
 		log.Warn().

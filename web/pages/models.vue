@@ -33,6 +33,10 @@ const modalError = ref('')
 const planOrderOpen = ref(false)
 const planOrderDraft = ref<string[]>([])
 const dragIdx = ref<number | null>(null)
+const handlerIconByKey: Record<string, string> = {
+  codex: 'mdi-console',
+  gemini: 'mdi-google-circles-communities',
+}
 
 const modalHandlerConfig = computed(() => (
   admin.handlers.value.find((handler) => handler.key === modalHandler.value) || null
@@ -40,13 +44,19 @@ const modalHandlerConfig = computed(() => (
 const modalAvailablePlanTypes = computed(() => modalHandlerConfig.value?.plan_list || [])
 const modalSelectedPlanTypes = computed(() => splitPlanTypeInput(modalPlanTypes.value))
 
-function defaultPlanTypesForHandler(handlerKey: string) {
-  return handlerKey === 'gemini' ? 'ultra,pro,free' : ''
+function defaultPlanTypesForHandler(_handlerKey: string) {
+  return ''
 }
 
 const hintNoPlanTypes = computed(() => {
-  if (modalHandler.value === 'gemini') return '未限制，默认使用 ultra → pro → free'
   return '未限制，调度器将使用所有可用套餐'
+})
+const modalPlanSummary = computed(() => {
+  const selected = modalSelectedPlanTypes.value
+  if (!selected.length) {
+    return hintNoPlanTypes.value
+  }
+  return `当前顺序：${selected.map((planType, idx) => `${idx + 1}. ${planTypeText(planType)}`).join(' → ')}`
 })
 
 function syncPlanOrderDraft() {
@@ -71,6 +81,10 @@ const filteredItems = computed(() => {
 
 function modelsForHandler(handlerKey: string) {
   return items.value.filter((item) => item.handler === handlerKey).length
+}
+
+function handlerIcon(handlerKey: string) {
+  return handlerIconByKey[handlerKey] || 'mdi-cpu-64-bit'
 }
 
 async function loadModels() {
@@ -261,7 +275,6 @@ watch(
 <template>
   <div class="page-grid">
     <PageHeader
-      eyebrow="模型"
       title="模型映射"
       icon="mdi-compare-horizontal"
     >
@@ -313,45 +326,30 @@ watch(
           color="surface-container"
           variant="flat"
         >
-          <VCardText class="pa-5 d-grid ga-4">
-            <div class="d-flex justify-space-between align-start">
+          <VCardText class="pa-5 d-flex flex-column ga-3">
+            <div class="d-flex justify-space-between align-center">
               <div style="min-width: 0">
-                <div class="text-h6 font-weight-bold mb-1">{{ item.alias }}</div>
-                <div class="d-flex align-center ga-2 text-caption text-medium-emphasis">
-                  <span class="text-truncate" style="max-width: 280px">{{ item.origin }}</span>
-                  <VIcon icon="mdi-chevron-right" size="16" />
-                </div>
+                <div class="text-h6 font-weight-bold">{{ item.alias }}</div>
+                <div class="text-caption text-medium-emphasis text-truncate" style="max-width: 280px">{{ item.origin }}</div>
               </div>
-              <AdminBadge tone="secondary" subtle :icon="item.handler === 'gemini' ? 'mdi-google-circles-communities' : 'mdi-console'">
+              <AdminBadge tone="secondary" subtle :icon="handlerIcon(item.handler)">
                 {{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}
               </AdminBadge>
             </div>
 
-            <VSheet v-if="hasExtra(item.extra)" color="surface-container-high" rounded="lg" class="pa-3">
-              <div class="text-caption text-medium-emphasis mb-2 d-flex align-center ga-1">
-                <VIcon icon="mdi-code-json" size="14" />
-                <span>JSON</span>
-              </div>
-              <code class="text-caption d-block" style="white-space: pre-wrap; overflow: auto; max-height: 80px">{{ safeStringify(item.extra) }}</code>
-            </VSheet>
-
-            <VSheet v-if="item.plan_types" color="surface-container-high" rounded="lg" class="pa-3">
-              <div class="text-caption text-medium-emphasis mb-2 d-flex align-center ga-1">
-                <VIcon icon="mdi-star-circle-outline" size="14" />
-                <span>套餐</span>
-              </div>
-              <div class="d-flex flex-wrap ga-2">
+            <div class="d-flex flex-wrap ga-2 align-center">
+              <template v-if="item.plan_types">
                 <AdminBadge
                   v-for="(pt, idx) in splitPlanTypeInput(item.plan_types)"
                   :key="pt"
                   tone="secondary"
                   subtle
-                  icon="mdi-sort"
                 >
                   {{ idx + 1 }}. {{ planTypeText(pt) }}
                 </AdminBadge>
-              </div>
-            </VSheet>
+              </template>
+              <code v-if="hasExtra(item.extra)" class="text-caption px-2 py-1 rounded bg-surface-container-high" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ safeStringify(item.extra) }}</code>
+            </div>
 
             <div class="d-flex ga-2">
               <AdminButton
@@ -378,7 +376,7 @@ watch(
       <EmptyState
         v-else
         title="无匹配映射"
-        description="调整筛选或新建映射。"
+        description="调整筛选或新建映射"
         icon="mdi-link-off"
       />
     </SectionCard>
@@ -390,7 +388,7 @@ watch(
       max-width="640"
       @close="closeModal"
     >
-      <div class="d-grid ga-7 pt-2">
+      <div class="model-form-stack">
         <VTextField
           v-model="modalAlias"
           label="别名"
@@ -416,46 +414,17 @@ watch(
         <VSheet
           color="surface-container-high"
           rounded="lg"
-          class="pa-4 d-grid ga-3"
+          class="model-plan-panel"
         >
           <div class="d-flex justify-space-between align-center ga-3 flex-wrap">
-            <div>
-              <div class="text-subtitle-2 font-weight-bold">套餐类型</div>
-              <div class="text-caption text-medium-emphasis">
-                多选并排序，调度会按从左到右的顺序优先使用。
-              </div>
-            </div>
+            <div class="text-subtitle-2 font-weight-bold">套餐类型</div>
             <AdminButton variant="secondary" size="sm" prepend-icon="mdi-swap-vertical" @click="openPlanOrderModal">
               排序
             </AdminButton>
           </div>
 
-          <div class="d-flex flex-wrap ga-2">
-            <VChip
-              v-for="planType in modalAvailablePlanTypes"
-              :key="planType"
-              :color="planOrderDraftSelected(planType) ? 'primary' : undefined"
-              :variant="planOrderDraftSelected(planType) ? 'flat' : 'outlined'"
-              filter
-              @click="togglePlanType(planType)"
-            >
-              {{ planTypeText(planType) }}
-            </VChip>
-          </div>
-
-          <div class="d-flex flex-wrap ga-2">
-            <AdminBadge
-              v-for="(planType, idx) in modalSelectedPlanTypes"
-              :key="`${planType}-${idx}`"
-              tone="secondary"
-              subtle
-              icon="mdi-sort"
-            >
-              {{ idx + 1 }}. {{ planTypeText(planType) }}
-            </AdminBadge>
-            <span v-if="!modalSelectedPlanTypes.length" class="text-caption text-medium-emphasis">
-              {{ hintNoPlanTypes }}
-            </span>
+          <div class="model-plan-summary text-medium-emphasis">
+            {{ modalPlanSummary }}
           </div>
         </VSheet>
         <VTextarea
@@ -488,7 +457,7 @@ watch(
     <ModalDialog
       :open="planOrderOpen"
       title="套餐类型排序"
-      description="拖动调整优先级，勾选决定是否启用。"
+      description="拖动调整优先级，勾选决定是否启用"
       icon="mdi-sort"
       :max-width="460"
       @close="planOrderOpen = false"
@@ -575,5 +544,25 @@ watch(
 
 .plan-order-rank {
   font-size: 0.85rem;
+}
+
+.model-form-stack {
+  display: grid;
+  gap: 16px;
+  padding-top: 4px;
+}
+
+.model-plan-panel {
+  display: grid;
+  gap: 7px;
+  padding: 13px 14px;
+  border: 1px solid rgba(var(--v-theme-outline-variant), 0.58);
+  background: rgba(var(--v-theme-surface), 0.72) !important;
+  box-shadow: inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.025);
+}
+
+.model-plan-summary {
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 </style>

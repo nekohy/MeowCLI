@@ -75,10 +75,10 @@ export default defineVuetifyConfiguration({
       color: 'surface-container',
     },
     VBtn: {
-      rounded: 'pill',
+      rounded: 'lg',
       variant: 'tonal',
       color: 'primary',
-      height: 38,
+      height: 40,
       elevation: 0,
     },
     VCard: {
@@ -91,7 +91,8 @@ export default defineVuetifyConfiguration({
       },
     },
     VChip: {
-      rounded: 'pill',
+      rounded: 'lg',
+      size: 'default',
     },
     VDialog: {
       maxWidth: 520,
@@ -104,8 +105,8 @@ export default defineVuetifyConfiguration({
       bgColor: 'transparent',
     },
     VListItem: {
-      rounded: 'xl',
-      minHeight: 42,
+      rounded: 'lg',
+      minHeight: 44,
     },
     VNavigationDrawer: {
       elevation: 0,
@@ -113,13 +114,13 @@ export default defineVuetifyConfiguration({
     },
     VPagination: {
       activeColor: 'primary',
-      rounded: 'pill',
+      rounded: 'lg',
     },
     VSelect: {
       color: 'primary',
       variant: 'outlined',
-      rounded: 'xl',
-      density: 'compact',
+      rounded: 'lg',
+      density: 'comfortable',
       hideDetails: 'auto',
     },
     VSnackbar: {
@@ -139,15 +140,15 @@ export default defineVuetifyConfiguration({
     VTextField: {
       color: 'primary',
       variant: 'outlined',
-      rounded: 'xl',
-      density: 'compact',
+      rounded: 'lg',
+      density: 'comfortable',
       hideDetails: 'auto',
     },
     VTextarea: {
       color: 'primary',
       variant: 'outlined',
-      rounded: 'xl',
-      density: 'compact',
+      rounded: 'lg',
+      density: 'comfortable',
       hideDetails: 'auto',
       autoGrow: true,
     },

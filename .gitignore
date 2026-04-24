@@ -8,6 +8,8 @@ web/.nuxt/
 web/.output/
 /web/dist/
 *.db
+*.db-shm
+*.db-wal
 *.exe
 /.claude
 CLIProxyAPI/

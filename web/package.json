@@ -8,6 +8,7 @@
     "generate": "nuxt generate",
     "build:ssg": "nuxt generate && node scripts/sync-dist.mjs",
     "preview": "nuxt preview",
+    "test:copy": "node scripts/check-auth-card-copy.mjs",
     "typecheck": "nuxt typecheck",
     "postinstall": "nuxt prepare"
   },
