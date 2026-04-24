@@ -165,6 +165,9 @@ func transformCodeAssistQuery(action, rawQuery string) string {
 
 func copyHeaders(dst, src http.Header) {
 	for key, values := range src {
+		if http.CanonicalHeaderKey(key) == "Accept-Encoding" {
+			continue
+		}
 		if len(values) == 0 {
 			continue
 		}
