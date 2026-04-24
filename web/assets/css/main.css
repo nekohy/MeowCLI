@@ -772,6 +772,43 @@ pre {
   background: rgba(var(--v-theme-surface-container-high), 0.86);
 }
 
+.toolbar-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.credentials-inline-progress {
+  position: absolute !important;
+  top: 0;
+  right: 0;
+  left: 0;
+  border-radius: 16px 16px 0 0;
+}
+
+.credentials-switch-loading {
+  display: grid;
+  min-height: 260px;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  padding: 36px 18px;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 50% 0, rgba(var(--v-theme-primary), 0.12), transparent 42%),
+    rgba(var(--v-theme-surface-container-high), 0.76);
+  text-align: center;
+}
+
+.credentials-switch-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.credentials-switch-title {
+  font-weight: 750;
+  color: rgb(var(--v-theme-on-surface));
+}
+
 .filter-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -994,6 +1031,7 @@ pre {
 .handler-card.is-active {
   outline: 2px solid rgba(var(--v-theme-primary), 0.32);
   outline-offset: -2px;
+  transform: translateY(-2px);
 }
 
 .quick-action-card {
@@ -1195,16 +1233,40 @@ pre {
 
 /* --- Page transitions (spring easing) --- */
 .page-fade-enter-active,
-.page-fade-leave-active {
+.page-fade-leave-active,
+.handler-content-fade-enter-active,
+.handler-content-fade-leave-active {
   transition:
     opacity 200ms cubic-bezier(0.34, 1.56, 0.64, 1),
     transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .page-fade-enter-from,
-.page-fade-leave-to {
+.page-fade-leave-to,
+.handler-content-fade-enter-from,
+.handler-content-fade-leave-to {
   opacity: 0;
   transform: translateY(6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-fade-enter-active,
+  .page-fade-leave-active,
+  .handler-content-fade-enter-active,
+  .handler-content-fade-leave-active,
+  .interactive-card {
+    transition: none !important;
+  }
+
+  .page-fade-enter-from,
+  .page-fade-leave-to,
+  .handler-content-fade-enter-from,
+  .handler-content-fade-leave-to,
+  .interactive-card:hover,
+  .interactive-card:focus-visible,
+  .handler-card.is-active {
+    transform: none;
+  }
 }
 
 /* --- Responsive --- */

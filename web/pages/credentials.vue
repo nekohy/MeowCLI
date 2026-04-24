@@ -29,6 +29,7 @@ const admin = useAdminApp()
 const confirm = useConfirmDialog()
 
 const rows = ref<CredentialItem[]>([])
+const rowsHandlerKey = ref('')
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(25)
@@ -59,6 +60,11 @@ const knownStatusOptions = ['enabled', 'disabled'] as const
 const codexRows = computed(() => rows.value.filter(isCodexItem))
 const geminiRows = computed(() => rows.value.filter(isGeminiItem))
 const genericRows = computed(() => rows.value.filter((item) => !isCodexItem(item) && !isGeminiItem(item)))
+const rowsMatchActiveHandler = computed(() => rowsHandlerKey.value === credentialHandlerKey.value)
+const showHandlerLoadingState = computed(() => (
+  Boolean(admin.activeHandler.value?.supports_credentials)
+  && (!rowsMatchActiveHandler.value || (loading.value && !rows.value.length))
+))
 
 const importLines = computed(() => (
   importTokens.value
@@ -246,8 +252,13 @@ function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.valu
 
 async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.value) {
   const requestToken = ++latestLoadToken
-  if (!admin.token.value || !admin.activeHandler.value?.supports_credentials) {
+  const handlerKey = credentialHandlerKey.value
+  const endpoint = credentialEndpoint.value
+  const supportsCredentials = Boolean(admin.activeHandler.value?.supports_credentials)
+
+  if (!admin.token.value || !handlerKey || !supportsCredentials) {
     rows.value = []
+    rowsHandlerKey.value = handlerKey
     total.value = 0
     page.value = 1
     selectedIds.value = []
@@ -257,17 +268,22 @@ async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.va
 
   loading.value = true
   try {
-    const data = await adminApi.listCredentials(admin.token.value, credentialHandlerKey.value, currentQueryOptions(nextPage, nextPageSize), credentialEndpoint.value)
+    const data = await adminApi.listCredentials(admin.token.value, handlerKey, currentQueryOptions(nextPage, nextPageSize), endpoint)
     if (requestToken !== latestLoadToken) {
       return
     }
     rows.value = data.data || []
+    rowsHandlerKey.value = handlerKey
     total.value = data.total || 0
     page.value = data.page || nextPage
     pageSize.value = data.page_size || nextPageSize
     selectedIds.value = []
   } catch (error) {
     if (requestToken === latestLoadToken) {
+      rows.value = []
+      rowsHandlerKey.value = handlerKey
+      total.value = 0
+      selectedIds.value = []
       admin.notify(error instanceof Error ? error.message : '加载凭据失败', 'danger')
     }
   } finally {
@@ -415,6 +431,9 @@ watch(
     planFilter.value = 'all'
     searchInput.value = ''
     searchQuery.value = ''
+    if (!admin.activeHandler.value?.supports_credentials) {
+      void loadCredentials(1, pageSize.value)
+    }
   },
 )
 
@@ -474,9 +493,38 @@ onBeforeUnmount(() => {
       title="凭据列表"
       icon="mdi-table-large"
     >
-      <div class="d-grid ga-5">
-        <template v-if="admin.activeHandler.value?.supports_credentials">
+      <Transition name="handler-content-fade" mode="out-in">
+        <div
+          v-if="showHandlerLoadingState"
+          :key="`loading-${credentialHandlerKey}`"
+          class="credentials-switch-loading"
+          aria-live="polite"
+        >
+          <VProgressCircular
+            indeterminate
+            color="primary"
+            size="32"
+            width="3"
+          />
+          <div class="credentials-switch-copy">
+            <div class="credentials-switch-title">正在切换到 {{ activeHandlerLabel }}</div>
+            <div class="text-body-2 text-medium-emphasis">加载该后端服务的凭据列表</div>
+          </div>
+        </div>
+
+        <div
+          v-else-if="admin.activeHandler.value?.supports_credentials"
+          :key="`credentials-${credentialHandlerKey}`"
+          class="d-grid ga-5"
+        >
           <div class="toolbar-panel">
+            <VProgressLinear
+              :active="loading"
+              :model-value="loading ? 100 : 0"
+              indeterminate
+              color="primary"
+              class="credentials-inline-progress"
+            />
             <div class="filter-toolbar">
               <VTextField
                 v-model="searchInput"
@@ -873,15 +921,16 @@ onBeforeUnmount(() => {
               @update:model-value="(value) => loadCredentials(Number(value), pageSize)"
             />
           </div>
-        </template>
+        </div>
 
         <EmptyState
           v-else
+          :key="`unsupported-${credentialHandlerKey}`"
           title="该处理器暂不支持凭据导入"
           description="可以切换到其他处理器，或前往模型页面查看映射能力"
           icon="mdi-key-remove"
         />
-      </div>
+      </Transition>
     </SectionCard>
 
     <ModalDialog
