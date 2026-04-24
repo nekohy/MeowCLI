@@ -112,27 +112,19 @@ func ParseQuotaFromErrorOrFull(errorBody []byte) *Quota {
 	if q, found := ParseQuotaFromError(errorBody); found {
 		return q
 	}
-	now := time.Now()
 	return &Quota{
 		QuotaPro:       1.0,
-		ResetPro:       now,
 		QuotaFlash:     1.0,
-		ResetFlash:     now,
 		QuotaFlashlite: 1.0,
-		ResetFlashlite: now,
 	}
 }
 
 // FullQuota returns a Quota with all tiers set to maximum (1.0).
 func FullQuota() *Quota {
-	now := time.Now()
 	return &Quota{
 		QuotaPro:       1.0,
-		ResetPro:       now,
 		QuotaFlash:     1.0,
-		ResetFlash:     now,
 		QuotaFlashlite: 1.0,
-		ResetFlashlite: now,
 	}
 }
 
@@ -158,14 +150,10 @@ func ParseQuotaFromBuckets(body []byte) *Quota {
 		return FullQuota()
 	}
 
-	now := time.Now()
 	q := &Quota{
 		QuotaPro:       1.0,
-		ResetPro:       now,
 		QuotaFlash:     1.0,
-		ResetFlash:     now,
 		QuotaFlashlite: 1.0,
-		ResetFlashlite: now,
 	}
 
 	// Track per-tier minima for remaining fraction and earliest reset.

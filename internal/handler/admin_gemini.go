@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -22,6 +23,21 @@ const defaultGeminiPageSize = 25
 
 type batchCreateGeminiReq struct {
 	Tokens []string `json:"tokens" binding:"required,min=1"`
+}
+
+func (r *batchCreateGeminiReq) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Tokens        []string `json:"tokens"`
+		RefreshTokens []string `json:"refresh_tokens"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	r.Tokens = raw.Tokens
+	if len(r.Tokens) == 0 {
+		r.Tokens = raw.RefreshTokens
+	}
+	return nil
 }
 
 type geminiListItem struct {
@@ -359,8 +375,8 @@ func (a *AdminHandler) geminiCounts(ctx context.Context) (int64, int64, bool, er
 }
 
 func truncateToken(token string) string {
-	if len(token) > 16 {
-		return token[:16] + "..."
+	if len(token) <= 8 {
+		return "***"
 	}
-	return token
+	return token[:4] + "..." + token[len(token)-4:]
 }

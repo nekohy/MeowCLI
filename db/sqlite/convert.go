@@ -43,17 +43,16 @@ func codexTo(value sqlcsqlite.Codex) db.Codex {
 
 func geminiCredentialTo(value sqlcsqlite.Gemini) db.GeminiCredential {
 	return db.GeminiCredential{
-		ID:             value.ID,
-		Status:         value.Status,
-		AccessToken:    value.AccessToken,
-		RefreshToken:   value.RefreshToken,
-		Expired:        parseTime(value.Expired),
-		Email:          value.Email,
-		ProjectID:      value.ProjectID,
-		PlanType:       value.PlanType,
-		Reason:         value.Reason,
-		ThrottledUntil: parseTime(value.ThrottledUntil),
-		SyncedAt:       parseTime(value.SyncedAt),
+		ID:           value.ID,
+		Status:       value.Status,
+		AccessToken:  value.AccessToken,
+		RefreshToken: value.RefreshToken,
+		Expired:      parseTime(value.Expired),
+		Email:        value.Email,
+		ProjectID:    value.ProjectID,
+		PlanType:     value.PlanType,
+		Reason:       value.Reason,
+		SyncedAt:     parseTime(value.SyncedAt),
 	}
 }
 
@@ -76,20 +75,21 @@ func modelRowTo(alias, origin, handler, planTypes, extra string) db.ModelRow {
 	}
 }
 
-func listAvailableCodexRowTo(id, planType string, quota5h, quota7d, quotaSpark5h, quotaSpark7d float64, reset5h, reset7d, resetSpark5h, resetSpark7d, throttledUntil, syncedAt string) db.ListAvailableCodexRow {
+func listAvailableCodexRowTo(id, planType string, quota5h, quota7d, quotaSpark5h, quotaSpark7d float64, reset5h, reset7d, resetSpark5h, resetSpark7d, throttledUntil, throttledUntilSpark, syncedAt string) db.ListAvailableCodexRow {
 	return db.ListAvailableCodexRow{
-		ID:             id,
-		PlanType:       planType,
-		Quota5h:        quota5h,
-		Quota7d:        quota7d,
-		QuotaSpark5h:   quotaSpark5h,
-		QuotaSpark7d:   quotaSpark7d,
-		Reset5h:        parseTime(reset5h),
-		Reset7d:        parseTime(reset7d),
-		ResetSpark5h:   parseTime(resetSpark5h),
-		ResetSpark7d:   parseTime(resetSpark7d),
-		ThrottledUntil: parseTime(throttledUntil),
-		SyncedAt:       parseTime(syncedAt),
+		ID:                  id,
+		PlanType:            planType,
+		Quota5h:             quota5h,
+		Quota7d:             quota7d,
+		QuotaSpark5h:        quotaSpark5h,
+		QuotaSpark7d:        quotaSpark7d,
+		Reset5h:             parseTime(reset5h),
+		Reset7d:             parseTime(reset7d),
+		ResetSpark5h:        parseTime(resetSpark5h),
+		ResetSpark7d:        parseTime(resetSpark7d),
+		ThrottledUntil:      parseTime(throttledUntil),
+		ThrottledUntilSpark: parseTime(throttledUntilSpark),
+		SyncedAt:            parseTime(syncedAt),
 	}
 }
 

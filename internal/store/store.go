@@ -17,17 +17,16 @@ type Codex struct {
 }
 
 type GeminiCredential struct {
-	ID             string    `json:"id"`
-	Status         string    `json:"status"`
-	AccessToken    string    `json:"access_token"`
-	RefreshToken   string    `json:"refresh_token"`
-	Expired        time.Time `json:"expired"`
-	Email          string    `json:"email"`
-	ProjectID      string    `json:"project_id"`
-	PlanType       string    `json:"plan_type"`
-	Reason         string    `json:"reason"`
-	ThrottledUntil time.Time `json:"throttled_until"`
-	SyncedAt       time.Time `json:"synced_at"`
+	ID           string    `json:"id"`
+	Status       string    `json:"status"`
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	Expired      time.Time `json:"expired"`
+	Email        string    `json:"email"`
+	ProjectID    string    `json:"project_id"`
+	PlanType     string    `json:"plan_type"`
+	Reason       string    `json:"reason"`
+	SyncedAt     time.Time `json:"synced_at"`
 }
 
 type UpdateCodexTokensParams struct {
@@ -88,18 +87,19 @@ type ReverseInfoFromModelRow struct {
 }
 
 type ListAvailableCodexRow struct {
-	ID             string    `json:"id"`
-	PlanType       string    `json:"plan_type"`
-	Quota5h        float64   `json:"quota_5h"`
-	Quota7d        float64   `json:"quota_7d"`
-	QuotaSpark5h   float64   `json:"quota_spark_5h"`
-	QuotaSpark7d   float64   `json:"quota_spark_7d"`
-	Reset5h        time.Time `json:"reset_5h"`
-	Reset7d        time.Time `json:"reset_7d"`
-	ResetSpark5h   time.Time `json:"reset_spark_5h"`
-	ResetSpark7d   time.Time `json:"reset_spark_7d"`
-	ThrottledUntil time.Time `json:"throttled_until"`
-	SyncedAt       time.Time `json:"synced_at"`
+	ID                  string    `json:"id"`
+	PlanType            string    `json:"plan_type"`
+	Quota5h             float64   `json:"quota_5h"`
+	Quota7d             float64   `json:"quota_7d"`
+	QuotaSpark5h        float64   `json:"quota_spark_5h"`
+	QuotaSpark7d        float64   `json:"quota_spark_7d"`
+	Reset5h             time.Time `json:"reset_5h"`
+	Reset7d             time.Time `json:"reset_7d"`
+	ResetSpark5h        time.Time `json:"reset_spark_5h"`
+	ResetSpark7d        time.Time `json:"reset_spark_7d"`
+	ThrottledUntilSpark time.Time `json:"throttled_until_spark"`
+	ThrottledUntil      time.Time `json:"throttled_until"`
+	SyncedAt            time.Time `json:"synced_at"`
 }
 
 type ListCodexRow struct {
@@ -123,18 +123,21 @@ type ListCodexRow struct {
 }
 
 type ListAvailableGeminiCLIRow struct {
-	ID             string    `json:"id"`
-	Email          string    `json:"email"`
-	ProjectID      string    `json:"project_id"`
-	PlanType       string    `json:"plan_type"`
-	QuotaPro       float64   `json:"quota_pro"`
-	ResetPro       time.Time `json:"reset_pro"`
-	QuotaFlash     float64   `json:"quota_flash"`
-	ResetFlash     time.Time `json:"reset_flash"`
-	QuotaFlashlite float64   `json:"quota_flashlite"`
-	ResetFlashlite time.Time `json:"reset_flashlite"`
-	ThrottledUntil time.Time `json:"throttled_until"`
-	SyncedAt       time.Time `json:"synced_at"`
+	ID                      string    `json:"id"`
+	Email                   string    `json:"email"`
+	ProjectID               string    `json:"project_id"`
+	PlanType                string    `json:"plan_type"`
+	QuotaPro                float64   `json:"quota_pro"`
+	ResetPro                time.Time `json:"reset_pro"`
+	QuotaFlash              float64   `json:"quota_flash"`
+	ResetFlash              time.Time `json:"reset_flash"`
+	QuotaFlashlite          float64   `json:"quota_flashlite"`
+	ResetFlashlite          time.Time `json:"reset_flashlite"`
+	ThrottledUntilPro       time.Time `json:"throttled_until_pro"`
+	ThrottledUntilFlash     time.Time `json:"throttled_until_flash"`
+	ThrottledUntilFlashlite time.Time `json:"throttled_until_flashlite"`
+	ThrottledUntil          time.Time `json:"throttled_until"`
+	SyncedAt                time.Time `json:"synced_at"`
 }
 
 type ListGeminiCLIRow struct {
@@ -293,13 +296,13 @@ type Store interface {
 	DeleteModel(ctx context.Context, alias string) error
 
 	UpsertQuota(ctx context.Context, arg UpsertQuotaParams) error
-	SetQuotaThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error
+	SetQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
 	DeleteQuota(ctx context.Context, credentialID string) error
 	ListAvailableCodex(ctx context.Context) ([]ListAvailableCodexRow, error)
 	ListAvailableGeminiCLI(ctx context.Context) ([]ListAvailableGeminiCLIRow, error)
 
 	UpsertGeminiQuota(ctx context.Context, arg UpsertGeminiQuotaParams) error
-	SetGeminiQuotaThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error
+	SetGeminiQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
 	DeleteGeminiQuota(ctx context.Context, credentialID string) error
 
 	ListAuthKeys(ctx context.Context) ([]AuthKey, error)

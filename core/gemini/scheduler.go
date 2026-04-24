@@ -25,7 +25,7 @@ var ErrNoAvailableCredential = fmt.Errorf("no available gemini credential")
 type SchedulerStore interface {
 	ListAvailableGeminiCLI(ctx context.Context) ([]db.ListAvailableGeminiCLIRow, error)
 	UpsertGeminiQuota(ctx context.Context, arg db.UpsertGeminiQuotaParams) error
-	SetGeminiQuotaThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error
+	SetGeminiQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
 	UpdateGeminiCLIStatus(ctx context.Context, id string, status string, reason string) (db.GeminiCredential, error)
 }
 
@@ -291,6 +291,7 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 	planTypes := s.planTypeCodec()
 	ws := config.QuotaWindowGeminiSeconds()
 	rows := make([]availableRow, 0, len(dbRows))
+	now := time.Now()
 	for _, r := range dbRows {
 		if r.SyncedAt.IsZero() {
 			continue
@@ -298,7 +299,7 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 		if s.isChecking(r.ID) {
 			continue
 		}
-		rows = append(rows, availableRow{
+		row := availableRow{
 			ID:              r.ID,
 			PlanTypeCode:    planTypes.code(r.PlanType),
 			Score:           calcScore(r.QuotaPro, r.QuotaFlash, r.ResetPro, r.ResetFlash, ws),
@@ -308,7 +309,18 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 			WeightPro:       1.0,
 			WeightFlash:     1.0,
 			WeightFlashlite: 1.0,
-		})
+		}
+		if !r.ThrottledUntilPro.IsZero() && now.Before(r.ThrottledUntilPro) {
+			row.ScorePro = -1
+		}
+		if !r.ThrottledUntilFlash.IsZero() && now.Before(r.ThrottledUntilFlash) {
+			row.ScoreFlash = -1
+		}
+		if !r.ThrottledUntilFlashlite.IsZero() && now.Before(r.ThrottledUntilFlashlite) {
+			row.ScoreFlashLite = -1
+		}
+		row.Score = calcAdjustedGeneralScore(row)
+		rows = append(rows, row)
 	}
 
 	s.computeErrorRates(ctx, rows)
@@ -568,11 +580,6 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: insert failure log")
 	}
 
-	if statusCode == http.StatusTooManyRequests && modelTier != "" {
-		s.markTierUnavailable(credentialID, modelTier)
-		return
-	}
-
 	now := time.Now()
 
 	s.mu.Lock()
@@ -594,10 +601,16 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 	}
 
 	throttledUntil := now.Add(retryAfter)
-	if err := s.store.SetGeminiQuotaThrottled(bgCtx, credentialID, throttledUntil); err != nil {
+	if err := s.store.SetGeminiQuotaThrottled(bgCtx, credentialID, modelTier, throttledUntil); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: set throttled")
 	}
 	s.setThrottleUntil(credentialID, throttledUntil)
+
+	if statusCode == http.StatusTooManyRequests && modelTier != "" {
+		s.markTierUnavailable(credentialID, modelTier)
+		log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Dur("backoff", retryAfter).Msg("gemini credential tier throttled")
+		return
+	}
 
 	// Credential is throttled; remove from cache.
 	s.removeFromAvailable(credentialID)
@@ -659,6 +672,9 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 
 // UpdateQuota updates credential quota from an API response (writes to DB + refreshes cache).
 func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *geminiapi.Quota) {
+	if q == nil {
+		return
+	}
 	s.updateAvailableQuota(credentialID, q)
 	if err := s.store.UpsertGeminiQuota(ctx, db.UpsertGeminiQuotaParams{
 		CredentialID:   credentialID,

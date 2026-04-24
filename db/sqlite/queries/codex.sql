@@ -45,7 +45,7 @@ SELECT
     COALESCE(q.reset_7d, '') AS reset_7d,
     COALESCE(q.reset_spark_5h, '') AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '') AS reset_spark_7d,
-    COALESCE(q.throttled_until, '') AS throttled_until,
+    CAST(max(COALESCE(q.throttled_until, ''), COALESCE(q.throttled_until_spark, '')) AS TEXT) AS throttled_until,
     COALESCE(q.synced_at, '') AS synced_at
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
@@ -62,7 +62,7 @@ SELECT
     COALESCE(q.reset_7d, '') AS reset_7d,
     COALESCE(q.reset_spark_5h, '') AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '') AS reset_spark_7d,
-    COALESCE(q.throttled_until, '') AS throttled_until,
+    CAST(max(COALESCE(q.throttled_until, ''), COALESCE(q.throttled_until_spark, '')) AS TEXT) AS throttled_until,
     COALESCE(q.synced_at, '') AS synced_at
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id

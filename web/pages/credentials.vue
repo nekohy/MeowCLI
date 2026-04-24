@@ -226,18 +226,6 @@ function isSparkAvailable(item: CodexItem) {
   return item.spark_available
 }
 
-function scoreTone(score: number): UiTone {
-  if (score < 0) return 'danger'
-  if (score >= 800) return 'success'
-  if (score >= 400) return 'warning'
-  return 'danger'
-}
-
-function formatScore(score: number): string {
-  if (score < 0) return '不可用'
-  return Math.round(score).toString()
-}
-
 function errorRateTone(rate: number): UiTone {
   if (rate <= 0) return 'success'
   if (rate < 0.2) return 'warning'
@@ -580,7 +568,7 @@ onBeforeUnmount(() => {
                               错误率 {{ formatPercent(item.error_rate) }}
                             </AdminBadge>
                             <AdminBadge v-if="isSparkAvailable(item)" :tone="errorRateTone(item.error_rate_spark)" subtle icon="mdi-alert-circle-outline">
-                              Spark错误 {{ formatPercent(item.error_rate_spark) }}
+                              Spark错误率 {{ formatPercent(item.error_rate_spark) }}
                             </AdminBadge>
                             <AdminBadge v-else tone="secondary" subtle icon="mdi-cancel">
                               Spark不可用

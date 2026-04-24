@@ -45,7 +45,7 @@ SELECT
     COALESCE(q.reset_7d, '0001-01-01'::timestamptz) AS reset_7d,
     COALESCE(q.reset_spark_5h, '0001-01-01'::timestamptz) AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '0001-01-01'::timestamptz) AS reset_spark_7d,
-    COALESCE(q.throttled_until, '0001-01-01'::timestamptz) AS throttled_until,
+    GREATEST(COALESCE(q.throttled_until, '0001-01-01'::timestamptz), COALESCE(q.throttled_until_spark, '0001-01-01'::timestamptz))::timestamptz AS throttled_until,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
@@ -62,7 +62,7 @@ SELECT
     COALESCE(q.reset_7d, '0001-01-01'::timestamptz) AS reset_7d,
     COALESCE(q.reset_spark_5h, '0001-01-01'::timestamptz) AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '0001-01-01'::timestamptz) AS reset_spark_7d,
-    COALESCE(q.throttled_until, '0001-01-01'::timestamptz) AS throttled_until,
+    GREATEST(COALESCE(q.throttled_until, '0001-01-01'::timestamptz), COALESCE(q.throttled_until_spark, '0001-01-01'::timestamptz))::timestamptz AS throttled_until,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id

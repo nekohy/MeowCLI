@@ -32,7 +32,7 @@ SELECT
     COALESCE(q.reset_flash, datetime('now')) AS reset_flash,
     COALESCE(q.quota_flashlite, 1.0) AS quota_flashlite,
     COALESCE(q.reset_flashlite, datetime('now')) AS reset_flashlite,
-    COALESCE(q.throttled_until, datetime('now')) AS throttled_until,
+    CAST(max(COALESCE(q.throttled_until_pro, ''), COALESCE(q.throttled_until_flash, ''), COALESCE(q.throttled_until_flashlite, '')) AS TEXT) AS throttled_until,
     COALESCE(q.synced_at, '') AS synced_at
 FROM gemini g
 LEFT JOIN gemini_quota q ON q.credential_id = g.id
@@ -48,7 +48,7 @@ SELECT
     COALESCE(q.reset_flash, datetime('now')) AS reset_flash,
     COALESCE(q.quota_flashlite, 1.0) AS quota_flashlite,
     COALESCE(q.reset_flashlite, datetime('now')) AS reset_flashlite,
-    COALESCE(q.throttled_until, datetime('now')) AS throttled_until,
+    CAST(max(COALESCE(q.throttled_until_pro, ''), COALESCE(q.throttled_until_flash, ''), COALESCE(q.throttled_until_flashlite, '')) AS TEXT) AS throttled_until,
     COALESCE(q.synced_at, '') AS synced_at
 FROM gemini g
 LEFT JOIN gemini_quota q ON q.credential_id = g.id
@@ -61,8 +61,8 @@ ORDER BY g.id
 LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: UpsertGeminiCLI :one
-INSERT INTO gemini (id, status, access_token, refresh_token, expired, email, project_id, plan_type, reason, throttled_until, synced_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+INSERT INTO gemini (id, status, access_token, refresh_token, expired, email, project_id, plan_type, reason, synced_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT (id) DO UPDATE
 SET
     status = EXCLUDED.status,

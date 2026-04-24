@@ -30,9 +30,6 @@ const modalHandler = ref('gemini')
 const modalPlanTypes = ref('')
 const modalExtra = ref('{}')
 const modalError = ref('')
-const planOrderOpen = ref(false)
-const planOrderDraft = ref<string[]>([])
-const dragIdx = ref<number | null>(null)
 const handlerIconByKey: Record<string, string> = {
   codex: 'mdi-console',
   gemini: 'mdi-google-circles-communities',
@@ -59,10 +56,18 @@ const modalPlanSummary = computed(() => {
   return `当前顺序：${selected.map((planType, idx) => `${idx + 1}. ${planTypeText(planType)}`).join(' → ')}`
 })
 
-function syncPlanOrderDraft() {
-  const selected = modalSelectedPlanTypes.value
-  const remaining = modalAvailablePlanTypes.value.filter((planType) => !selected.includes(planType))
-  planOrderDraft.value = [...selected, ...remaining]
+const modelPlanOrder = usePlanOrderModal(
+  () => modalPlanTypes.value,
+  (value) => { modalPlanTypes.value = value },
+  () => modalAvailablePlanTypes.value,
+)
+
+function formatExtra(extra: unknown): string {
+  try {
+    return JSON.stringify(extra, null, 2)
+  } catch {
+    return safeStringify(extra)
+  }
 }
 
 const filteredItems = computed(() => {
@@ -106,7 +111,6 @@ function openCreateModal() {
   modalPlanTypes.value = defaultPlanTypesForHandler(modalHandler.value)
   modalExtra.value = '{}'
   modalError.value = ''
-  syncPlanOrderDraft()
   modalOpen.value = true
 }
 
@@ -118,61 +122,13 @@ function openEditModal(item: ModelItem) {
   modalPlanTypes.value = item.plan_types || defaultPlanTypesForHandler(item.handler)
   modalExtra.value = safeStringify(item.extra)
   modalError.value = ''
-  syncPlanOrderDraft()
   modalOpen.value = true
 }
 
 function closeModal() {
   modalOpen.value = false
   modalError.value = ''
-  planOrderOpen.value = false
-  dragIdx.value = null
-}
-
-function openPlanOrderModal() {
-  syncPlanOrderDraft()
-  planOrderOpen.value = true
-}
-
-function planOrderDraftSelected(planType: string) {
-  return modalSelectedPlanTypes.value.includes(planType)
-}
-
-function togglePlanType(planType: string) {
-  const selected = [...modalSelectedPlanTypes.value]
-  const idx = selected.indexOf(planType)
-  if (idx >= 0) {
-    selected.splice(idx, 1)
-  } else {
-    selected.push(planType)
-  }
-  modalPlanTypes.value = joinPlanTypeInput(selected)
-  syncPlanOrderDraft()
-}
-
-function onDragStart(idx: number) {
-  dragIdx.value = idx
-}
-
-function onDragOver(event: DragEvent, idx: number) {
-  event.preventDefault()
-  if (dragIdx.value === null || dragIdx.value === idx) {
-    return
-  }
-  const next = [...planOrderDraft.value]
-  const moved = next.splice(dragIdx.value, 1)[0]
-  if (!moved) {
-    return
-  }
-  next.splice(idx, 0, moved)
-  planOrderDraft.value = next
-  dragIdx.value = idx
-}
-
-function onDragEnd() {
-  dragIdx.value = null
-  const selected = new Set(modalSelectedPlanTypes.value)
-  modalPlanTypes.value = joinPlanTypeInput(planOrderDraft.value.filter((planType) => selected.has(planType)))
+  modelPlanOrder.closeModal()
 }
 
 async function saveModel() {
@@ -267,7 +223,6 @@ watch(
         modalSelectedPlanTypes.value.filter((planType) => modalAvailablePlanTypes.value.includes(planType)),
       )
     }
-    syncPlanOrderDraft()
   },
 )
 </script>
@@ -348,8 +303,12 @@ watch(
                   {{ idx + 1 }}. {{ planTypeText(pt) }}
                 </AdminBadge>
               </template>
-              <code v-if="hasExtra(item.extra)" class="text-caption px-2 py-1 rounded bg-surface-container-high" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ safeStringify(item.extra) }}</code>
             </div>
+
+            <details v-if="hasExtra(item.extra)" class="extra-json-panel">
+              <summary>附加参数 JSON</summary>
+              <pre>{{ formatExtra(item.extra) }}</pre>
+            </details>
 
             <div class="d-flex ga-2">
               <AdminButton
@@ -418,7 +377,7 @@ watch(
         >
           <div class="d-flex justify-space-between align-center ga-3 flex-wrap">
             <div class="text-subtitle-2 font-weight-bold">套餐类型</div>
-            <AdminButton variant="secondary" size="sm" prepend-icon="mdi-swap-vertical" @click="openPlanOrderModal">
+            <AdminButton variant="secondary" size="sm" prepend-icon="mdi-swap-vertical" @click="modelPlanOrder.openModal()">
               排序
             </AdminButton>
           </div>
@@ -454,46 +413,19 @@ watch(
       </template>
     </ModalDialog>
 
-    <ModalDialog
-      :open="planOrderOpen"
+    <PlanOrderModal
+      :open="modelPlanOrder.open.value"
       title="套餐类型排序"
-      description="拖动调整优先级，勾选决定是否启用"
-      icon="mdi-sort"
-      :max-width="460"
-      @close="planOrderOpen = false"
-    >
-      <div class="plan-order-list">
-        <div
-          v-for="(planType, idx) in planOrderDraft"
-          :key="planType"
-          class="plan-order-item"
-          :class="{
-            'plan-order-item--selected': planOrderDraftSelected(planType),
-            'plan-order-item--dragging': dragIdx === idx,
-          }"
-          draggable="true"
-          @dragstart="onDragStart(idx)"
-          @dragover="(event) => onDragOver(event, idx)"
-          @dragend="onDragEnd"
-        >
-          <VIcon icon="mdi-drag" size="18" class="plan-order-drag text-medium-emphasis" />
-          <VCheckbox
-            :model-value="planOrderDraftSelected(planType)"
-            density="compact"
-            hide-details
-            @update:model-value="togglePlanType(planType)"
-            @click.stop
-          />
-          <span class="plan-order-label">{{ planTypeText(planType) }}</span>
-          <span v-if="planOrderDraftSelected(planType)" class="plan-order-rank text-medium-emphasis">
-            #{{ modalSelectedPlanTypes.indexOf(planType) + 1 }}
-          </span>
-        </div>
-      </div>
-      <template #footer>
-        <AdminButton variant="ghost" @click="planOrderOpen = false">关闭</AdminButton>
-      </template>
-    </ModalDialog>
+      :draft="modelPlanOrder.draft.value"
+      :drag-idx="modelPlanOrder.dragIdx.value"
+      :is-selected="modelPlanOrder.isSelected"
+      :rank-of="modelPlanOrder.rankOf"
+      :toggle="modelPlanOrder.toggle"
+      :on-drag-start="modelPlanOrder.onDragStart"
+      :on-drag-over="modelPlanOrder.onDragOver"
+      :on-drag-end="modelPlanOrder.onDragEnd"
+      @close="modelPlanOrder.closeModal()"
+    />
 
     <ModalDialog
       :open="confirm.open.value"
@@ -511,41 +443,6 @@ watch(
 </template>
 
 <style scoped>
-.plan-order-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.plan-order-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 52px;
-  padding: 0 12px;
-  border-radius: 18px;
-  border: 1px solid rgba(var(--v-theme-outline), 0.24);
-  background: rgba(var(--v-theme-surface-container-high), 0.76);
-}
-
-.plan-order-item--selected {
-  border-color: rgba(var(--v-theme-primary), 0.34);
-}
-
-.plan-order-item--dragging {
-  opacity: 0.72;
-}
-
-.plan-order-label {
-  flex: 1;
-  min-width: 0;
-  font-weight: 600;
-}
-
-.plan-order-rank {
-  font-size: 0.85rem;
-}
-
 .model-form-stack {
   display: grid;
   gap: 16px;
@@ -564,5 +461,31 @@ watch(
 .model-plan-summary {
   font-size: 0.78rem;
   line-height: 1.45;
+}
+
+.extra-json-panel {
+  border: 1px solid rgba(var(--v-theme-outline-variant), 0.58);
+  border-radius: 12px;
+  background: rgba(var(--v-theme-surface-container-high), 0.74);
+}
+
+.extra-json-panel > summary {
+  cursor: pointer;
+  padding: 7px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  user-select: none;
+}
+
+.extra-json-panel > pre {
+  max-height: 240px;
+  margin: 0;
+  padding: 0 10px 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.72rem;
+  line-height: 1.55;
 }
 </style>

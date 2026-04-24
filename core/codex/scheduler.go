@@ -28,7 +28,7 @@ var (
 type SchedulerStore interface {
 	ListAvailableCodex(ctx context.Context) ([]db.ListAvailableCodexRow, error)
 	UpsertQuota(ctx context.Context, arg db.UpsertQuotaParams) error
-	SetQuotaThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error
+	SetQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
 }
 
 // QuotaFetcher 由 API 适配器实现，用于从上游服务获取指定凭证的配额
@@ -285,6 +285,7 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 	config := s.settingsSnapshot()
 	planTypes := s.planTypeCodec()
 	rows := make([]availableRow, 0, len(dbRows))
+	now := time.Now()
 	for _, r := range dbRows {
 		if r.SyncedAt.IsZero() {
 			continue
@@ -292,7 +293,7 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 		if s.isChecking(r.ID) {
 			continue
 		}
-		rows = append(rows, availableRow{
+		row := availableRow{
 			ID:           r.ID,
 			PlanTypeCode: planTypes.code(r.PlanType),
 			Quota5h:      r.Quota5h,
@@ -307,7 +308,14 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 			ScoreSpark:   CalcScoreSpark(r.QuotaSpark5h, r.QuotaSpark7d, r.ResetSpark5h, r.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()),
 			Weight:       1.0,
 			WeightSpark:  1.0,
-		})
+		}
+		if !r.ThrottledUntil.IsZero() && now.Before(r.ThrottledUntil) {
+			row.Score = -1
+		}
+		if !r.ThrottledUntilSpark.IsZero() && now.Before(r.ThrottledUntilSpark) {
+			row.ScoreSpark = -1
+		}
+		rows = append(rows, row)
 	}
 
 	s.computeErrorRates(ctx, rows)
@@ -596,11 +604,6 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert failure log")
 	}
 
-	if statusCode == http.StatusTooManyRequests && modelTier != "" {
-		s.markTierUnavailable(credentialID, modelTier)
-		return
-	}
-
 	now := time.Now()
 
 	s.mu.Lock()
@@ -629,10 +632,16 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 	}
 
 	throttledUntil := now.Add(backoff)
-	if err := s.store.SetQuotaThrottled(bgCtx, credentialID, throttledUntil); err != nil {
+	if err := s.store.SetQuotaThrottled(bgCtx, credentialID, modelTier, throttledUntil); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: set throttled")
 	}
 	s.setThrottleUntil(credentialID, throttledUntil)
+
+	if statusCode == http.StatusTooManyRequests && modelTier != "" {
+		s.markTierUnavailable(credentialID, modelTier)
+		log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Dur("backoff", backoff).Str("reason", reason).Msg("credential tier throttled")
+		return
+	}
 
 	// 凭证被节流，从缓存中移除
 	s.removeFromAvailable(credentialID)

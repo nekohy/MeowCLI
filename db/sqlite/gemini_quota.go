@@ -21,11 +21,32 @@ func (s *Store) UpsertGeminiQuota(ctx context.Context, arg db.UpsertGeminiQuotaP
 	return err
 }
 
-func (s *Store) SetGeminiQuotaThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error {
-	return s.queries.SetGeminiQuotaThrottled(ctx, sqlcsqlite.SetGeminiQuotaThrottledParams{
-		CredentialID:   credentialID,
-		ThrottledUntil: fmtTime(throttledUntil),
-	})
+func (s *Store) SetGeminiQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error {
+	switch modelTier {
+	case "pro":
+		return s.queries.SetGeminiQuotaThrottledPro(ctx, sqlcsqlite.SetGeminiQuotaThrottledProParams{
+			CredentialID:      credentialID,
+			ThrottledUntilPro: fmtTime(throttledUntil),
+		})
+	case "flash":
+		return s.queries.SetGeminiQuotaThrottledFlash(ctx, sqlcsqlite.SetGeminiQuotaThrottledFlashParams{
+			CredentialID:        credentialID,
+			ThrottledUntilFlash: fmtTime(throttledUntil),
+		})
+	case "flashlite":
+		return s.queries.SetGeminiQuotaThrottledFlashLite(ctx, sqlcsqlite.SetGeminiQuotaThrottledFlashLiteParams{
+			CredentialID:            credentialID,
+			ThrottledUntilFlashlite: fmtTime(throttledUntil),
+		})
+	default:
+		value := fmtTime(throttledUntil)
+		return s.queries.SetGeminiQuotaThrottledAll(ctx, sqlcsqlite.SetGeminiQuotaThrottledAllParams{
+			CredentialID:            credentialID,
+			ThrottledUntilPro:       value,
+			ThrottledUntilFlash:     value,
+			ThrottledUntilFlashlite: value,
+		})
+	}
 }
 
 func (s *Store) DeleteGeminiQuota(ctx context.Context, credentialID string) error {
@@ -47,18 +68,21 @@ func (s *Store) ListAvailableGeminiCLI(ctx context.Context) ([]db.ListAvailableG
 	resolved := make([]db.ListAvailableGeminiCLIRow, len(rows))
 	for i, row := range rows {
 		resolved[i] = db.ListAvailableGeminiCLIRow{
-			ID:             row.ID,
-			Email:          row.Email,
-			ProjectID:      row.ProjectID,
-			PlanType:       row.PlanType,
-			QuotaPro:       row.QuotaPro,
-			ResetPro:       parseTime(row.ResetPro),
-			QuotaFlash:     row.QuotaFlash,
-			ResetFlash:     parseTime(row.ResetFlash),
-			QuotaFlashlite: row.QuotaFlashlite,
-			ResetFlashlite: parseTime(row.ResetFlashlite),
-			ThrottledUntil: parseTime(row.ThrottledUntil),
-			SyncedAt:       parseTime(row.SyncedAt),
+			ID:                      row.ID,
+			Email:                   row.Email,
+			ProjectID:               row.ProjectID,
+			PlanType:                row.PlanType,
+			QuotaPro:                row.QuotaPro,
+			ResetPro:                parseTime(row.ResetPro),
+			QuotaFlash:              row.QuotaFlash,
+			ResetFlash:              parseTime(row.ResetFlash),
+			QuotaFlashlite:          row.QuotaFlashlite,
+			ResetFlashlite:          parseTime(row.ResetFlashlite),
+			ThrottledUntilPro:       parseTime(row.ThrottledUntilPro),
+			ThrottledUntilFlash:     parseTime(row.ThrottledUntilFlash),
+			ThrottledUntilFlashlite: parseTime(row.ThrottledUntilFlashlite),
+			ThrottledUntil:          parseTime(row.ThrottledUntil),
+			SyncedAt:                parseTime(row.SyncedAt),
 		}
 	}
 	return resolved, nil

@@ -23,11 +23,24 @@ func (s *Store) UpsertQuota(ctx context.Context, arg db.UpsertQuotaParams) error
 	return err
 }
 
-func (s *Store) SetQuotaThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error {
-	return s.queries.SetQuotaThrottled(ctx, sqlcpostgres.SetQuotaThrottledParams{
-		CredentialID:   credentialID,
-		ThrottledUntil: tsFrom(throttledUntil),
-	})
+func (s *Store) SetQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error {
+	switch modelTier {
+	case "spark":
+		return s.queries.SetQuotaThrottledSpark(ctx, sqlcpostgres.SetQuotaThrottledSparkParams{
+			CredentialID:        credentialID,
+			ThrottledUntilSpark: tsFrom(throttledUntil),
+		})
+	case "default":
+		return s.queries.SetQuotaThrottled(ctx, sqlcpostgres.SetQuotaThrottledParams{
+			CredentialID:   credentialID,
+			ThrottledUntil: tsFrom(throttledUntil),
+		})
+	default:
+		return s.queries.SetQuotaThrottledAll(ctx, sqlcpostgres.SetQuotaThrottledAllParams{
+			CredentialID:   credentialID,
+			ThrottledUntil: tsFrom(throttledUntil),
+		})
+	}
 }
 
 func (s *Store) DeleteQuota(ctx context.Context, credentialID string) error {
@@ -49,7 +62,7 @@ func (s *Store) ListAvailableCodex(ctx context.Context) ([]db.ListAvailableCodex
 
 	resolved := make([]db.ListAvailableCodexRow, len(rows))
 	for i, row := range rows {
-		resolved[i] = listAvailableCodexRowTo(row.ID, row.PlanType, row.Quota5h, row.Quota7d, row.QuotaSpark5h, row.QuotaSpark7d, tsTo(row.Reset5h), tsTo(row.Reset7d), tsTo(row.ResetSpark5h), tsTo(row.ResetSpark7d), tsTo(row.ThrottledUntil), tsTo(row.SyncedAt))
+		resolved[i] = listAvailableCodexRowTo(row.ID, row.PlanType, row.Quota5h, row.Quota7d, row.QuotaSpark5h, row.QuotaSpark7d, tsTo(row.Reset5h), tsTo(row.Reset7d), tsTo(row.ResetSpark5h), tsTo(row.ResetSpark7d), tsTo(row.ThrottledUntil), tsTo(row.ThrottledUntilSpark), tsTo(row.SyncedAt))
 	}
 
 	return resolved, nil

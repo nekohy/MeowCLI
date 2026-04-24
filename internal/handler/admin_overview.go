@@ -171,7 +171,7 @@ func defaultHandlerOverview() []handlerOverview {
 			CredentialEndpoint:  credentialsEndpointForHandler(utils.HandlerGemini),
 			CredentialFields: []credentialField{
 				{
-					Key:         "refresh_tokens",
+					Key:         "tokens",
 					Label:       "Refresh Tokens",
 					Kind:        "textarea",
 					Placeholder: "一行一个 Refresh Token",

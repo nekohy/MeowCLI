@@ -47,17 +47,16 @@ func codexTo(value sqlcpostgres.Codex) db.Codex {
 
 func geminiCredentialTo(value sqlcpostgres.Gemini) db.GeminiCredential {
 	return db.GeminiCredential{
-		ID:             value.ID,
-		Status:         value.Status,
-		AccessToken:    value.AccessToken,
-		RefreshToken:   value.RefreshToken,
-		Expired:        tsTo(value.Expired),
-		Email:          value.Email,
-		ProjectID:      value.ProjectID,
-		PlanType:       value.PlanType,
-		Reason:         value.Reason,
-		ThrottledUntil: tsTo(value.ThrottledUntil),
-		SyncedAt:       tsTo(value.SyncedAt),
+		ID:           value.ID,
+		Status:       value.Status,
+		AccessToken:  value.AccessToken,
+		RefreshToken: value.RefreshToken,
+		Expired:      tsTo(value.Expired),
+		Email:        value.Email,
+		ProjectID:    value.ProjectID,
+		PlanType:     value.PlanType,
+		Reason:       value.Reason,
+		SyncedAt:     tsTo(value.SyncedAt),
 	}
 }
 
@@ -80,20 +79,21 @@ func modelRowTo(alias, origin, handler, planTypes string, extra json.RawMessage)
 	}
 }
 
-func listAvailableCodexRowTo(id, planType string, quota5h, quota7d, quotaSpark5h, quotaSpark7d float64, reset5h, reset7d, resetSpark5h, resetSpark7d, throttledUntil, syncedAt time.Time) db.ListAvailableCodexRow {
+func listAvailableCodexRowTo(id, planType string, quota5h, quota7d, quotaSpark5h, quotaSpark7d float64, reset5h, reset7d, resetSpark5h, resetSpark7d, throttledUntil, throttledUntilSpark, syncedAt time.Time) db.ListAvailableCodexRow {
 	return db.ListAvailableCodexRow{
-		ID:             id,
-		PlanType:       planType,
-		Quota5h:        quota5h,
-		Quota7d:        quota7d,
-		QuotaSpark5h:   quotaSpark5h,
-		QuotaSpark7d:   quotaSpark7d,
-		Reset5h:        reset5h,
-		Reset7d:        reset7d,
-		ResetSpark5h:   resetSpark5h,
-		ResetSpark7d:   resetSpark7d,
-		ThrottledUntil: throttledUntil,
-		SyncedAt:       syncedAt,
+		ID:                  id,
+		PlanType:            planType,
+		Quota5h:             quota5h,
+		Quota7d:             quota7d,
+		QuotaSpark5h:        quotaSpark5h,
+		QuotaSpark7d:        quotaSpark7d,
+		Reset5h:             reset5h,
+		Reset7d:             reset7d,
+		ResetSpark5h:        resetSpark5h,
+		ResetSpark7d:        resetSpark7d,
+		ThrottledUntil:      throttledUntil,
+		ThrottledUntilSpark: throttledUntilSpark,
+		SyncedAt:            syncedAt,
 	}
 }
 

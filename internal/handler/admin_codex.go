@@ -396,7 +396,7 @@ func isSparkAvailable(row db.ListCodexRow, scoreSpark float64) bool {
 	if scoreSpark < 0 {
 		return false
 	}
-	return !(row.QuotaSpark5h == 1 && row.ResetSpark5h.IsZero())
+	return true
 }
 
 func maskToken(token string) string {

@@ -30,7 +30,6 @@ CREATE TABLE IF NOT EXISTS gemini (
     project_id TEXT NOT NULL DEFAULT '',
     plan_type TEXT NOT NULL DEFAULT 'free',
     reason TEXT NOT NULL DEFAULT '',
-    throttled_until TEXT NOT NULL DEFAULT (datetime('now')),
     synced_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -47,6 +46,7 @@ CREATE TABLE IF NOT EXISTS codex_quota (
     reset_spark_5h TEXT NOT NULL DEFAULT (datetime('now')),
     reset_spark_7d TEXT NOT NULL DEFAULT (datetime('now')),
     throttled_until TEXT NOT NULL DEFAULT (datetime('now')),
+    throttled_until_spark TEXT NOT NULL DEFAULT (datetime('now')),
     synced_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -60,7 +60,9 @@ CREATE TABLE IF NOT EXISTS gemini_quota (
     reset_flash TEXT NOT NULL DEFAULT (datetime('now')),
     quota_flashlite REAL NOT NULL DEFAULT 1.0,
     reset_flashlite TEXT NOT NULL DEFAULT (datetime('now')),
-    throttled_until TEXT NOT NULL DEFAULT (datetime('now')),
+    throttled_until_pro TEXT NOT NULL DEFAULT (datetime('now')),
+    throttled_until_flash TEXT NOT NULL DEFAULT (datetime('now')),
+    throttled_until_flashlite TEXT NOT NULL DEFAULT (datetime('now')),
     synced_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

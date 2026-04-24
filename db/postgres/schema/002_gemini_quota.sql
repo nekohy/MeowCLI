@@ -6,7 +6,9 @@ CREATE TABLE IF NOT EXISTS gemini_quota (
     reset_flash TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     quota_flashlite FLOAT NOT NULL DEFAULT 1.0,
     reset_flashlite TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    throttled_until TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    throttled_until_pro TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    throttled_until_flash TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    throttled_until_flashlite TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

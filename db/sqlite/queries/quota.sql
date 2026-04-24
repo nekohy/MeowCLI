@@ -15,13 +15,32 @@ SET
     synced_at      = datetime('now')
 RETURNING *;
 
+-- name: SetQuotaThrottledAll :exec
+-- Sets all tier throttles for a credential (non-tier-specific backoff).
+INSERT INTO codex_quota (credential_id, throttled_until, throttled_until_spark, synced_at)
+VALUES (?, ?, ?, datetime('now'))
+ON CONFLICT (credential_id) DO UPDATE
+SET
+    throttled_until = excluded.throttled_until,
+    throttled_until_spark = excluded.throttled_until_spark,
+    synced_at = datetime('now');
+
 -- name: SetQuotaThrottled :exec
--- Sets throttled_until for a credential (rate-limit / backoff).
+-- Sets the default tier throttle for a credential.
 INSERT INTO codex_quota (credential_id, throttled_until, synced_at)
 VALUES (?, ?, datetime('now'))
 ON CONFLICT (credential_id) DO UPDATE
 SET
     throttled_until = excluded.throttled_until,
+    synced_at = datetime('now');
+
+-- name: SetQuotaThrottledSpark :exec
+-- Sets the spark tier throttle for a credential.
+INSERT INTO codex_quota (credential_id, throttled_until_spark, synced_at)
+VALUES (?, ?, datetime('now'))
+ON CONFLICT (credential_id) DO UPDATE
+SET
+    throttled_until_spark = excluded.throttled_until_spark,
     synced_at = datetime('now');
 
 -- name: GetQuota :one
@@ -41,13 +60,13 @@ SELECT
     COALESCE(q.reset_7d, datetime('now'))         AS reset_7d,
     COALESCE(q.reset_spark_5h, datetime('now'))   AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, datetime('now'))   AS reset_spark_7d,
-    COALESCE(q.throttled_until, datetime('now'))  AS throttled_until,
+    COALESCE(q.throttled_until, datetime('now')) AS throttled_until,
+    COALESCE(q.throttled_until_spark, datetime('now')) AS throttled_until_spark,
     COALESCE(q.synced_at, '')                     AS synced_at
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE c.status = 'enabled'
   AND c.expired > datetime('now')
-  AND COALESCE(q.throttled_until, datetime('now')) <= datetime('now')
 ORDER BY
     COALESCE(q.quota_5h, 1.0) DESC,
     COALESCE(q.quota_7d, 1.0) DESC;

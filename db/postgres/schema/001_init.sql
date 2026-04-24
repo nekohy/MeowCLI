@@ -30,7 +30,6 @@ CREATE TABLE IF NOT EXISTS gemini (
     project_id TEXT NOT NULL DEFAULT '',
     plan_type TEXT NOT NULL DEFAULT 'free',
     reason TEXT NOT NULL DEFAULT '',
-    throttled_until TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -47,6 +46,7 @@ CREATE TABLE IF NOT EXISTS codex_quota (
     reset_spark_5h TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     reset_spark_7d TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     throttled_until TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    throttled_until_spark TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

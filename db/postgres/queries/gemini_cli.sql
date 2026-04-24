@@ -32,7 +32,7 @@ SELECT
     COALESCE(q.reset_flash, NOW()) AS reset_flash,
     COALESCE(q.quota_flashlite, 1.0) AS quota_flashlite,
     COALESCE(q.reset_flashlite, NOW()) AS reset_flashlite,
-    COALESCE(q.throttled_until, NOW()) AS throttled_until,
+    GREATEST(COALESCE(q.throttled_until_pro, '0001-01-01'::timestamptz), COALESCE(q.throttled_until_flash, '0001-01-01'::timestamptz), COALESCE(q.throttled_until_flashlite, '0001-01-01'::timestamptz))::timestamptz AS throttled_until,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
 FROM gemini g
 LEFT JOIN gemini_quota q ON q.credential_id = g.id
@@ -48,7 +48,7 @@ SELECT
     COALESCE(q.reset_flash, NOW()) AS reset_flash,
     COALESCE(q.quota_flashlite, 1.0) AS quota_flashlite,
     COALESCE(q.reset_flashlite, NOW()) AS reset_flashlite,
-    COALESCE(q.throttled_until, NOW()) AS throttled_until,
+    GREATEST(COALESCE(q.throttled_until_pro, '0001-01-01'::timestamptz), COALESCE(q.throttled_until_flash, '0001-01-01'::timestamptz), COALESCE(q.throttled_until_flashlite, '0001-01-01'::timestamptz))::timestamptz AS throttled_until,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
 FROM gemini g
 LEFT JOIN gemini_quota q ON q.credential_id = g.id
@@ -56,13 +56,13 @@ WHERE
     (sqlc.arg(search) = '' OR LOWER(g.id) LIKE sqlc.arg(search) OR LOWER(g.email) LIKE sqlc.arg(search) OR LOWER(g.status) LIKE sqlc.arg(search) OR LOWER(g.plan_type) LIKE sqlc.arg(search))
     AND (sqlc.arg(status) = '' OR g.status = sqlc.arg(status))
     AND (sqlc.arg(plan_type) = '' OR LOWER(g.plan_type) = LOWER(sqlc.arg(plan_type)))
-    AND (sqlc.arg(unsynced_only) = false OR q.synced_at IS NULL)
+    AND (sqlc.arg(unsynced_only) = false OR q.synced_at IS NULL OR q.synced_at <= '0001-01-01'::timestamptz)
 ORDER BY g.id
 LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: UpsertGeminiCLI :one
-INSERT INTO gemini (id, status, access_token, refresh_token, expired, email, project_id, plan_type, reason, throttled_until, synced_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+INSERT INTO gemini (id, status, access_token, refresh_token, expired, email, project_id, plan_type, reason, synced_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
 ON CONFLICT (id) DO UPDATE
 SET
     status = EXCLUDED.status,

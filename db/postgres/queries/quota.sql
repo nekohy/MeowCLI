@@ -15,13 +15,32 @@ SET
     synced_at     = NOW()
 RETURNING *;
 
+-- name: SetQuotaThrottledAll :exec
+-- Sets all tier throttles for a credential (non-tier-specific backoff).
+INSERT INTO codex_quota (credential_id, throttled_until, throttled_until_spark, synced_at)
+VALUES ($1, $2, $2, NOW())
+ON CONFLICT (credential_id) DO UPDATE
+SET
+    throttled_until = EXCLUDED.throttled_until,
+    throttled_until_spark = EXCLUDED.throttled_until_spark,
+    synced_at = NOW();
+
 -- name: SetQuotaThrottled :exec
--- Sets throttled_until for a credential (rate-limit / backoff).
+-- Sets the default tier throttle for a credential.
 INSERT INTO codex_quota (credential_id, throttled_until, synced_at)
 VALUES ($1, $2, NOW())
 ON CONFLICT (credential_id) DO UPDATE
 SET
     throttled_until = EXCLUDED.throttled_until,
+    synced_at = NOW();
+
+-- name: SetQuotaThrottledSpark :exec
+-- Sets the spark tier throttle for a credential.
+INSERT INTO codex_quota (credential_id, throttled_until_spark, synced_at)
+VALUES ($1, $2, NOW())
+ON CONFLICT (credential_id) DO UPDATE
+SET
+    throttled_until_spark = EXCLUDED.throttled_until_spark,
     synced_at = NOW();
 
 -- name: GetQuota :one
@@ -42,12 +61,12 @@ SELECT
     COALESCE(q.reset_spark_5h, NOW())  AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, NOW())  AS reset_spark_7d,
     COALESCE(q.throttled_until, NOW()) AS throttled_until,
+    COALESCE(q.throttled_until_spark, NOW()) AS throttled_until_spark,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE c.status = 'enabled'
   AND c.expired > NOW()
-  AND COALESCE(q.throttled_until, NOW()) <= NOW()
 ORDER BY
     COALESCE(q.quota_5h, 1.0) DESC,
     COALESCE(q.quota_7d, 1.0) DESC;
