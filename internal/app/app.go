@@ -231,8 +231,10 @@ func parseModelPlanTypes(handler utils.HandlerType, raw string) []string {
 	switch handler {
 	case utils.HandlerGemini:
 		return coreGemini.ParsePlanTypeList(raw)
-	default:
+	case utils.HandlerCodex:
 		return coreCodex.ParsePlanTypeList(raw)
+	default:
+		return nil
 	}
 }
 

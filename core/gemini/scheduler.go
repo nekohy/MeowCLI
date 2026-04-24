@@ -181,8 +181,8 @@ func (s *Scheduler) syncAllQuotas(ctx context.Context) {
 }
 
 // Pick selects the best available credential based on priority scoring.
-// The caller can pass a preferred credentialID; if unavailable, falls back to
-// regular planType-based scheduling.
+// The caller can pass a preferred credentialID; if unavailable, no other
+// credential is selected.
 func (s *Scheduler) Pick(ctx context.Context, headers http.Header, preferredCredentialID string, allowedPlanTypes []string) (string, error) {
 	codec := s.planTypeCodec()
 	return s.pickPreferred(ctx, s.preferredPlanTypeCodes(headers), codec.codesFor(allowedPlanTypes), preferredCredentialID, "")
@@ -207,6 +207,7 @@ func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, all
 		if row, ok := availableRowByCredentialID(snap, preferredCredentialID); ok && s.rowScoreForTier(row, modelTier) >= 0 && scheduling.PlanTypeAllowed(row.PlanTypeCode, allowed) {
 			return preferredCredentialID, nil
 		}
+		return "", ErrNoAvailableCredential
 	}
 
 	for _, code := range preferredCodes {

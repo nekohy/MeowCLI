@@ -156,8 +156,10 @@ func normalizeModelInput(alias, origin, handler string, planTypes string, extra 
 	switch parsedHandler {
 	case utils.HandlerGemini:
 		planTypes = coregemini.NormalizePlanTypeList(planTypes)
-	default:
+	case utils.HandlerCodex:
 		planTypes = corecodex.NormalizePlanTypeList(planTypes)
+	default:
+		return "", "", "", "", nil, fmt.Errorf("unsupported handler type: %q", parsedHandler)
 	}
 	if len(extra) == 0 {
 		extra = json.RawMessage("{}")

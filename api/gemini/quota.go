@@ -87,17 +87,6 @@ func ParseQuotaFromError(errorBody []byte) (q *Quota, found bool) {
 		return nil, false
 	}
 
-	// Default: if a tier's quota wasn't explicitly set, assume full
-	if q.QuotaPro == 0 && q.ResetPro.IsZero() {
-		q.QuotaPro = 1.0
-	}
-	if q.QuotaFlash == 0 && q.ResetFlash.IsZero() {
-		q.QuotaFlash = 1.0
-	}
-	if q.QuotaFlashlite == 0 && q.ResetFlashlite.IsZero() {
-		q.QuotaFlashlite = 1.0
-	}
-
 	return
 }
 
@@ -107,16 +96,12 @@ func ParseQuotaFromErrorText(text string) (*Quota, bool) {
 }
 
 // ParseQuotaFromErrorOrFull returns the parsed quota from a 429 error body,
-// or a full-quota default if no quota info was found.
+// or a zero-quota default if no quota info was found.
 func ParseQuotaFromErrorOrFull(errorBody []byte) *Quota {
 	if q, found := ParseQuotaFromError(errorBody); found {
 		return q
 	}
-	return &Quota{
-		QuotaPro:       1.0,
-		QuotaFlash:     1.0,
-		QuotaFlashlite: 1.0,
-	}
+	return &Quota{}
 }
 
 // FullQuota returns a Quota with all tiers set to maximum (1.0).

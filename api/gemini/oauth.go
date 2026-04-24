@@ -155,7 +155,6 @@ func (c *Client) ResolveProjectID(ctx context.Context, accessToken string) (stri
 		return "", err
 	}
 
-	fallback := ""
 	for _, project := range payload.Projects {
 		projectID := strings.TrimSpace(project.ProjectID)
 		if projectID == "" {
@@ -164,12 +163,6 @@ func (c *Client) ResolveProjectID(ctx context.Context, accessToken string) (stri
 		if strings.EqualFold(strings.TrimSpace(project.LifecycleState), "ACTIVE") {
 			return projectID, nil
 		}
-		if fallback == "" {
-			fallback = projectID
-		}
 	}
-	if fallback != "" {
-		return fallback, nil
-	}
-	return "", fmt.Errorf("gemini project resolver returned no usable project_id")
+	return "", fmt.Errorf("gemini project resolver returned no active project_id")
 }

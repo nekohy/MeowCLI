@@ -185,8 +185,8 @@ func (s *Scheduler) syncAllQuotas(ctx context.Context) {
 	}
 }
 
-// Pick 根据优先级评分选择最佳可用凭证
-// 调用方可传入一个偏好的 credentialID；若不可用，再回退到常规 planType 调度
+// Pick 根据优先级评分选择最佳可用凭证。
+// 调用方可传入一个偏好的 credentialID；若不可用则返回无可用凭证，不再回退到其他凭证。
 func (s *Scheduler) Pick(ctx context.Context, headers http.Header, preferredCredentialID string, allowedPlanTypes []string) (string, error) {
 	codec := s.planTypeCodec()
 	return s.pickPreferred(ctx, s.preferredPlanTypeCodes(headers), codec.codesFor(allowedPlanTypes), preferredCredentialID, "")
@@ -210,6 +210,7 @@ func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, all
 		if row, ok := availableRowByCredentialID(snap, preferredCredentialID); ok && s.rowScoreForTier(row, modelTier) >= 0 && scheduling.PlanTypeAllowed(row.PlanTypeCode, allowed) {
 			return preferredCredentialID, nil
 		}
+		return "", ErrNoAvailableCredential
 	}
 
 	for _, code := range preferredCodes {
@@ -711,6 +712,9 @@ func (s *Scheduler) GetAccessToken(ctx context.Context, credentialID string) (st
 // Quota 中的 Reset5h/Reset7d 为 API 直接提供的绝对时间戳，无需二次计算
 func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *codexAPI.Quota) {
 	if q == nil {
+		return
+	}
+	if !q.HasDefaultQuota && !q.HasSparkQuota {
 		return
 	}
 	merged := s.mergeQuotaUpdate(credentialID, q)

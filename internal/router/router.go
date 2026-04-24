@@ -73,6 +73,7 @@ func Setup(r *gin.Engine, deps Deps) {
 
 	webHandler := handler.ServeWeb()
 	r.NoRoute(func(c *gin.Context) {
+		// Only unmatched admin static assets are served here; SPA subroutes 404.
 		if handler.ShouldServeAdminWeb(c.Request.Method, c.Request.URL.Path) {
 			webHandler(c)
 			return

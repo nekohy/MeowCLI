@@ -18,8 +18,7 @@ type Quota struct {
 	ResetSpark7d time.Time // Spark 7d 窗口重置绝对时间（零值表示无此窗口）
 
 	// HasDefaultQuota / HasSparkQuota distinguish partial updates from response
-	// headers. When both are false, callers treat the value as a full snapshot
-	// for backward compatibility with older construction sites.
+	// headers. Callers ignore updates when neither flag is set.
 	HasDefaultQuota bool
 	HasSparkQuota   bool
 }
@@ -64,11 +63,6 @@ func ParseRateLimit(h http.Header) *CodexRateLimit {
 
 func (rl *CodexRateLimit) HasQuotaWindows() bool {
 	return rl.PrimaryLimitWindowSeconds != 0 || rl.SecondaryLimitWindowSeconds != 0
-}
-
-// ToQuota 根据 LimitWindowSeconds 匹配默认模型窗口类型
-func (rl *CodexRateLimit) ToQuota() Quota {
-	return rl.ToQuotaForTier("default")
 }
 
 // ToQuotaForTier converts response header quota into a partial update for the

@@ -15,7 +15,6 @@ import type {
 } from '~/types/admin'
 
 const PRIMARY_TOKEN_KEY = 'meowcli_admin_token'
-const LEGACY_TOKEN_KEY = 'admin_token'
 
 export const AUTH_INVALID_EVENT = 'meowcli-admin-auth-invalid'
 
@@ -76,7 +75,7 @@ export function getStoredToken() {
   if (!import.meta.client) {
     return ''
   }
-  return localStorage.getItem(PRIMARY_TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY) || ''
+  return localStorage.getItem(PRIMARY_TOKEN_KEY) || ''
 }
 
 export function setStoredToken(token: string) {
@@ -86,12 +85,10 @@ export function setStoredToken(token: string) {
 
   if (!token) {
     localStorage.removeItem(PRIMARY_TOKEN_KEY)
-    localStorage.removeItem(LEGACY_TOKEN_KEY)
     return
   }
 
   localStorage.setItem(PRIMARY_TOKEN_KEY, token)
-  localStorage.setItem(LEGACY_TOKEN_KEY, token)
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {

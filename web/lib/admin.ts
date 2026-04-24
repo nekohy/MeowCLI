@@ -146,16 +146,7 @@ export async function copyText(value: string) {
       return true
     }
 
-    const helper = document.createElement('textarea')
-    helper.value = value
-    helper.setAttribute('readonly', 'true')
-    helper.style.position = 'fixed'
-    helper.style.opacity = '0'
-    document.body.appendChild(helper)
-    helper.select()
-    document.execCommand('copy')
-    document.body.removeChild(helper)
-    return true
+    return false
   } catch {
     return false
   }
@@ -283,7 +274,7 @@ export function codexCredentialEmail(id?: string | null) {
   const text = id?.trim() || ''
   const idx = text.lastIndexOf(CREDENTIAL_ID_SEPARATOR)
   if (idx <= 0) {
-    return text || '-'
+    return '-'
   }
   return text.slice(0, idx) || '-'
 }

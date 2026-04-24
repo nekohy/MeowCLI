@@ -69,11 +69,6 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		return nil, fmt.Errorf("sqlite apply schema: %w", err)
 	}
 
-	if err := migrateSchema(ctx, d); err != nil {
-		d.Close()
-		return nil, fmt.Errorf("sqlite migrate schema: %w", err)
-	}
-
 	return &Store{
 		db:      d,
 		queries: sqlcsqlite.New(d),
@@ -85,14 +80,6 @@ func (s *Store) Close() {
 		return
 	}
 	s.db.Close()
-}
-
-// migrateSchema is intentionally empty: this project currently treats schema
-// changes as fresh-start only, so schema.sql is the single source of truth.
-func migrateSchema(ctx context.Context, d *sql.DB) error {
-	_ = ctx
-	_ = d
-	return nil
 }
 
 func (s *Store) SaveSettings(ctx context.Context, settings []db.UpsertSettingParams) error {

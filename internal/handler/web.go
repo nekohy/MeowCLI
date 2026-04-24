@@ -4,6 +4,7 @@ import (
 	webui "github.com/nekohy/MeowCLI/web"
 	"io/fs"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -17,6 +18,7 @@ func ShouldServeAdminWeb(method, requestPath string) bool {
 	if method != http.MethodGet && method != http.MethodHead {
 		return false
 	}
+	requestPath = cleanRequestPath(requestPath)
 	if requestPath == adminWebPrefix || requestPath == adminWebPrefix+"/" {
 		return true
 	}
@@ -25,7 +27,10 @@ func ShouldServeAdminWeb(method, requestPath string) bool {
 	}
 
 	trimmed := strings.TrimPrefix(requestPath, adminWebPrefix)
-	return trimmed != "/api" && !strings.HasPrefix(trimmed, "/api/")
+	if trimmed == "/api" || strings.HasPrefix(trimmed, "/api/") {
+		return false
+	}
+	return strings.Contains(trimmed, ".")
 }
 
 func ServeWeb() gin.HandlerFunc {
@@ -48,14 +53,18 @@ func ServeWeb() gin.HandlerFunc {
 			return
 		}
 
-		if strings.Contains(filePath, ".") {
-			c.AbortWithStatus(http.StatusNotFound)
-			return
-		}
-
-		c.Request.URL.Path = "/"
-		fileServer.ServeHTTP(c.Writer, c.Request)
+		c.AbortWithStatus(http.StatusNotFound)
 	}
+}
+
+func cleanRequestPath(requestPath string) string {
+	if requestPath == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(requestPath, "/") {
+		requestPath = "/" + requestPath
+	}
+	return path.Clean(requestPath)
 }
 
 func mustAdminDist() fs.FS {

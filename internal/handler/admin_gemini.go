@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -23,21 +22,6 @@ const defaultGeminiPageSize = 25
 
 type batchCreateGeminiReq struct {
 	Tokens []string `json:"tokens" binding:"required,min=1"`
-}
-
-func (r *batchCreateGeminiReq) UnmarshalJSON(data []byte) error {
-	var raw struct {
-		Tokens        []string `json:"tokens"`
-		RefreshTokens []string `json:"refresh_tokens"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	r.Tokens = raw.Tokens
-	if len(r.Tokens) == 0 {
-		r.Tokens = raw.RefreshTokens
-	}
-	return nil
 }
 
 type geminiListItem struct {
