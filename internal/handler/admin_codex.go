@@ -119,32 +119,14 @@ func (a *AdminHandler) BatchCreateCodex(c *gin.Context) {
 		return
 	}
 
-	var created []batchCreateResult
-	var errs []batchError
+	job := a.importJobs.StartMasked(context.Background(), utils.HandlerCodex, req.Tokens, func(ctx context.Context, token string) (string, error) {
+		return a.processOneToken(ctx, token)
+	}, func(id string) {
+		a.invalidateCredentials(utils.HandlerCodex, []string{id})
+		a.syncCredentialQuotas(context.Background(), utils.HandlerCodex, []string{id})
+	}, maskToken)
 
-	for _, token := range req.Tokens {
-		token = strings.TrimSpace(token)
-		if token == "" {
-			continue
-		}
-		id, err := a.processOneToken(c.Request.Context(), token)
-		if err != nil {
-			errs = append(errs, batchError{
-				Input: maskToken(token),
-				Error: err.Error(),
-			})
-			continue
-		}
-		created = append(created, batchCreateResult{ID: id})
-	}
-
-	createdIDs := resultIDs(created)
-	a.refreshCredentials(c.Request.Context(), utils.HandlerCodex, createdIDs)
-	a.syncCredentialQuotas(c.Request.Context(), utils.HandlerCodex, createdIDs)
-	c.JSON(http.StatusOK, gin.H{
-		"created": created,
-		"errors":  errs,
-	})
+	c.JSON(http.StatusAccepted, job)
 }
 
 type batchCreateCodexReq struct {
@@ -419,6 +401,13 @@ func (a *AdminHandler) refreshCredentials(ctx context.Context, handler utils.Han
 	_ = a.credRefresh.RefreshAvailable(ctx, handler)
 }
 
+func (a *AdminHandler) invalidateCredentials(handler utils.HandlerType, ids []string) {
+	if a == nil || a.credRefresh == nil {
+		return
+	}
+	a.credRefresh.InvalidateCredentials(handler, ids)
+}
+
 func (a *AdminHandler) syncCredentialQuotas(ctx context.Context, handler utils.HandlerType, ids []string) {
 	if a == nil || a.credRefresh == nil {
 		return
@@ -426,17 +415,4 @@ func (a *AdminHandler) syncCredentialQuotas(ctx context.Context, handler utils.H
 	if len(ids) > 0 {
 		a.credRefresh.SyncQuotas(ctx, handler, ids)
 	}
-}
-
-func resultIDs(results []batchCreateResult) []string {
-	if len(results) == 0 {
-		return nil
-	}
-	ids := make([]string, 0, len(results))
-	for _, result := range results {
-		if result.ID != "" {
-			ids = append(ids, result.ID)
-		}
-	}
-	return ids
 }

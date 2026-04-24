@@ -1,11 +1,11 @@
 import type {
   AuthKeyItem,
-  BatchCreateResponse,
   BatchDeleteResponse,
   BatchStatusResponse,
-  CredentialHandlerKey,
   CredentialItem,
   CreateAuthKeyResponse,
+  ImportJobListResponse,
+  ImportJobSnapshot,
   ModelItem,
   OverviewResponse,
   LogItem,
@@ -143,8 +143,12 @@ function normalizeCredentialEndpoint(endpoint = '') {
   return path.startsWith('/') ? path : `/${path}`
 }
 
-function credentialsPathForHandler(handler: CredentialHandlerKey, endpoint = '') {
-  return normalizeCredentialEndpoint(endpoint) || `/${encodeURIComponent(handler)}`
+function credentialsPath(endpoint: string) {
+  const path = normalizeCredentialEndpoint(endpoint)
+  if (!path) {
+    throw new Error('credential endpoint is required')
+  }
+  return path
 }
 
 function buildPaginatedQuery<TExtra extends QueryOptions>(options: PaginationOptions, extraQuery?: TExtra): QueryOptions {
@@ -176,13 +180,13 @@ export const adminApi = {
       body: payload,
     })
   },
-  listCredentials(token: string, handler: CredentialHandlerKey, options: ListOptions<CredentialListFilters> = {}, endpoint = '') {
+  listCredentials(token: string, endpoint: string, options: ListOptions<CredentialListFilters> = {}) {
     const {
       search = '',
       status,
       planType,
     } = options
-    return apiRequest<PaginatedResponse<CredentialItem>>(credentialsPathForHandler(handler, endpoint), {
+    return apiRequest<PaginatedResponse<CredentialItem>>(credentialsPath(endpoint), {
       token,
       query: buildPaginatedQuery(options, {
         search,
@@ -191,22 +195,25 @@ export const adminApi = {
       }),
     })
   },
-  createCredentials(token: string, handler: CredentialHandlerKey, payload: { tokens: string[] }, endpoint = '') {
-    return apiRequest<BatchCreateResponse>(credentialsPathForHandler(handler, endpoint), {
+  createImportJob(token: string, endpoint: string, payload: { tokens: string[] }) {
+    return apiRequest<ImportJobSnapshot>(credentialsPath(endpoint), {
       token,
       method: 'POST',
       body: payload,
     })
   },
-  updateCredentialStatus(token: string, handler: CredentialHandlerKey, payload: { ids: string[]; status: string }, endpoint = '') {
-    return apiRequest<BatchStatusResponse>(`${credentialsPathForHandler(handler, endpoint)}/status`, {
+  listJobs(token: string) {
+    return apiRequest<ImportJobListResponse>('/jobs', { token })
+  },
+  updateCredentialStatus(token: string, endpoint: string, payload: { ids: string[]; status: string }) {
+    return apiRequest<BatchStatusResponse>(`${credentialsPath(endpoint)}/status`, {
       token,
       method: 'PUT',
       body: payload,
     })
   },
-  deleteCredentials(token: string, handler: CredentialHandlerKey, payload: { ids: string[] }, endpoint = '') {
-    return apiRequest<BatchDeleteResponse>(credentialsPathForHandler(handler, endpoint), {
+  deleteCredentials(token: string, endpoint: string, payload: { ids: string[] }) {
+    return apiRequest<BatchDeleteResponse>(credentialsPath(endpoint), {
       token,
       method: 'DELETE',
       body: payload,

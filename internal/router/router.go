@@ -47,6 +47,8 @@ func Setup(r *gin.Engine, deps Deps) {
 			apiGroup.GET("/settings", deps.Admin.GetSettings)
 			apiGroup.PUT("/settings", deps.Admin.UpdateSettings)
 
+			apiGroup.GET("/jobs", deps.Admin.ListJobs)
+
 			apiGroup.GET("/codex", deps.Admin.ListCodex)
 			apiGroup.POST("/codex", deps.Admin.BatchCreateCodex)
 			apiGroup.PUT("/codex/status", deps.Admin.BatchUpdateStatus)

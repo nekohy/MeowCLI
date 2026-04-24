@@ -230,9 +230,23 @@ export interface BatchOperationError {
   error: string
 }
 
-export interface BatchCreateResponse {
+export type ImportJobStatus = 'running' | 'completed'
+
+export interface ImportJobSnapshot {
+  id: string
+  handler: string
+  status: ImportJobStatus
+  total: number
+  processed: number
   created: Array<{ id: string }>
   errors: BatchOperationError[]
+  done: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ImportJobListResponse {
+  data: ImportJobSnapshot[]
 }
 
 export interface BatchStatusResponse {

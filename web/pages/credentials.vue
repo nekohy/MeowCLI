@@ -27,6 +27,7 @@ definePageMeta({
 
 const admin = useAdminApp()
 const confirm = useConfirmDialog()
+const importJobs = useImportJobs()
 
 const rows = ref<CredentialItem[]>([])
 const rowsHandlerKey = ref('')
@@ -268,7 +269,7 @@ async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.va
 
   loading.value = true
   try {
-    const data = await adminApi.listCredentials(admin.token.value, handlerKey, currentQueryOptions(nextPage, nextPageSize), endpoint)
+    const data = await adminApi.listCredentials(admin.token.value, endpoint, currentQueryOptions(nextPage, nextPageSize))
     if (requestToken !== latestLoadToken) {
       return
     }
@@ -303,30 +304,14 @@ async function createCredential() {
       return
     }
 
-    const result = await adminApi.createCredentials(admin.token.value, credentialHandlerKey.value, {
+    const job = await adminApi.createImportJob(admin.token.value, credentialEndpoint.value, {
       tokens: importLines.value,
-    }, credentialEndpoint.value)
+    })
 
-    const createdCount = result.created?.length || 0
-    const errorCount = result.errors?.length || 0
-
-    if (errorCount > 0) {
-      const details = result.errors
-        .map((entry: { input: string; error: string }) => `${entry.input}：${entry.error}`)
-        .join('\n')
-      importError.value = `${errorCount} 条失败：\n${details}`
-      if (createdCount > 0) {
-        admin.notify(`导入完成：${createdCount} 条成功，${errorCount} 条失败`, 'warning')
-      }
-    } else {
-      closeImportModal()
-      admin.notify(`已导入 ${createdCount} 条凭据`)
-    }
-
-    await Promise.all([
-      admin.loadOverview(admin.token.value, true),
-      loadCredentials(1, pageSize.value),
-    ])
+    importJobs.add(job)
+    importJobs.ensurePolling(admin.token.value)
+    closeImportModal()
+    admin.notify(`导入任务已提交：${job.total} 条凭据`, 'success')
   } catch (error) {
     importError.value = error instanceof Error ? error.message : '导入凭据失败'
   } finally {
@@ -348,7 +333,7 @@ function batchSetStatus(status: string) {
     action: async () => {
       actionBusy.value = true
       try {
-        const result = await adminApi.updateCredentialStatus(admin.token.value, credentialHandlerKey.value, { ids, status }, credentialEndpoint.value)
+        const result = await adminApi.updateCredentialStatus(admin.token.value, credentialEndpoint.value, { ids, status })
         const updatedCount = result.updated?.length || 0
         const errorCount = result.errors?.length || 0
         admin.notify(
@@ -383,7 +368,7 @@ function batchDelete() {
     action: async () => {
       actionBusy.value = true
       try {
-        const result = await adminApi.deleteCredentials(admin.token.value, credentialHandlerKey.value, { ids }, credentialEndpoint.value)
+        const result = await adminApi.deleteCredentials(admin.token.value, credentialEndpoint.value, { ids })
         const deletedCount = result.deleted?.length || 0
         const errorCount = result.errors?.length || 0
         admin.notify(

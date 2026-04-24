@@ -71,6 +71,7 @@ type Scheduler struct {
 	throttle         map[string]*throttleState
 	checking         map[string]struct{}
 	verifyCredential func(string)
+	importSyncMu     sync.Mutex
 	available        atomic.Pointer[availableSnapshot]
 	planTypes        *planTypeCodec
 }
@@ -698,6 +699,9 @@ func (s *Scheduler) SyncCredentials(_ context.Context, ids []string) {
 
 	ids = append([]string(nil), ids...)
 	go func(ids []string) {
+		s.importSyncMu.Lock()
+		defer s.importSyncMu.Unlock()
+
 		for _, id := range ids {
 			validationCtx, cancel := context.WithTimeout(context.Background(), s.settingsSnapshot().ImportedCheckTimeout())
 			s.validateImportedCredential(validationCtx, id)

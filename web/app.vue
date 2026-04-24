@@ -448,6 +448,7 @@ onBeforeUnmount(() => {
           </VContainer>
         </VMain>
       </VLayout>
+      <ImportJobDock />
     </template>
   </VApp>
 </template>

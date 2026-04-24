@@ -105,32 +105,18 @@ func (a *AdminHandler) BatchCreateGemini(c *gin.Context) {
 		return
 	}
 
-	var created []batchCreateResult
-	var errs []batchError
-
-	for _, token := range req.Tokens {
-		token = strings.TrimSpace(token)
-		if token == "" {
-			continue
-		}
-		id, err := a.upsertGeminiCredential(c.Request.Context(), token)
+	job := a.importJobs.StartMasked(context.Background(), utils.HandlerGemini, req.Tokens, func(ctx context.Context, token string) (string, error) {
+		credential, err := a.upsertGeminiCredential(ctx, token)
 		if err != nil {
-			errs = append(errs, batchError{
-				Input: truncateToken(token),
-				Error: err.Error(),
-			})
-			continue
+			return "", err
 		}
-		created = append(created, batchCreateResult{ID: id.ID})
-	}
+		return credential.ID, nil
+	}, func(id string) {
+		a.invalidateCredentials(utils.HandlerGemini, []string{id})
+		a.syncCredentialQuotas(context.Background(), utils.HandlerGemini, []string{id})
+	}, truncateToken)
 
-	createdIDs := resultIDs(created)
-	a.refreshCredentials(c.Request.Context(), utils.HandlerGemini, createdIDs)
-	a.syncCredentialQuotas(c.Request.Context(), utils.HandlerGemini, createdIDs)
-	c.JSON(http.StatusOK, gin.H{
-		"created": created,
-		"errors":  errs,
-	})
+	c.JSON(http.StatusAccepted, job)
 }
 
 func (a *AdminHandler) BatchUpdateGeminiStatus(c *gin.Context) {

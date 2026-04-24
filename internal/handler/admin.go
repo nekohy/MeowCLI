@@ -44,11 +44,17 @@ type AdminHandler struct {
 	credRefresh CredentialRefresher
 	modelCache  ModelCache
 	settingsSvc *settings.Service
+	importJobs  *importJobManager
 	mu          sync.Mutex
 }
 
 func NewAdminHandler(store db.Store, codexAPI *codexapi.Client, geminiAPI *geminiapi.Client) *AdminHandler {
-	return &AdminHandler{store: store, codexAPI: codexAPI, geminiAPI: geminiAPI}
+	return &AdminHandler{
+		store:      store,
+		codexAPI:   codexAPI,
+		geminiAPI:  geminiAPI,
+		importJobs: newImportJobManager(defaultImportConcurrency),
+	}
 }
 
 func (a *AdminHandler) SetLogStore(store LogStore) {
