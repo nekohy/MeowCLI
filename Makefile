@@ -38,7 +38,7 @@ build: frontend
 
 frontend-dev:
 	@trap 'kill 0' INT TERM EXIT; \
-	LISTEN_ADDR=$(BACKEND_DEV_ADDR) go run $(GOFLAGS) -ldflags "$(LDFLAGS)" . & \
+	LISTEN_ADDR=$(BACKEND_DEV_ADDR) go run $(GOFLAGS) -tags dev -ldflags "$(LDFLAGS)" . & \
 	MEOWCLI_BACKEND_URL=$(BACKEND_DEV_URL) npm --prefix $(WEB_DIR) run dev -- --port $(FRONTEND_DEV_PORT)
 
 release:

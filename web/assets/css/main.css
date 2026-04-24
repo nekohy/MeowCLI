@@ -1,11 +1,10 @@
 :root {
   color-scheme: light;
   --admin-font-sans:
-    'Inter',
-    'Noto Sans SC',
     'HarmonyOS Sans SC',
     'PingFang SC',
     'Microsoft YaHei UI',
+    'Noto Sans CJK SC',
     system-ui,
     sans-serif;
   --admin-font-mono: 'Cascadia Mono', 'JetBrains Mono', 'Consolas', monospace;
@@ -454,8 +453,7 @@ pre {
 /* --- App bar --- */
 .app-bar {
   border: 1px solid rgba(var(--v-theme-outline-variant), 0.75);
-  background: rgba(var(--v-theme-surface-container), 0.94) !important;
-  backdrop-filter: blur(12px);
+  background: rgb(var(--v-theme-surface-container)) !important;
 }
 
 .app-bar .v-toolbar__content {
@@ -1012,15 +1010,13 @@ pre {
 
 .handler-row-stat {
   font-size: 0.84rem;
-  color: rgba(var(--v-theme-on-surface), 0.55);
+  color: rgba(var(--v-theme-on-surface), 0.72);
 }
 
 /* --- Interactive cards --- */
 .interactive-card {
   cursor: pointer;
-  transition:
-    transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    box-shadow 200ms ease;
+  transition: transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .interactive-card:hover,

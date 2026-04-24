@@ -162,7 +162,7 @@ export default defineVuetifyConfiguration({
     mobileBreakpoint: 'md',
   },
   icons: {
-    defaultSet: 'mdi',
+    defaultSet: 'custom',
   },
   theme: {
     defaultTheme: 'light',

@@ -38,12 +38,14 @@ func ServeWeb() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		filePath := resolveWebPath(c)
 		if filePath == "" {
+			setAdminWebHeaders(c, filePath)
 			c.Request.URL.Path = "/"
 			fileServer.ServeHTTP(c.Writer, c.Request)
 			return
 		}
 
 		if info, err := fs.Stat(adminDist, filePath); err == nil {
+			setAdminWebHeaders(c, filePath)
 			if info.IsDir() {
 				c.Request.URL.Path = "/" + strings.TrimSuffix(filePath, "/") + "/"
 			} else {
@@ -55,6 +57,21 @@ func ServeWeb() gin.HandlerFunc {
 
 		c.AbortWithStatus(http.StatusNotFound)
 	}
+}
+
+func setAdminWebHeaders(c *gin.Context, filePath string) {
+	header := c.Writer.Header()
+	header.Set("X-Content-Type-Options", "nosniff")
+	header.Set("Referrer-Policy", "same-origin")
+	header.Set("X-Frame-Options", "DENY")
+	header.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+
+	if strings.HasPrefix(filePath, "assets/") {
+		header.Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+
+	header.Set("Cache-Control", "no-cache")
 }
 
 func cleanRequestPath(requestPath string) string {

@@ -13,8 +13,7 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
-    "@arietta-studio/webfont-harmony-sans-sc": "^1.0.3",
-    "@mdi/font": "^7.4.47",
+    "@mdi/js": "^7.4.47",
     "nuxt": "^4.4.2",
     "vuetify": "^4.0.2",
     "vuetify-nuxt-module": "^0.19.5"
