@@ -119,12 +119,12 @@ func (a *AdminHandler) BatchCreateCodex(c *gin.Context) {
 		return
 	}
 
-	job := a.importJobs.StartMasked(context.Background(), utils.HandlerCodex, req.Tokens, func(ctx context.Context, token string) (string, error) {
+	job := a.importJobs.Start(context.Background(), utils.HandlerCodex, req.Tokens, func(ctx context.Context, token string) (string, error) {
 		return a.processOneToken(ctx, token)
 	}, func(id string) {
 		a.invalidateCredentials(utils.HandlerCodex, []string{id})
 		a.syncCredentialQuotas(context.Background(), utils.HandlerCodex, []string{id})
-	}, maskToken)
+	})
 
 	c.JSON(http.StatusAccepted, job)
 }
@@ -379,13 +379,6 @@ func isSparkAvailable(row db.ListCodexRow, scoreSpark float64) bool {
 		return false
 	}
 	return true
-}
-
-func maskToken(token string) string {
-	if len(token) <= 12 {
-		return "***"
-	}
-	return token[:6] + "..." + token[len(token)-6:]
 }
 
 type batchUpdateStatusReq struct {

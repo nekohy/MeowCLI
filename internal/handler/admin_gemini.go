@@ -105,7 +105,7 @@ func (a *AdminHandler) BatchCreateGemini(c *gin.Context) {
 		return
 	}
 
-	job := a.importJobs.StartMasked(context.Background(), utils.HandlerGemini, req.Tokens, func(ctx context.Context, token string) (string, error) {
+	job := a.importJobs.Start(context.Background(), utils.HandlerGemini, req.Tokens, func(ctx context.Context, token string) (string, error) {
 		credential, err := a.upsertGeminiCredential(ctx, token)
 		if err != nil {
 			return "", err
@@ -114,7 +114,7 @@ func (a *AdminHandler) BatchCreateGemini(c *gin.Context) {
 	}, func(id string) {
 		a.invalidateCredentials(utils.HandlerGemini, []string{id})
 		a.syncCredentialQuotas(context.Background(), utils.HandlerGemini, []string{id})
-	}, truncateToken)
+	})
 
 	c.JSON(http.StatusAccepted, job)
 }
@@ -342,11 +342,4 @@ func (a *AdminHandler) geminiCounts(ctx context.Context) (int64, int64, bool, er
 		return 0, 0, true, err
 	}
 	return total, enabled, true, nil
-}
-
-func truncateToken(token string) string {
-	if len(token) <= 8 {
-		return "***"
-	}
-	return token[:4] + "..." + token[len(token)-4:]
 }

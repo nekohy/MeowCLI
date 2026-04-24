@@ -19,18 +19,6 @@ function progressValue(job: ImportJobSnapshot) {
   return Math.max(0, Math.min(100, Math.round((job.processed / job.total) * 100)))
 }
 
-function createdCount(job: ImportJobSnapshot) {
-  return job.created_count ?? job.created.length
-}
-
-function errorCount(job: ImportJobSnapshot) {
-  return job.error_count ?? job.errors.length
-}
-
-function latestError(job: ImportJobSnapshot) {
-  return job.errors[job.errors.length - 1]
-}
-
 function closeAll() {
   visibleJobs.value.forEach((job) => importJobs.dismiss(job.id))
 }
@@ -104,7 +92,7 @@ onBeforeUnmount(() => {
               <div class="import-job-row__copy">
                 <div class="text-body-2 font-weight-medium">{{ handlerLabel(job.handler) }}</div>
                 <div class="text-caption text-medium-emphasis">
-                  {{ job.processed }} / {{ job.total }}，成功 {{ createdCount(job) }}，失败 {{ errorCount(job) }}
+                  {{ job.processed }} / {{ job.total }}
                 </div>
               </div>
               <VBtn
@@ -119,14 +107,10 @@ onBeforeUnmount(() => {
 
             <VProgressLinear
               :model-value="progressValue(job)"
-              :color="errorCount(job) > 0 ? 'warning' : 'primary'"
+              color="primary"
               height="8"
               rounded
             />
-
-            <div v-if="latestError(job)" class="import-job-row__errors text-caption">
-              最近失败：{{ latestError(job)?.input }}：{{ latestError(job)?.error }}
-            </div>
           </VSheet>
         </div>
       </VCardText>
@@ -181,13 +165,6 @@ onBeforeUnmount(() => {
 
 .import-job-row__copy {
   min-width: 0;
-}
-
-.import-job-row__errors {
-  color: rgb(var(--v-theme-warning));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .import-dock-enter-active,

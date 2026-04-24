@@ -1,7 +1,7 @@
 import { adminApi } from '~/composables/useAdminApi'
 import type { ImportJobSnapshot } from '~/types/admin'
 
-const IMPORT_JOB_POLL_MS = 1200
+const IMPORT_JOB_POLL_MS = 5000
 let importJobPollTimer: number | undefined
 
 export function useImportJobs() {

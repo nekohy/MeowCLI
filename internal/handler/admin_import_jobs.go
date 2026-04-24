@@ -16,7 +16,6 @@ import (
 )
 
 const defaultImportConcurrency = 4
-const importJobResultPreviewLimit = 20
 
 type importJobStatus string
 
@@ -26,18 +25,14 @@ const (
 )
 
 type importJobSnapshot struct {
-	ID           string              `json:"id"`
-	Handler      string              `json:"handler"`
-	Status       importJobStatus     `json:"status"`
-	Total        int                 `json:"total"`
-	Processed    int                 `json:"processed"`
-	Created      []batchCreateResult `json:"created"`
-	Errors       []batchError        `json:"errors"`
-	CreatedCount int                 `json:"created_count"`
-	ErrorCount   int                 `json:"error_count"`
-	Done         bool                `json:"done"`
-	CreatedAt    time.Time           `json:"created_at"`
-	UpdatedAt    time.Time           `json:"updated_at"`
+	ID        string          `json:"id"`
+	Handler   string          `json:"handler"`
+	Status    importJobStatus `json:"status"`
+	Total     int             `json:"total"`
+	Processed int             `json:"processed"`
+	Done      bool            `json:"done"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 type importJob struct {
@@ -48,7 +43,6 @@ type importJob struct {
 
 type importProcessor func(context.Context, string) (string, error)
 type importCreatedHook func(string)
-type importMasker func(string) string
 
 type importJobManager struct {
 	mu          sync.RWMutex
@@ -66,15 +60,12 @@ func newImportJobManager(concurrency int) *importJobManager {
 	}
 }
 
-func (m *importJobManager) StartMasked(ctx context.Context, handler utils.HandlerType, tokens []string, process importProcessor, onCreated importCreatedHook, mask importMasker) importJobSnapshot {
+func (m *importJobManager) Start(ctx context.Context, handler utils.HandlerType, tokens []string, process importProcessor, onCreated importCreatedHook) importJobSnapshot {
 	if m == nil {
 		m = newImportJobManager(defaultImportConcurrency)
 	}
 	if ctx == nil {
 		ctx = context.Background()
-	}
-	if mask == nil {
-		mask = func(token string) string { return token }
 	}
 
 	cleaned := normalizeImportTokens(tokens)
@@ -86,8 +77,6 @@ func (m *importJobManager) StartMasked(ctx context.Context, handler utils.Handle
 			Handler:   string(handler),
 			Status:    importJobStatusRunning,
 			Total:     len(cleaned),
-			Created:   []batchCreateResult{},
-			Errors:    []batchError{},
 			CreatedAt: now,
 			UpdatedAt: now,
 		},
@@ -102,7 +91,7 @@ func (m *importJobManager) StartMasked(ctx context.Context, handler utils.Handle
 		return job.Snapshot()
 	}
 
-	go job.run(ctx, cleaned, process, onCreated, mask)
+	go job.run(ctx, cleaned, process, onCreated)
 	return job.Snapshot()
 }
 
@@ -124,9 +113,9 @@ func (m *importJobManager) List() []importJobSnapshot {
 	return snapshots
 }
 
-func (j *importJob) run(ctx context.Context, tokens []string, process importProcessor, onCreated importCreatedHook, mask importMasker) {
+func (j *importJob) run(ctx context.Context, tokens []string, process importProcessor, onCreated importCreatedHook) {
 	if process == nil {
-		j.failAll(tokens, "import processor is unavailable", mask)
+		j.failAll(tokens)
 		j.finish()
 		return
 	}
@@ -148,10 +137,10 @@ func (j *importJob) run(ctx context.Context, tokens []string, process importProc
 			for token := range tokenCh {
 				id, err := process(ctx, token)
 				if err != nil {
-					j.recordError(mask(token), err)
+					j.recordError()
 					continue
 				}
-				j.recordCreated(id)
+				j.recordCreated()
 				if onCreated != nil {
 					onCreated(id)
 				}
@@ -170,50 +159,28 @@ func (j *importJob) run(ctx context.Context, tokens []string, process importProc
 func (j *importJob) Snapshot() importJobSnapshot {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	snapshot := j.snapshot
-	snapshot.CreatedCount = len(j.snapshot.Created)
-	snapshot.ErrorCount = len(j.snapshot.Errors)
-	snapshot.Created = copyRecentCreated(j.snapshot.Created)
-	snapshot.Errors = copyRecentErrors(j.snapshot.Errors)
-	return snapshot
+	return j.snapshot
 }
 
-func copyRecentCreated(items []batchCreateResult) []batchCreateResult {
-	if len(items) > importJobResultPreviewLimit {
-		items = items[len(items)-importJobResultPreviewLimit:]
-	}
-	return append([]batchCreateResult(nil), items...)
-}
-
-func copyRecentErrors(items []batchError) []batchError {
-	if len(items) > importJobResultPreviewLimit {
-		items = items[len(items)-importJobResultPreviewLimit:]
-	}
-	return append([]batchError(nil), items...)
-}
-
-func (j *importJob) recordCreated(id string) {
+func (j *importJob) recordCreated() {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.snapshot.Processed++
-	j.snapshot.Created = append(j.snapshot.Created, batchCreateResult{ID: id})
 	j.snapshot.UpdatedAt = time.Now()
 }
 
-func (j *importJob) recordError(input string, err error) {
+func (j *importJob) recordError() {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.snapshot.Processed++
-	j.snapshot.Errors = append(j.snapshot.Errors, batchError{Input: input, Error: err.Error()})
 	j.snapshot.UpdatedAt = time.Now()
 }
 
-func (j *importJob) failAll(tokens []string, message string, mask importMasker) {
+func (j *importJob) failAll(tokens []string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	for _, token := range tokens {
+	for range tokens {
 		j.snapshot.Processed++
-		j.snapshot.Errors = append(j.snapshot.Errors, batchError{Input: mask(token), Error: message})
 	}
 	j.snapshot.UpdatedAt = time.Now()
 }
