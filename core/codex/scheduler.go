@@ -563,6 +563,13 @@ func CalcScoreSpark(quotaSpark5h, quotaSpark7d float64, resetSpark5h, resetSpark
 	return u7d*1000 + quotaSpark7d*100 + u5h*10 + quotaSpark5h
 }
 
+func ErrorRateSince(reset5h, reset7d time.Time, window5hSeconds, window7dSeconds int64) time.Time {
+	return scheduling.LatestWindowStart(
+		scheduling.WindowStart(reset5h, window5hSeconds),
+		scheduling.WindowStart(reset7d, window7dSeconds),
+	)
+}
+
 // RecordSuccess 记录成功请求并重置退避状态
 func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, statusCode int32, modelTier string) {
 	s.mu.Lock()
@@ -922,18 +929,24 @@ func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) 
 		return
 	}
 
-	window := s.settingsSnapshot().ErrorRateWindow()
-	ids := make([]string, len(rows))
-	for i := range rows {
-		ids[i] = rows[i].ID
+	config := s.settingsSnapshot()
+	defaultSince := make([]db.ErrorRateSince, 0, len(rows))
+	sparkSince := make([]db.ErrorRateSince, 0, len(rows))
+	for _, row := range rows {
+		if since := ErrorRateSince(row.Reset5h, row.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()); !since.IsZero() {
+			defaultSince = append(defaultSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
+		}
+		if since := ErrorRateSince(row.ResetSpark5h, row.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()); !since.IsZero() {
+			sparkSince = append(sparkSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
+		}
 	}
 
-	ratesDefault, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerCodex), ModelTierDefault, ids, window)
+	ratesDefault, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerCodex), ModelTierDefault, defaultSince, scheduling.MinErrorRateSamples)
 	if err != nil {
 		log.Warn().Err(err).Msg("scheduler: compute default error rates")
 		return
 	}
-	ratesSpark, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerCodex), ModelTierSpark, ids, window)
+	ratesSpark, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerCodex), ModelTierSpark, sparkSince, scheduling.MinErrorRateSamples)
 	if err != nil {
 		log.Warn().Err(err).Msg("scheduler: compute spark error rates")
 		return

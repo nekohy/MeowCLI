@@ -316,16 +316,20 @@ func (a *AdminHandler) serializeCodexRows(ctx context.Context, rows []db.ListCod
 	w5h := snap.QuotaWindow5hSeconds()
 	w7d := snap.QuotaWindow7dSeconds()
 
-	ids := make([]string, len(rows))
-	for i, row := range rows {
-		ids[i] = row.ID
-	}
-
 	var ratesDefault, ratesSpark map[string]float64
-	if a.logStore != nil && len(ids) > 0 {
-		window := snap.ErrorRateWindow()
-		ratesDefault, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerCodex), corecodex.ModelTierDefault, ids, window)
-		ratesSpark, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerCodex), corecodex.ModelTierSpark, ids, window)
+	if a.logStore != nil && len(rows) > 0 {
+		defaultSince := make([]db.ErrorRateSince, 0, len(rows))
+		sparkSince := make([]db.ErrorRateSince, 0, len(rows))
+		for _, row := range rows {
+			if since := corecodex.ErrorRateSince(row.Reset5h, row.Reset7d, w5h, w7d); !since.IsZero() {
+				defaultSince = append(defaultSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
+			}
+			if since := corecodex.ErrorRateSince(row.ResetSpark5h, row.ResetSpark7d, w5h, w7d); !since.IsZero() {
+				sparkSince = append(sparkSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
+			}
+		}
+		ratesDefault, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerCodex), corecodex.ModelTierDefault, defaultSince, scheduling.MinErrorRateSamples)
+		ratesSpark, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerCodex), corecodex.ModelTierSpark, sparkSince, scheduling.MinErrorRateSamples)
 	}
 
 	items := make([]codexListItem, 0, len(rows))

@@ -57,6 +57,11 @@ type InsertLogParams struct {
 	ModelTier    string
 }
 
+type ErrorRateSince struct {
+	CredentialID string
+	Since        time.Time
+}
+
 type UpsertQuotaParams struct {
 	CredentialID string
 	Quota5h      float64
@@ -260,7 +265,7 @@ type LogStore interface {
 	InsertLog(ctx context.Context, arg InsertLogParams) error
 	ListLogs(ctx context.Context, arg ListLogsParams) ([]LogRow, error)
 	CountLogs(ctx context.Context) (int64, error)
-	ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, credentialIDs []string, window time.Duration) (map[string]float64, error)
+	ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, since []ErrorRateSince, minSamples int) (map[string]float64, error)
 }
 
 type Store interface {

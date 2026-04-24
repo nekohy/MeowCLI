@@ -89,7 +89,6 @@ export interface SettingsSnapshot {
   throttle_max_seconds: number
   logs_retention_seconds: number
   relay_max_retries: number
-  error_rate_window_seconds: number
 }
 
 export interface SettingsForm {
@@ -108,7 +107,6 @@ export interface SettingsForm {
   throttle_max_seconds: string
   logs_retention_seconds: string
   relay_max_retries: string
-  error_rate_window_seconds: string
 }
 
 export interface CodexItem {

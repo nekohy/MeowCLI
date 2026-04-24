@@ -26,7 +26,6 @@ const (
 	KeyThrottleMaxSeconds            = "throttle_max_seconds"
 	KeyRelayMaxRetries               = "relay_max_retries"
 	KeyLogsRetentionSeconds          = "logs_retention_seconds"
-	KeyErrorRateWindowSeconds        = "error_rate_window_seconds"
 )
 
 const (
@@ -36,7 +35,6 @@ const (
 	defaultCodexQuotaWindow7dSeconds            int64 = 7 * 24 * 60 * 60
 	defaultGeminiQuotaWindowSeconds             int64 = 24 * 60 * 60
 	defaultLogsRetentionSeconds                       = 24 * 60 * 60
-	defaultErrorRateWindowSeconds                     = 3600
 )
 
 type Snapshot struct {
@@ -55,7 +53,6 @@ type Snapshot struct {
 	ThrottleMaxSeconds            int    `json:"throttle_max_seconds"`
 	RelayMaxRetries               int    `json:"relay_max_retries"`
 	LogsRetentionSeconds          int    `json:"logs_retention_seconds"`
-	ErrorRateWindowSeconds        int    `json:"error_rate_window_seconds"`
 }
 
 type Provider interface {
@@ -91,7 +88,6 @@ func DefaultSnapshot() Snapshot {
 		ThrottleMaxSeconds:            30 * 60,
 		RelayMaxRetries:               3,
 		LogsRetentionSeconds:          defaultLogsRetentionSeconds,
-		ErrorRateWindowSeconds:        defaultErrorRateWindowSeconds,
 	}
 }
 
@@ -201,9 +197,6 @@ func (s Snapshot) Normalize() Snapshot {
 	if s.LogsRetentionSeconds <= 0 {
 		s.LogsRetentionSeconds = defaults.LogsRetentionSeconds
 	}
-	if s.ErrorRateWindowSeconds <= 0 {
-		s.ErrorRateWindowSeconds = defaults.ErrorRateWindowSeconds
-	}
 
 	return s
 }
@@ -266,10 +259,6 @@ func (s Snapshot) LogsRetention() time.Duration {
 	return time.Duration(s.LogsRetentionSeconds) * time.Second
 }
 
-func (s Snapshot) ErrorRateWindow() time.Duration {
-	return time.Duration(s.ErrorRateWindowSeconds) * time.Second
-}
-
 func (s Snapshot) asMap() map[string]string {
 	return map[string]string{
 		KeyAllowUserPlanTypeHeader:       strconv.FormatBool(s.AllowUserPlanTypeHeader),
@@ -287,7 +276,6 @@ func (s Snapshot) asMap() map[string]string {
 		KeyThrottleMaxSeconds:            strconv.Itoa(s.ThrottleMaxSeconds),
 		KeyRelayMaxRetries:               strconv.Itoa(s.RelayMaxRetries),
 		KeyLogsRetentionSeconds:          strconv.Itoa(s.LogsRetentionSeconds),
-		KeyErrorRateWindowSeconds:        strconv.Itoa(s.ErrorRateWindowSeconds),
 	}
 }
 
@@ -342,9 +330,6 @@ func applyValues(target *Snapshot, values map[string]string) {
 	}
 	if parsed, ok := intValueForKeys(values, KeyLogsRetentionSeconds); ok {
 		target.LogsRetentionSeconds = parsed
-	}
-	if parsed, ok := intValueForKeys(values, KeyErrorRateWindowSeconds); ok {
-		target.ErrorRateWindowSeconds = parsed
 	}
 }
 

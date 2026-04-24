@@ -84,13 +84,6 @@ const numericFields = [
     min: 1,
     suffix: '秒',
   },
-  {
-    key: 'error_rate_window_seconds',
-    label: '错误率窗口',
-    hint: '计算凭据错误率的回溯时长',
-    min: 1,
-    suffix: '秒',
-  },
 ] as const satisfies Array<{
   key: keyof SettingsForm
   label: string
@@ -112,7 +105,7 @@ const numericGroups = [
   },
   {
     title: '数据保留',
-    fields: ['quota_sync_interval_seconds', 'logs_retention_seconds', 'error_rate_window_seconds'] as NumericFieldKey[],
+    fields: ['quota_sync_interval_seconds', 'logs_retention_seconds'] as NumericFieldKey[],
   },
   {
     title: '指数退避',

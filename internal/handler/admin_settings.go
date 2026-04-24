@@ -32,7 +32,6 @@ type settingsUpdateRequest struct {
 	ThrottleMaxSeconds            *int    `json:"throttle_max_seconds"`
 	RelayMaxRetries               *int    `json:"relay_max_retries"`
 	LogsRetentionSeconds          *int    `json:"logs_retention_seconds"`
-	ErrorRateWindowSeconds        *int    `json:"error_rate_window_seconds"`
 }
 
 func (a *AdminHandler) GetSettings(c *gin.Context) {
@@ -124,9 +123,6 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 	if err := applyPositiveSetting("logs_retention_seconds", req.LogsRetentionSeconds, &next.LogsRetentionSeconds); err != nil {
 		return settings.Snapshot{}, err
 	}
-	if err := applyPositiveSetting("error_rate_window_seconds", req.ErrorRateWindowSeconds, &next.ErrorRateWindowSeconds); err != nil {
-		return settings.Snapshot{}, err
-	}
 
 	if err := validateProxyURL(next.GlobalProxy, "global_proxy"); err != nil {
 		return settings.Snapshot{}, err
@@ -165,7 +161,6 @@ func buildSettingsResponse(snapshot settings.Snapshot) gin.H {
 		"throttle_max_seconds":               snapshot.ThrottleMaxSeconds,
 		"relay_max_retries":                  snapshot.RelayMaxRetries,
 		"logs_retention_seconds":             snapshot.LogsRetentionSeconds,
-		"error_rate_window_seconds":          snapshot.ErrorRateWindowSeconds,
 	}
 }
 
@@ -212,6 +207,5 @@ func snapshotToSettingParams(snapshot settings.Snapshot) []db.UpsertSettingParam
 		{Key: settings.KeyThrottleMaxSeconds, Value: fmt.Sprintf("%d", snapshot.ThrottleMaxSeconds)},
 		{Key: settings.KeyRelayMaxRetries, Value: fmt.Sprintf("%d", snapshot.RelayMaxRetries)},
 		{Key: settings.KeyLogsRetentionSeconds, Value: fmt.Sprintf("%d", snapshot.LogsRetentionSeconds)},
-		{Key: settings.KeyErrorRateWindowSeconds, Value: fmt.Sprintf("%d", snapshot.ErrorRateWindowSeconds)},
 	}
 }

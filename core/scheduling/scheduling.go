@@ -3,7 +3,10 @@ package scheduling
 import (
 	"context"
 	"net/http"
+	"time"
 )
+
+const MinErrorRateSamples = 5
 
 type RefreshMode int
 
@@ -48,6 +51,26 @@ func UrgencyFactor(resetAtUnix, nowUnix, windowSeconds int64) float64 {
 		return 0.0
 	}
 	return 1.0 - ratio
+}
+
+func WindowStart(resetAt time.Time, windowSeconds int64) time.Time {
+	if resetAt.IsZero() || windowSeconds <= 0 {
+		return time.Time{}
+	}
+	return resetAt.Add(-time.Duration(windowSeconds) * time.Second)
+}
+
+func LatestWindowStart(starts ...time.Time) time.Time {
+	var latest time.Time
+	for _, start := range starts {
+		if start.IsZero() {
+			continue
+		}
+		if latest.IsZero() || start.After(latest) {
+			latest = start
+		}
+	}
+	return latest
 }
 
 // PlanTypeCodeSet converts a list of plan type codes to a set.

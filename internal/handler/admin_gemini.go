@@ -209,17 +209,25 @@ func (a *AdminHandler) listGeminiCredentials(ctx context.Context, page, pageSize
 	snap := a.currentSettings()
 	ws := snap.QuotaWindowGeminiSeconds()
 
-	ids := make([]string, len(rows))
-	for i, row := range rows {
-		ids[i] = row.ID
-	}
-
 	var ratesPro, ratesFlash, ratesFlashlite map[string]float64
-	if a.logStore != nil && len(ids) > 0 {
-		window := snap.ErrorRateWindow()
-		ratesPro, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), coregemini.ModelTierPro, ids, window)
-		ratesFlash, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), coregemini.ModelTierFlash, ids, window)
-		ratesFlashlite, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), coregemini.ModelTierFlashLite, ids, window)
+	if a.logStore != nil && len(rows) > 0 {
+		proSince := make([]db.ErrorRateSince, 0, len(rows))
+		flashSince := make([]db.ErrorRateSince, 0, len(rows))
+		flashliteSince := make([]db.ErrorRateSince, 0, len(rows))
+		for _, row := range rows {
+			if since := coregemini.ErrorRateSince(row.ResetPro, ws); !since.IsZero() {
+				proSince = append(proSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
+			}
+			if since := coregemini.ErrorRateSince(row.ResetFlash, ws); !since.IsZero() {
+				flashSince = append(flashSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
+			}
+			if since := coregemini.ErrorRateSince(row.ResetFlashlite, ws); !since.IsZero() {
+				flashliteSince = append(flashliteSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
+			}
+		}
+		ratesPro, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), coregemini.ModelTierPro, proSince, scheduling.MinErrorRateSamples)
+		ratesFlash, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), coregemini.ModelTierFlash, flashSince, scheduling.MinErrorRateSamples)
+		ratesFlashlite, _ = a.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), coregemini.ModelTierFlashLite, flashliteSince, scheduling.MinErrorRateSamples)
 	}
 
 	items := make([]geminiListItem, len(rows))

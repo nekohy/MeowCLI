@@ -80,7 +80,6 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   throttle_max_seconds: '1800',
   logs_retention_seconds: '86400',
   relay_max_retries: '3',
-  error_rate_window_seconds: '3600',
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -327,7 +326,6 @@ export function settingsToForm(data?: Partial<SettingsSnapshot>): SettingsForm {
     throttle_max_seconds: String(data?.throttle_max_seconds ?? DEFAULT_SETTINGS_FORM.throttle_max_seconds),
     logs_retention_seconds: String(data?.logs_retention_seconds ?? DEFAULT_SETTINGS_FORM.logs_retention_seconds),
     relay_max_retries: String(data?.relay_max_retries ?? DEFAULT_SETTINGS_FORM.relay_max_retries),
-    error_rate_window_seconds: String(data?.error_rate_window_seconds ?? DEFAULT_SETTINGS_FORM.error_rate_window_seconds),
   }
 }
 
@@ -348,6 +346,5 @@ export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
     throttle_max_seconds: Number(form.throttle_max_seconds),
     logs_retention_seconds: Number(form.logs_retention_seconds),
     relay_max_retries: Number(form.relay_max_retries),
-    error_rate_window_seconds: Number(form.error_rate_window_seconds),
   }
 }

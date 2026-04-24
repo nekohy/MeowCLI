@@ -50,6 +50,9 @@ type availableRow struct {
 	ScorePro           float64 // score when serving Pro models
 	ScoreFlash         float64 // score when serving Flash models
 	ScoreFlashLite     float64 // score when serving FlashLite models
+	ResetPro           time.Time
+	ResetFlash         time.Time
+	ResetFlashLite     time.Time
 	ErrorRatePro       float64
 	WeightPro          float64
 	ErrorRateFlash     float64
@@ -308,6 +311,9 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 			ScorePro:        CalcScoreForTier(r.QuotaPro, r.QuotaFlash, r.QuotaFlashlite, r.ResetPro, r.ResetFlash, r.ResetFlashlite, ModelTierPro, ws),
 			ScoreFlash:      CalcScoreForTier(r.QuotaPro, r.QuotaFlash, r.QuotaFlashlite, r.ResetPro, r.ResetFlash, r.ResetFlashlite, ModelTierFlash, ws),
 			ScoreFlashLite:  CalcScoreForTier(r.QuotaPro, r.QuotaFlash, r.QuotaFlashlite, r.ResetPro, r.ResetFlash, r.ResetFlashlite, ModelTierFlashLite, ws),
+			ResetPro:        r.ResetPro,
+			ResetFlash:      r.ResetFlash,
+			ResetFlashLite:  r.ResetFlashlite,
 			WeightPro:       1.0,
 			WeightFlash:     1.0,
 			WeightFlashlite: 1.0,
@@ -372,6 +378,9 @@ func (s *Scheduler) updateAvailableQuota(id string, q *geminiapi.Quota) {
 			updated[i].ScorePro = newScorePro
 			updated[i].ScoreFlash = newScoreFlash
 			updated[i].ScoreFlashLite = newScoreFlashLite
+			updated[i].ResetPro = q.ResetPro
+			updated[i].ResetFlash = q.ResetFlash
+			updated[i].ResetFlashLite = q.ResetFlashlite
 			break
 		}
 	}
@@ -543,6 +552,10 @@ func CalcScoreForTier(quotaPro, quotaFlash, quotaFlashlite float64, resetPro, re
 	default:
 		return calcScore(quotaPro, quotaFlash, resetPro, resetFlash, windowSeconds)
 	}
+}
+
+func ErrorRateSince(resetAt time.Time, windowSeconds int64) time.Time {
+	return scheduling.WindowStart(resetAt, windowSeconds)
 }
 
 // RecordSuccess records a successful request and resets the backoff state.
@@ -926,23 +939,33 @@ func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) 
 		return
 	}
 
-	window := s.settingsSnapshot().ErrorRateWindow()
-	ids := make([]string, len(rows))
-	for i := range rows {
-		ids[i] = rows[i].ID
+	windowSeconds := s.settingsSnapshot().QuotaWindowGeminiSeconds()
+	proSince := make([]db.ErrorRateSince, 0, len(rows))
+	flashSince := make([]db.ErrorRateSince, 0, len(rows))
+	flashliteSince := make([]db.ErrorRateSince, 0, len(rows))
+	for _, row := range rows {
+		if since := ErrorRateSince(row.ResetPro, windowSeconds); !since.IsZero() {
+			proSince = append(proSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
+		}
+		if since := ErrorRateSince(row.ResetFlash, windowSeconds); !since.IsZero() {
+			flashSince = append(flashSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
+		}
+		if since := ErrorRateSince(row.ResetFlashLite, windowSeconds); !since.IsZero() {
+			flashliteSince = append(flashliteSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
+		}
 	}
 
-	ratesPro, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), ModelTierPro, ids, window)
+	ratesPro, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), ModelTierPro, proSince, scheduling.MinErrorRateSamples)
 	if err != nil {
 		log.Warn().Err(err).Msg("gemini scheduler: compute pro error rates")
 		return
 	}
-	ratesFlash, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), ModelTierFlash, ids, window)
+	ratesFlash, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), ModelTierFlash, flashSince, scheduling.MinErrorRateSamples)
 	if err != nil {
 		log.Warn().Err(err).Msg("gemini scheduler: compute flash error rates")
 		return
 	}
-	ratesFlashlite, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), ModelTierFlashLite, ids, window)
+	ratesFlashlite, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), ModelTierFlashLite, flashliteSince, scheduling.MinErrorRateSamples)
 	if err != nil {
 		log.Warn().Err(err).Msg("gemini scheduler: compute flashlite error rates")
 		return

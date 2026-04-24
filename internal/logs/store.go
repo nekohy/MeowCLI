@@ -103,28 +103,40 @@ func (s *Store) CountLogs(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-func (s *Store) ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, credentialIDs []string, window time.Duration) (map[string]float64, error) {
+func (s *Store) ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, since []db.ErrorRateSince, minSamples int) (map[string]float64, error) {
 	if err := contextErr(ctx); err != nil || s == nil {
 		return nil, err
 	}
 
-	idSet := make(map[string]struct{}, len(credentialIDs))
-	for _, id := range credentialIDs {
-		idSet[id] = struct{}{}
+	if minSamples <= 0 {
+		minSamples = 1
 	}
 
-	now := time.Now()
-	if window <= 0 {
-		window = time.Hour
+	sinceByID := make(map[string]time.Time, len(since))
+	var oldestSince time.Time
+	for _, item := range since {
+		if item.CredentialID == "" {
+			continue
+		}
+		sinceByID[item.CredentialID] = item.Since
+		if item.Since.IsZero() {
+			oldestSince = time.Time{}
+			continue
+		}
+		if oldestSince.IsZero() || item.Since.Before(oldestSince) {
+			oldestSince = item.Since
+		}
 	}
-	cutoff := now.Add(-window)
+	if len(sinceByID) == 0 {
+		return map[string]float64{}, nil
+	}
 
 	s.mu.RLock()
 	type counters struct{ total, errors int }
-	counts := make(map[string]*counters, len(idSet))
+	counts := make(map[string]*counters, len(sinceByID))
 	for i := len(s.rows) - 1; i >= s.head; i-- {
 		row := &s.rows[i]
-		if !row.CreatedAt.After(cutoff) {
+		if !oldestSince.IsZero() && !row.CreatedAt.After(oldestSince) {
 			break
 		}
 		if row.Handler != handler {
@@ -140,7 +152,11 @@ func (s *Store) ErrorRatesForCredentials(ctx context.Context, handler string, mo
 				}
 			}
 		}
-		if _, ok := idSet[row.CredentialID]; !ok {
+		sinceAt, ok := sinceByID[row.CredentialID]
+		if !ok {
+			continue
+		}
+		if !sinceAt.IsZero() && !row.CreatedAt.After(sinceAt) {
 			continue
 		}
 		c := counts[row.CredentialID]
@@ -157,7 +173,7 @@ func (s *Store) ErrorRatesForCredentials(ctx context.Context, handler string, mo
 
 	result := make(map[string]float64, len(counts))
 	for id, c := range counts {
-		if c.total > 0 {
+		if c.total >= minSamples {
 			result[id] = float64(c.errors) / float64(c.total)
 		}
 	}
