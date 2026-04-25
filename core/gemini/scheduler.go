@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,17 +35,10 @@ type throttleState struct {
 	until       time.Time
 }
 
-// availableSnapshot caches the result of ListAvailableGeminiCLI.
-type availableSnapshot struct {
-	rows           []availableRow
-	bestByPlanType map[int]int
-}
-
-// availableRow is a single credential in cache; scores are computed by calcScore for sorted selection.
+// availableRow is a single credential in cache; each model tier keeps an independent quota score.
 type availableRow struct {
 	ID              string
 	PlanTypeCode    int
-	Score           float64 // general score (used when no tier specified)
 	ScorePro        float64 // score when serving Pro models
 	ScoreFlash      float64 // score when serving Flash models
 	ScoreFlashLite  float64 // score when serving FlashLite models
@@ -72,7 +64,7 @@ type Scheduler struct {
 	checking         map[string]struct{}
 	verifyCredential func(string)
 	importSyncMu     sync.Mutex
-	available        atomic.Pointer[availableSnapshot]
+	available        atomic.Pointer[[]availableRow]
 	planTypes        *planTypeCodec
 }
 
@@ -194,15 +186,46 @@ func (s *Scheduler) PickWithTier(ctx context.Context, headers http.Header, prefe
 }
 
 func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, allowedCodes []int, preferredCredentialID string, modelTier string) (string, error) {
-	snap, err := s.listAvailable(ctx)
+	rows, err := s.listAvailable(ctx)
 	if err != nil {
 		return "", err
 	}
 
 	allowed := scheduling.PlanTypeCodeSet(allowedCodes)
+	scoreForTier := func(row availableRow) float64 {
+		switch modelTier {
+		case ModelTierPro:
+			return scheduling.AdjustedScore(row.ScorePro, row.WeightPro)
+		case ModelTierFlash:
+			return scheduling.AdjustedScore(row.ScoreFlash, row.WeightFlash)
+		case ModelTierFlashLite:
+			return scheduling.AdjustedScore(row.ScoreFlashLite, row.WeightFlashlite)
+		default:
+			return 0
+		}
+	}
+	bestMatch := func(match func(availableRow) bool) (availableRow, bool) {
+		var best availableRow
+		bestScore := -1.0
+		for _, row := range rows {
+			if !match(row) {
+				continue
+			}
+			score := scoreForTier(row)
+			if score < 0 || score <= bestScore {
+				continue
+			}
+			best = row
+			bestScore = score
+		}
+		return best, bestScore >= 0
+	}
+
 	if preferredCredentialID != "" {
-		if row, ok := availableRowByCredentialID(snap, preferredCredentialID); ok && s.rowScoreForTier(row, modelTier) >= 0 && scheduling.PlanTypeAllowed(row.PlanTypeCode, allowed) {
-			return preferredCredentialID, nil
+		for _, row := range rows {
+			if row.ID == preferredCredentialID && scoreForTier(row) >= 0 && scheduling.PlanTypeAllowed(row.PlanTypeCode, allowed) {
+				return preferredCredentialID, nil
+			}
 		}
 		return "", ErrNoAvailableCredential
 	}
@@ -211,70 +234,47 @@ func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, all
 		if !scheduling.PlanTypeAllowed(code, allowed) {
 			continue
 		}
-		for _, row := range snap.rows {
-			if row.PlanTypeCode != code {
-				continue
-			}
-			if s.rowScoreForTier(row, modelTier) >= 0 {
-				return row.ID, nil
-			}
+		if row, ok := bestMatch(func(row availableRow) bool {
+			return row.PlanTypeCode == code
+		}); ok {
+			return row.ID, nil
 		}
 	}
 
-	for _, r := range snap.rows {
-		if s.rowScoreForTier(r, modelTier) < 0 {
-			continue
-		}
-		if !scheduling.PlanTypeAllowed(r.PlanTypeCode, allowed) {
-			continue
-		}
-		return r.ID, nil
+	if row, ok := bestMatch(func(row availableRow) bool {
+		return scheduling.PlanTypeAllowed(row.PlanTypeCode, allowed)
+	}); ok {
+		return row.ID, nil
 	}
 
 	return "", ErrNoAvailableCredential
 }
 
-// rowScoreForTier returns the score for a row considering the requested model tier.
-// When modelTier is empty, uses the row's general score.
-// When modelTier is set, uses the tier-specific score.
-func (s *Scheduler) rowScoreForTier(row availableRow, modelTier string) float64 {
-	switch modelTier {
-	case ModelTierPro:
-		return scheduling.AdjustedScore(row.ScorePro, row.WeightPro)
-	case ModelTierFlash:
-		return scheduling.AdjustedScore(row.ScoreFlash, row.WeightFlash)
-	case ModelTierFlashLite:
-		return scheduling.AdjustedScore(row.ScoreFlashLite, row.WeightFlashlite)
-	default:
-		return calcAdjustedGeneralScore(row)
-	}
-}
-
 // listAvailable returns the cached available credential list.
 // The cache is initialized by RefreshAvailable and updated by
 // UpdateQuota / removeFromAvailable events; no TTL expiry is used.
-func (s *Scheduler) listAvailable(ctx context.Context) (*availableSnapshot, error) {
-	if snap := s.available.Load(); snap != nil {
+func (s *Scheduler) listAvailable(ctx context.Context) ([]availableRow, error) {
+	if rows := s.available.Load(); rows != nil {
 		if s.hasExpiredThrottle(time.Now()) {
 			if _, err := s.RefreshAvailable(ctx); err == nil {
 				if refreshed := s.available.Load(); refreshed != nil {
-					return refreshed, nil
+					return *refreshed, nil
 				}
 			} else {
 				log.Error().Err(err).Msg("gemini scheduler: refresh available after throttle expiry")
 			}
 		}
-		return snap, nil
+		return *rows, nil
 	}
 
 	// Cache is empty on first call; load from DB.
 	if _, err := s.RefreshAvailable(ctx); err != nil {
 		return nil, err
 	}
-	if snap := s.available.Load(); snap != nil {
-		return snap, nil
+	if rows := s.available.Load(); rows != nil {
+		return *rows, nil
 	}
-	return buildAvailableSnapshot(nil), nil
+	return nil, nil
 }
 
 // RefreshAvailable reloads all available credentials from DB and refreshes the in-memory cache.
@@ -304,10 +304,9 @@ func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.Li
 		row := availableRow{
 			ID:              r.ID,
 			PlanTypeCode:    planTypes.code(r.PlanType),
-			Score:           calcScore(r.QuotaPro, r.QuotaFlash, r.ResetPro, r.ResetFlash, ws),
-			ScorePro:        CalcScoreForTier(r.QuotaPro, r.QuotaFlash, r.QuotaFlashlite, r.ResetPro, r.ResetFlash, r.ResetFlashlite, ModelTierPro, ws),
-			ScoreFlash:      CalcScoreForTier(r.QuotaPro, r.QuotaFlash, r.QuotaFlashlite, r.ResetPro, r.ResetFlash, r.ResetFlashlite, ModelTierFlash, ws),
-			ScoreFlashLite:  CalcScoreForTier(r.QuotaPro, r.QuotaFlash, r.QuotaFlashlite, r.ResetPro, r.ResetFlash, r.ResetFlashlite, ModelTierFlashLite, ws),
+			ScorePro:        CalcScore(r.QuotaPro, r.QuotaFlash, r.QuotaFlashlite, r.ResetPro, r.ResetFlash, r.ResetFlashlite, ModelTierPro, ws),
+			ScoreFlash:      CalcScore(r.QuotaPro, r.QuotaFlash, r.QuotaFlashlite, r.ResetPro, r.ResetFlash, r.ResetFlashlite, ModelTierFlash, ws),
+			ScoreFlashLite:  CalcScore(r.QuotaPro, r.QuotaFlash, r.QuotaFlashlite, r.ResetPro, r.ResetFlash, r.ResetFlashlite, ModelTierFlashLite, ws),
 			ResetPro:        r.ResetPro,
 			ResetFlash:      r.ResetFlash,
 			ResetFlashLite:  r.ResetFlashlite,
@@ -324,22 +323,17 @@ func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.Li
 		if !r.ThrottledUntilFlashlite.IsZero() && now.Before(r.ThrottledUntilFlashlite) {
 			row.ScoreFlashLite = -1
 		}
-		row.Score = calcAdjustedGeneralScore(row)
 		rows = append(rows, row)
 	}
 
 	s.computeErrorRates(ctx, rows)
 
-	sort.Slice(rows, func(i, j int) bool {
-		return calcAdjustedGeneralScore(rows[i]) > calcAdjustedGeneralScore(rows[j])
-	})
-
-	s.available.Store(buildAvailableSnapshot(rows))
+	s.available.Store(&rows)
 	s.pruneExpiredThrottles(time.Now())
 	return rows
 }
 
-// updateAvailableQuota updates the scores for a specific credential in the cache and re-sorts.
+// updateAvailableQuota updates the scores for a specific credential in the cache.
 func (s *Scheduler) updateAvailableQuota(id string, q *geminiapi.Quota) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -351,14 +345,14 @@ func (s *Scheduler) updateAvailableQuota(id string, q *geminiapi.Quota) {
 
 	config := s.settingsSnapshot()
 	ws := config.QuotaWindowGeminiSeconds()
-	updated := make([]availableRow, len(snap.rows))
-	copy(updated, snap.rows)
+	updated := make([]availableRow, len(*snap))
+	copy(updated, *snap)
 
 	for i := range updated {
 		if updated[i].ID == id {
-			newScorePro := CalcScoreForTier(q.QuotaPro, q.QuotaFlash, q.QuotaFlashlite, q.ResetPro, q.ResetFlash, q.ResetFlashlite, ModelTierPro, ws)
-			newScoreFlash := CalcScoreForTier(q.QuotaPro, q.QuotaFlash, q.QuotaFlashlite, q.ResetPro, q.ResetFlash, q.ResetFlashlite, ModelTierFlash, ws)
-			newScoreFlashLite := CalcScoreForTier(q.QuotaPro, q.QuotaFlash, q.QuotaFlashlite, q.ResetPro, q.ResetFlash, q.ResetFlashlite, ModelTierFlashLite, ws)
+			newScorePro := CalcScore(q.QuotaPro, q.QuotaFlash, q.QuotaFlashlite, q.ResetPro, q.ResetFlash, q.ResetFlashlite, ModelTierPro, ws)
+			newScoreFlash := CalcScore(q.QuotaPro, q.QuotaFlash, q.QuotaFlashlite, q.ResetPro, q.ResetFlash, q.ResetFlashlite, ModelTierFlash, ws)
+			newScoreFlashLite := CalcScore(q.QuotaPro, q.QuotaFlash, q.QuotaFlashlite, q.ResetPro, q.ResetFlash, q.ResetFlashlite, ModelTierFlashLite, ws)
 			if updated[i].ScorePro < 0 && newScorePro >= 0 {
 				updated[i].WeightPro = 1.0
 			}
@@ -368,7 +362,6 @@ func (s *Scheduler) updateAvailableQuota(id string, q *geminiapi.Quota) {
 			if updated[i].ScoreFlashLite < 0 && newScoreFlashLite >= 0 {
 				updated[i].WeightFlashlite = 1.0
 			}
-			updated[i].Score = calcScore(q.QuotaPro, q.QuotaFlash, q.ResetPro, q.ResetFlash, ws)
 			updated[i].ScorePro = newScorePro
 			updated[i].ScoreFlash = newScoreFlash
 			updated[i].ScoreFlashLite = newScoreFlashLite
@@ -379,11 +372,7 @@ func (s *Scheduler) updateAvailableQuota(id string, q *geminiapi.Quota) {
 		}
 	}
 
-	sort.Slice(updated, func(i, j int) bool {
-		return calcAdjustedGeneralScore(updated[i]) > calcAdjustedGeneralScore(updated[j])
-	})
-
-	s.available.Store(buildAvailableSnapshot(updated))
+	s.available.Store(&updated)
 }
 
 // removeFromAvailable removes a credential from the cache (called when throttled).
@@ -396,14 +385,14 @@ func (s *Scheduler) removeFromAvailable(id string) {
 		return
 	}
 
-	filtered := make([]availableRow, 0, len(snap.rows))
-	for _, r := range snap.rows {
+	filtered := make([]availableRow, 0, len(*snap))
+	for _, r := range *snap {
 		if r.ID != id {
 			filtered = append(filtered, r)
 		}
 	}
 
-	s.available.Store(buildAvailableSnapshot(filtered))
+	s.available.Store(&filtered)
 }
 
 func (s *Scheduler) markTierUnavailable(id string, modelTier string) {
@@ -415,8 +404,8 @@ func (s *Scheduler) markTierUnavailable(id string, modelTier string) {
 		return
 	}
 
-	updated := make([]availableRow, len(snap.rows))
-	copy(updated, snap.rows)
+	updated := make([]availableRow, len(*snap))
+	copy(updated, *snap)
 	for i := range updated {
 		if updated[i].ID != id {
 			continue
@@ -434,36 +423,7 @@ func (s *Scheduler) markTierUnavailable(id string, modelTier string) {
 		break
 	}
 
-	s.available.Store(buildAvailableSnapshot(updated))
-}
-
-func buildAvailableSnapshot(rows []availableRow) *availableSnapshot {
-	bestByPlanType := make(map[int]int, len(rows))
-	for i, row := range rows {
-		if calcAdjustedGeneralScore(row) < 0 {
-			continue
-		}
-		if _, ok := bestByPlanType[row.PlanTypeCode]; ok {
-			continue
-		}
-		bestByPlanType[row.PlanTypeCode] = i
-	}
-	return &availableSnapshot{
-		rows:           rows,
-		bestByPlanType: bestByPlanType,
-	}
-}
-
-func availableRowByCredentialID(snap *availableSnapshot, credentialID string) (availableRow, bool) {
-	if snap == nil {
-		return availableRow{}, false
-	}
-	for _, row := range snap.rows {
-		if row.ID == credentialID {
-			return row, true
-		}
-	}
-	return availableRow{}, false
+	s.available.Store(&updated)
 }
 
 func (s *Scheduler) AuthHeaders(ctx context.Context, credentialID string) (http.Header, error) {
@@ -501,31 +461,10 @@ func headerPlanTypeCodes(headers http.Header, enabled bool, codec *planTypeCodec
 	return codec.codesFor(ParsePlanTypeList(strings.Join(headers.Values(utils.HeaderPlanTypePreference), ",")))
 }
 
-// calcScore computes a composite priority score based on quota ratios and reset times.
-// Higher scores mean higher priority. Layered weighting:
-//
-//  1. Pro reset urgency (weight 1000) — prefer credentials about to reset
-//  2. Pro remaining quota (weight 100) — among equal urgency, prefer fuller quota
-//  3. Flash reset urgency (weight 10) — secondary urgency factor
-//  4. Flash remaining quota (weight 1) — tiebreaker
-//
-// If both Pro and Flash quota are fully exhausted (0%), the credential is unusable (-1).
-func calcScore(quotaPro, quotaFlash float64, resetPro, resetFlash time.Time, windowSeconds int64) float64 {
-	if quotaPro == 0 && quotaFlash == 0 {
-		return -1
-	}
-
-	now := time.Now().Unix()
-	uPro := scheduling.UrgencyFactor(resetPro.Unix(), now, windowSeconds)
-	uFlash := scheduling.UrgencyFactor(resetFlash.Unix(), now, windowSeconds)
-
-	return uPro*1000 + quotaPro*100 + uFlash*10 + quotaFlash
-}
-
-// CalcScoreForTier computes a priority score for a specific model tier.
+// CalcScore computes a priority score for a specific model tier.
 // Only the relevant tier's quota is checked; other tiers are ignored.
 // If the requested tier's quota is exhausted (0%), returns -1 (unusable for that tier).
-func CalcScoreForTier(quotaPro, quotaFlash, quotaFlashlite float64, resetPro, resetFlash, resetFlashlite time.Time, modelTier string, windowSeconds int64) float64 {
+func CalcScore(quotaPro, quotaFlash, quotaFlashlite float64, resetPro, resetFlash, resetFlashlite time.Time, modelTier string, windowSeconds int64) float64 {
 	now := time.Now().Unix()
 	switch modelTier {
 	case ModelTierPro:
@@ -544,7 +483,7 @@ func CalcScoreForTier(quotaPro, quotaFlash, quotaFlashlite float64, resetPro, re
 		}
 		return scheduling.UrgencyFactor(resetFlashlite.Unix(), now, windowSeconds)*100 + quotaFlashlite
 	default:
-		return calcScore(quotaPro, quotaFlash, resetPro, resetFlash, windowSeconds)
+		return -1
 	}
 }
 
@@ -996,24 +935,4 @@ func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) 
 			rows[i].WeightFlashlite = scheduling.CalcWeight(rate)
 		}
 	}
-}
-
-func calcAdjustedGeneralScore(row availableRow) float64 {
-	adjustedPro := scheduling.AdjustedScore(row.ScorePro, row.WeightPro)
-	adjustedFlash := scheduling.AdjustedScore(row.ScoreFlash, row.WeightFlash)
-	adjustedFlashLite := scheduling.AdjustedScore(row.ScoreFlashLite, row.WeightFlashlite)
-	if adjustedPro < 0 && adjustedFlash < 0 && adjustedFlashLite < 0 {
-		return -1.0
-	}
-	total := 0.0
-	if adjustedPro >= 0 {
-		total += adjustedPro
-	}
-	if adjustedFlash >= 0 {
-		total += adjustedFlash
-	}
-	if adjustedFlashLite >= 0 {
-		total += adjustedFlashLite
-	}
-	return total
 }

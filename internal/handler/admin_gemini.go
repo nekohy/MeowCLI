@@ -224,9 +224,9 @@ func (a *AdminHandler) listGeminiCredentials(ctx context.Context, page, pageSize
 
 	items := make([]geminiListItem, len(rows))
 	for i, row := range rows {
-		scorePro := coregemini.CalcScoreForTier(row.QuotaPro, row.QuotaFlash, row.QuotaFlashlite, row.ResetPro, row.ResetFlash, row.ResetFlashlite, coregemini.ModelTierPro, ws)
-		scoreFlash := coregemini.CalcScoreForTier(row.QuotaPro, row.QuotaFlash, row.QuotaFlashlite, row.ResetPro, row.ResetFlash, row.ResetFlashlite, coregemini.ModelTierFlash, ws)
-		scoreFlashlite := coregemini.CalcScoreForTier(row.QuotaPro, row.QuotaFlash, row.QuotaFlashlite, row.ResetPro, row.ResetFlash, row.ResetFlashlite, coregemini.ModelTierFlashLite, ws)
+		scorePro := coregemini.CalcScore(row.QuotaPro, row.QuotaFlash, row.QuotaFlashlite, row.ResetPro, row.ResetFlash, row.ResetFlashlite, coregemini.ModelTierPro, ws)
+		scoreFlash := coregemini.CalcScore(row.QuotaPro, row.QuotaFlash, row.QuotaFlashlite, row.ResetPro, row.ResetFlash, row.ResetFlashlite, coregemini.ModelTierFlash, ws)
+		scoreFlashlite := coregemini.CalcScore(row.QuotaPro, row.QuotaFlash, row.QuotaFlashlite, row.ResetPro, row.ResetFlash, row.ResetFlashlite, coregemini.ModelTierFlashLite, ws)
 
 		var erPro, erFlash, erFlashlite float64
 		if ratesPro != nil {
