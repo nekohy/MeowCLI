@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { formatTime, statusText, toneForStatus } from '~/lib/admin'
+import type { LogItem } from '~/types/admin'
 
 const admin = useAdminApp()
 const router = useRouter()
@@ -7,13 +8,15 @@ const router = useRouter()
 const summary = computed(() => admin.overview.value.summary)
 const recentLogs = computed(() => admin.overview.value.recent_logs)
 
-function previewLog(text: string) {
-  const line = text
+function hasLogDetail(text: string) {
+  return text
     .split(/\r?\n/)
     .map((item) => item.trim())
-    .find(Boolean)
+    .some(Boolean)
+}
 
-  return line ? line.slice(0, 120) : '无详细文本'
+function logItemKey(item: LogItem) {
+  return `${item.handler}-${item.credential_id}-${item.created_at}-${item.status_code}`
 }
 
 async function openHandler(key: string, supportsCredentials: boolean) {
@@ -122,21 +125,53 @@ async function openPage(path: string) {
       title="最近请求"
       icon="mdi-pulse"
     >
-      <VExpansionPanels
+      <div
         v-if="recentLogs.length"
-        variant="accordion"
-        class="log-panels"
+        class="log-list"
       >
-        <VExpansionPanel
+        <template
           v-for="item in recentLogs"
-          :key="`${item.handler}-${item.credential_id}-${item.created_at}-${item.status_code}`"
-          elevation="0"
-          border
-          class="mb-2"
+          :key="logItemKey(item)"
         >
-          <VExpansionPanelTitle class="py-3">
+          <VExpansionPanels
+            v-if="hasLogDetail(item.text)"
+            variant="accordion"
+            class="log-panels"
+          >
+            <VExpansionPanel
+              elevation="0"
+              border
+            >
+              <VExpansionPanelTitle class="py-3">
+                <div class="activity-title w-100">
+                  <div class="d-flex align-center ga-3">
+                    <AdminBadge :tone="item.status_code < 400 ? 'success' : 'danger'">
+                      {{ item.status_code }}
+                    </AdminBadge>
+                    <span class="text-subtitle-2 font-weight-bold">{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
+                    <span class="text-caption text-medium-emphasis d-none d-sm-inline">{{ item.credential_id || 'SYSTEM' }}</span>
+                    <VSpacer />
+                    <span class="text-caption text-medium-emphasis">{{ formatTime(item.created_at) }}</span>
+                  </div>
+                </div>
+              </VExpansionPanelTitle>
+              <VExpansionPanelText>
+                <VSheet color="surface-container-high" rounded="lg" class="log-detail-surface">
+                  <pre class="log-text">{{ item.text }}</pre>
+                </VSheet>
+              </VExpansionPanelText>
+            </VExpansionPanel>
+          </VExpansionPanels>
+
+          <VSheet
+            v-else
+            class="log-static-row"
+            color="surface-container"
+            rounded="xl"
+            border
+          >
             <div class="activity-title w-100">
-              <div class="d-flex align-center ga-3 mb-1">
+              <div class="d-flex align-center ga-3">
                 <AdminBadge :tone="item.status_code < 400 ? 'success' : 'danger'">
                   {{ item.status_code }}
                 </AdminBadge>
@@ -145,16 +180,10 @@ async function openPage(path: string) {
                 <VSpacer />
                 <span class="text-caption text-medium-emphasis">{{ formatTime(item.created_at) }}</span>
               </div>
-              <div class="text-caption text-medium-emphasis text-truncate" style="opacity: 0.7">{{ previewLog(item.text) }}</div>
             </div>
-          </VExpansionPanelTitle>
-          <VExpansionPanelText>
-            <VSheet color="surface-container-high" rounded="lg" class="pa-3 mt-2">
-              <pre class="log-text">{{ item.text }}</pre>
-            </VSheet>
-          </VExpansionPanelText>
-        </VExpansionPanel>
-      </VExpansionPanels>
+          </VSheet>
+        </template>
+      </div>
 
       <EmptyState
         v-else

@@ -20,6 +20,12 @@ const searchQuery = ref('')
 const handlerFilter = ref('all')
 const statusCodeFilter = ref('all')
 
+const errorLogsTotal = computed(() =>
+  summary.value.status_codes
+    .filter((item) => item.status_code >= 400)
+    .reduce((total, item) => total + item.total, 0),
+)
+
 const summaryTiles = computed(() => [
   {
     label: '总日志',
@@ -28,10 +34,10 @@ const summaryTiles = computed(() => [
     icon: 'mdi-file-document-outline',
   },
   {
-    label: '状态码',
-    value: summary.value.status_codes.length,
-    helper: '当前条件下出现的状态码',
-    icon: 'mdi-list-status',
+    label: '错误日志',
+    value: errorLogsTotal.value,
+    helper: '当前条件下出现的错误',
+    icon: 'mdi-alert-circle-outline',
   },
   {
     label: '筛选结果',
@@ -53,12 +59,15 @@ const statusCodeOptions = computed(() => [
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let latestLoadToken = 0
 
-function previewLog(text: string) {
-  const line = text
+function hasLogDetail(text: string) {
+  return text
     .split(/\r?\n/)
     .map((item) => item.trim())
-    .find(Boolean)
-  return line ? line.slice(0, 140) : '无详细文本'
+    .some(Boolean)
+}
+
+function logItemKey(item: LogItem) {
+  return `${item.handler}-${item.credential_id}-${item.created_at}-${item.status_code}`
 }
 
 function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.value) {
@@ -233,18 +242,50 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <VExpansionPanels
+        <div
           v-if="items.length"
-          variant="accordion"
-          class="log-panels"
+          class="log-list"
         >
-          <VExpansionPanel
+          <template
             v-for="item in items"
-            :key="`${item.handler}-${item.credential_id}-${item.created_at}-${item.status_code}`"
-            elevation="0"
-            border
+            :key="logItemKey(item)"
           >
-            <VExpansionPanelTitle>
+            <VExpansionPanels
+              v-if="hasLogDetail(item.text)"
+              variant="accordion"
+              class="log-panels"
+            >
+              <VExpansionPanel
+                elevation="0"
+                border
+              >
+                <VExpansionPanelTitle>
+                  <div class="activity-title">
+                    <div class="activity-topline">
+                      <AdminBadge :tone="item.status_code < 400 ? 'success' : 'danger'">
+                        {{ item.status_code }}
+                      </AdminBadge>
+                      <span class="font-weight-medium">{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
+                      <span class="text-medium-emphasis">{{ item.credential_id || '未记录凭据' }}</span>
+                      <span class="text-medium-emphasis">{{ formatTime(item.created_at) }}</span>
+                    </div>
+                  </div>
+                </VExpansionPanelTitle>
+                <VExpansionPanelText>
+                  <VSheet color="surface-container-high" rounded="lg" class="log-detail-surface">
+                    <pre class="log-text">{{ item.text }}</pre>
+                  </VSheet>
+                </VExpansionPanelText>
+              </VExpansionPanel>
+            </VExpansionPanels>
+
+            <VSheet
+              v-else
+              class="log-static-row"
+              color="surface-container"
+              rounded="xl"
+              border
+            >
               <div class="activity-title">
                 <div class="activity-topline">
                   <AdminBadge :tone="item.status_code < 400 ? 'success' : 'danger'">
@@ -254,14 +295,10 @@ onBeforeUnmount(() => {
                   <span class="text-medium-emphasis">{{ item.credential_id || '未记录凭据' }}</span>
                   <span class="text-medium-emphasis">{{ formatTime(item.created_at) }}</span>
                 </div>
-                <div class="activity-preview">{{ previewLog(item.text) }}</div>
               </div>
-            </VExpansionPanelTitle>
-            <VExpansionPanelText>
-              <pre class="log-text">{{ item.text }}</pre>
-            </VExpansionPanelText>
-          </VExpansionPanel>
-        </VExpansionPanels>
+            </VSheet>
+          </template>
+        </div>
 
         <EmptyState
           v-else

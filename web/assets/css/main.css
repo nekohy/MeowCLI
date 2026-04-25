@@ -1181,6 +1181,24 @@ pre {
   word-break: break-word;
 }
 
+.log-list {
+  display: grid;
+  gap: 8px;
+}
+
+.log-static-row,
+.log-panels .v-expansion-panel {
+  border: 1px solid rgba(var(--v-theme-outline-variant), 0.58) !important;
+}
+
+.log-static-row {
+  padding: 18px 24px;
+}
+
+.log-panels .v-expansion-panel {
+  background: rgb(var(--v-theme-surface-container));
+}
+
 .log-panels .v-expansion-panel-title {
   min-height: 0;
   padding-block: 18px;
@@ -1188,6 +1206,12 @@ pre {
 
 .log-panels .v-expansion-panel-text__wrapper {
   padding-top: 0;
+}
+
+.log-detail-surface {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid rgba(var(--v-theme-outline-variant), 0.58);
 }
 
 .log-text {
