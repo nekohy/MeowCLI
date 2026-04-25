@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"github.com/bytedance/sonic"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/internal/settings"
@@ -32,14 +30,8 @@ type Client struct {
 func NewClient() *Client {
 	c := &Client{}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = (&net.Dialer{
-		Timeout:   15 * time.Second,
-		KeepAlive: 30 * time.Second,
-	}).DialContext
-	transport.TLSHandshakeTimeout = 10 * time.Second
-	transport.ResponseHeaderTimeout = 30 * time.Second
-	transport.ExpectContinueTimeout = time.Second
-	transport.IdleConnTimeout = 90 * time.Second
+	transport.ResponseHeaderTimeout = utils.DefaultUpstreamTimeout
+	transport.IdleConnTimeout = utils.DefaultUpstreamTimeout
 	transport.MaxIdleConns = 100
 	transport.MaxIdleConnsPerHost = 20
 	transport.Proxy = func(*http.Request) (*url.URL, error) {

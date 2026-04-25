@@ -9,6 +9,7 @@ import (
 const (
 	DefaultRefreshBefore     = 30 * time.Second
 	DefaultPollInterval      = 200 * time.Millisecond
+	DefaultUpstreamTimeout   = 120 * time.Second
 	DefaultMaxRetries        = 3
 	HeaderPlanTypePreference = "X-Meow-Plan-Type"
 )

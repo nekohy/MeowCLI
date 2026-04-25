@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/nekohy/MeowCLI/api"
 	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
+	commonutils "github.com/nekohy/MeowCLI/utils"
 	"net/http"
 	"time"
 )
@@ -22,7 +23,7 @@ func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*
 		return nil, false, fmt.Errorf("refresh token was eaten by a cat")
 	}
 
-	reqCtx, cancel := withOptionalTimeout(ctx, defaultRefreshTokenTimeout)
+	reqCtx, cancel := withOptionalTimeout(ctx, commonutils.DefaultUpstreamTimeout)
 	defer cancel()
 
 	var result RTResponse

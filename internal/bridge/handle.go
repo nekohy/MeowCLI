@@ -18,7 +18,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const defaultRelayRoundTripTimeout = 2 * time.Minute
 const maxBridgeRequestBodyBytes = 32 << 20
 
 type relayRequest struct {
@@ -142,7 +141,7 @@ func relayAttemptContext(ctx context.Context, stream bool) (context.Context, con
 	if _, hasDeadline := ctx.Deadline(); hasDeadline {
 		return ctx, func() {}
 	}
-	return context.WithTimeout(ctx, defaultRelayRoundTripTimeout)
+	return context.WithTimeout(ctx, utils.DefaultUpstreamTimeout)
 }
 
 func shouldRetryUpstreamStatus(status int) bool {

@@ -8,11 +8,9 @@ import (
 	"github.com/nekohy/MeowCLI/internal/settings"
 	"github.com/nekohy/MeowCLI/utils"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/bytedance/sonic"
 	"github.com/go-resty/resty/v2"
@@ -31,14 +29,8 @@ func NewClient() *Client {
 	c := &Client{}
 	rc := resty.New()
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = (&net.Dialer{
-		Timeout:   defaultDialTimeout,
-		KeepAlive: 30 * time.Second,
-	}).DialContext
-	transport.TLSHandshakeTimeout = defaultTLSHandshakeTimeout
-	transport.ResponseHeaderTimeout = defaultResponseHeaderTimeout
-	transport.ExpectContinueTimeout = defaultExpectContinueTimeout
-	transport.IdleConnTimeout = defaultIdleConnTimeout
+	transport.ResponseHeaderTimeout = utils.DefaultUpstreamTimeout
+	transport.IdleConnTimeout = utils.DefaultUpstreamTimeout
 	transport.MaxIdleConns = 100
 	transport.MaxIdleConnsPerHost = 20
 	transport.Proxy = func(*http.Request) (*url.URL, error) {

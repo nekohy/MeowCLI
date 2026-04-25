@@ -34,7 +34,7 @@ type rateLimitWindow struct {
 }
 
 func (c *Client) FetchQuota(ctx context.Context, credentialID, accessToken string) (*codexutils.Quota, error) {
-	reqCtx, cancel := withOptionalTimeout(ctx, defaultQuotaRequestTimeout)
+	reqCtx, cancel := withOptionalTimeout(ctx, utils.DefaultUpstreamTimeout)
 	defer cancel()
 
 	var usage usageResponse
