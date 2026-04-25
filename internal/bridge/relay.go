@@ -40,6 +40,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 	var lastRelayErr relayError
 	var haveLastRelayErr bool
 	graceCredentialID := ""
+	graceRetriedCredentialID := ""
 
 	for attempt := 0; attempt < h.maxAttempts(); attempt++ {
 		preferredCredentialID := cfg.resolvePreferred(graceCredentialID)
@@ -145,7 +146,20 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			}
 			if decider, ok := cfg.sched.(GraceRetryDecider); ok {
 				if delay, shouldRetrySameCredential := decider.GraceRetry(int32(resp.StatusCode), errText, retryAfter); shouldRetrySameCredential {
+					if graceRetriedCredentialID == credID {
+						graceCredentialID = ""
+						graceRetriedCredentialID = ""
+						cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, retryAfter, cfg.modelTier)
+						log.Warn().
+							Int("status", resp.StatusCode).
+							Str("credential", credID).
+							Str("model", cfg.modelAlias).
+							Int("attempt", attempt+1).
+							Msg("upstream rate limited after grace retry, retrying with next credential")
+						continue
+					}
 					graceCredentialID = credID
+					graceRetriedCredentialID = credID
 					if !sleepWithContext(cfg.ctx, delay) {
 						return
 					}
@@ -160,9 +174,11 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 				}
 			}
 			graceCredentialID = ""
+			graceRetriedCredentialID = ""
 			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, retryAfter, cfg.modelTier)
 		} else {
 			graceCredentialID = ""
+			graceRetriedCredentialID = ""
 			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, 0, cfg.modelTier)
 		}
 

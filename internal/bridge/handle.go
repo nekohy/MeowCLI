@@ -134,14 +134,8 @@ func preferredSessionKey(providerType utils.HandlerType, sessionID string) strin
 	return ""
 }
 
-func relayAttemptContext(ctx context.Context, stream bool) (context.Context, context.CancelFunc) {
-	if stream {
-		return ctx, func() {}
-	}
-	if _, hasDeadline := ctx.Deadline(); hasDeadline {
-		return ctx, func() {}
-	}
-	return context.WithTimeout(ctx, utils.DefaultUpstreamTimeout)
+func relayAttemptContext(ctx context.Context, _ bool) (context.Context, context.CancelFunc) {
+	return ctx, func() {}
 }
 
 func shouldRetryUpstreamStatus(status int) bool {
