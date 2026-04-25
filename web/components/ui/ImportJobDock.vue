@@ -20,7 +20,7 @@ function progressValue(job: ImportJobSnapshot) {
 }
 
 function closeAll() {
-  visibleJobs.value.forEach((job) => importJobs.dismiss(job.id))
+  visibleJobs.value.forEach((job) => void importJobs.dismiss(job, admin.token.value))
 }
 
 async function refreshAndPoll() {
@@ -101,7 +101,7 @@ onBeforeUnmount(() => {
                 density="compact"
                 size="x-small"
                 aria-label="关闭该导入任务"
-                @click="importJobs.dismiss(job.id)"
+                @click="importJobs.dismiss(job, admin.token.value)"
               />
             </div>
 

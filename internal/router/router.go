@@ -48,6 +48,7 @@ func Setup(r *gin.Engine, deps Deps) {
 			apiGroup.PUT("/settings", deps.Admin.UpdateSettings)
 
 			apiGroup.GET("/jobs", deps.Admin.ListJobs)
+			apiGroup.DELETE("/jobs/:id", deps.Admin.AcknowledgeJob)
 
 			apiGroup.GET("/codex", deps.Admin.ListCodex)
 			apiGroup.POST("/codex", deps.Admin.BatchCreateCodex)

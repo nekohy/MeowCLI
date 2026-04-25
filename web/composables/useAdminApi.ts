@@ -211,6 +211,12 @@ export const adminApi = {
   listJobs(token: string) {
     return apiRequest<ImportJobListResponse>('/jobs', { token })
   },
+  acknowledgeJob(token: string, id: string) {
+    return apiRequest<{ ok: boolean }>(`/jobs/${encodeURIComponent(id)}`, {
+      token,
+      method: 'DELETE',
+    })
+  },
   updateCredentialStatus(token: string, endpoint: string, payload: { ids: string[]; status: string }) {
     return apiRequest<BatchStatusResponse>(`${credentialsPath(endpoint)}/status`, {
       token,

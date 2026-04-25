@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,6 +17,11 @@ import (
 )
 
 const defaultImportConcurrency = 4
+
+var (
+	errImportJobNotFound = errors.New("import job not found")
+	errImportJobRunning  = errors.New("import job is still running")
+)
 
 type importJobStatus string
 
@@ -111,6 +117,31 @@ func (m *importJobManager) List() []importJobSnapshot {
 		snapshots = append(snapshots, job.Snapshot())
 	}
 	return snapshots
+}
+
+func (m *importJobManager) Acknowledge(id string) error {
+	if m == nil {
+		return errImportJobNotFound
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errImportJobNotFound
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	job, ok := m.jobs[id]
+	if !ok {
+		return errImportJobNotFound
+	}
+
+	if !job.Snapshot().Done {
+		return errImportJobRunning
+	}
+
+	delete(m.jobs, id)
+	return nil
 }
 
 func (j *importJob) run(ctx context.Context, tokens []string, process importProcessor, onCreated importCreatedHook) {
@@ -218,4 +249,25 @@ func (a *AdminHandler) ListJobs(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": a.importJobs.List()})
+}
+
+func (a *AdminHandler) AcknowledgeJob(c *gin.Context) {
+	if a == nil || a.importJobs == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "import job manager is unavailable"})
+		return
+	}
+
+	if err := a.importJobs.Acknowledge(c.Param("id")); err != nil {
+		switch {
+		case errors.Is(err, errImportJobNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+		case errors.Is(err, errImportJobRunning):
+			c.JSON(http.StatusConflict, gin.H{"error": "job is still running"})
+		default:
+			writeInternalError(c, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
