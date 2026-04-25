@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const MinErrorRateSamples = 5
+const MinErrorRateSamples = 2
 
 type RefreshMode int
 
