@@ -31,7 +31,7 @@ const summaryTiles = computed(() => [
     label: '状态码',
     value: summary.value.status_codes.length,
     helper: '当前条件下出现的状态码',
-    icon: 'mdi-numeric',
+    icon: 'mdi-list-status',
   },
   {
     label: '筛选结果',
@@ -143,10 +143,10 @@ onBeforeUnmount(() => {
       icon="mdi-text-box-search-outline"
     >
       <template #meta>
-        <AdminBadge tone="secondary" icon="mdi-counter">
+        <AdminBadge tone="secondary" icon="mdi-file-document-outline">
           {{ summary.total }} 条记录
         </AdminBadge>
-        <AdminBadge tone="secondary" icon="mdi-numeric">
+        <AdminBadge tone="secondary" icon="mdi-list-status">
           {{ summary.status_codes.length }} 种状态码
         </AdminBadge>
       </template>

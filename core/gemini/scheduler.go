@@ -44,21 +44,18 @@ type availableSnapshot struct {
 
 // availableRow is a single credential in cache; scores are computed by calcScore for sorted selection.
 type availableRow struct {
-	ID                 string
-	PlanTypeCode       int
-	Score              float64 // general score (used when no tier specified)
-	ScorePro           float64 // score when serving Pro models
-	ScoreFlash         float64 // score when serving Flash models
-	ScoreFlashLite     float64 // score when serving FlashLite models
-	ResetPro           time.Time
-	ResetFlash         time.Time
-	ResetFlashLite     time.Time
-	ErrorRatePro       float64
-	WeightPro          float64
-	ErrorRateFlash     float64
-	WeightFlash        float64
-	ErrorRateFlashlite float64
-	WeightFlashlite    float64
+	ID              string
+	PlanTypeCode    int
+	Score           float64 // general score (used when no tier specified)
+	ScorePro        float64 // score when serving Pro models
+	ScoreFlash      float64 // score when serving Flash models
+	ScoreFlashLite  float64 // score when serving FlashLite models
+	ResetPro        time.Time
+	ResetFlash      time.Time
+	ResetFlashLite  time.Time
+	WeightPro       float64
+	WeightFlash     float64
+	WeightFlashlite float64
 }
 
 // Scheduler selects the best available credential based on quota ratios and reset time
@@ -363,15 +360,12 @@ func (s *Scheduler) updateAvailableQuota(id string, q *geminiapi.Quota) {
 			newScoreFlash := CalcScoreForTier(q.QuotaPro, q.QuotaFlash, q.QuotaFlashlite, q.ResetPro, q.ResetFlash, q.ResetFlashlite, ModelTierFlash, ws)
 			newScoreFlashLite := CalcScoreForTier(q.QuotaPro, q.QuotaFlash, q.QuotaFlashlite, q.ResetPro, q.ResetFlash, q.ResetFlashlite, ModelTierFlashLite, ws)
 			if updated[i].ScorePro < 0 && newScorePro >= 0 {
-				updated[i].ErrorRatePro = 0
 				updated[i].WeightPro = 1.0
 			}
 			if updated[i].ScoreFlash < 0 && newScoreFlash >= 0 {
-				updated[i].ErrorRateFlash = 0
 				updated[i].WeightFlash = 1.0
 			}
 			if updated[i].ScoreFlashLite < 0 && newScoreFlashLite >= 0 {
-				updated[i].ErrorRateFlashlite = 0
 				updated[i].WeightFlashlite = 1.0
 			}
 			updated[i].Score = calcScore(q.QuotaPro, q.QuotaFlash, q.ResetPro, q.ResetFlash, ws)
@@ -977,15 +971,12 @@ func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) 
 
 	for i := range rows {
 		if rate, ok := ratesPro[rows[i].ID]; ok && rate > 0 {
-			rows[i].ErrorRatePro = rate
 			rows[i].WeightPro = scheduling.CalcWeight(rate)
 		}
 		if rate, ok := ratesFlash[rows[i].ID]; ok && rate > 0 {
-			rows[i].ErrorRateFlash = rate
 			rows[i].WeightFlash = scheduling.CalcWeight(rate)
 		}
 		if rate, ok := ratesFlashlite[rows[i].ID]; ok && rate > 0 {
-			rows[i].ErrorRateFlashlite = rate
 			rows[i].WeightFlashlite = scheduling.CalcWeight(rate)
 		}
 	}

@@ -125,6 +125,8 @@ type CredentialListFilters = {
   search?: string
   status?: 'enabled' | 'disabled'
   planType?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
 type LogListFilters = {
@@ -192,6 +194,8 @@ export const adminApi = {
       search = '',
       status,
       planType,
+      sortBy,
+      sortOrder,
     } = options
     return apiRequest<PaginatedResponse<CredentialItem>>(credentialsPath(endpoint), {
       token,
@@ -199,6 +203,8 @@ export const adminApi = {
         search,
         status,
         plan_type: planType,
+        sort_by: sortBy,
+        sort_order: sortOrder,
       }),
     })
   },

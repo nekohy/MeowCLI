@@ -7,7 +7,7 @@ const props = withDefaults(defineProps<{
   maxWidth?: number | string
 }>(), {
   description: undefined,
-  icon: 'mdi-square-rounded-outline',
+  icon: 'mdi-information-outline',
   maxWidth: 560,
 })
 

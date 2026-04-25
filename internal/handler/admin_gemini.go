@@ -25,34 +25,19 @@ type batchCreateGeminiReq struct {
 }
 
 type geminiListItem struct {
-	Handler            string    `json:"handler"`
-	ID                 string    `json:"id"`
-	Status             string    `json:"status"`
-	Email              string    `json:"email"`
-	ProjectID          string    `json:"project_id"`
-	PlanType           string    `json:"plan_type"`
-	Expired            time.Time `json:"expired"`
-	Reason             string    `json:"reason"`
-	QuotaPro           float64   `json:"quota_pro"`
-	ResetPro           time.Time `json:"reset_pro"`
-	QuotaFlash         float64   `json:"quota_flash"`
-	ResetFlash         time.Time `json:"reset_flash"`
-	QuotaFlashlite     float64   `json:"quota_flashlite"`
-	ResetFlashlite     time.Time `json:"reset_flashlite"`
-	ThrottledUntil     time.Time `json:"throttled_until"`
-	SyncedAt           time.Time `json:"synced_at"`
-	ScorePro           float64   `json:"score_pro"`
-	ScoreFlash         float64   `json:"score_flash"`
-	ScoreFlashlite     float64   `json:"score_flashlite"`
-	ErrorRatePro       float64   `json:"error_rate_pro"`
-	WeightPro          float64   `json:"weight_pro"`
-	ErrorRateFlash     float64   `json:"error_rate_flash"`
-	WeightFlash        float64   `json:"weight_flash"`
-	ErrorRateFlashlite float64   `json:"error_rate_flashlite"`
-	WeightFlashlite    float64   `json:"weight_flashlite"`
-	AdjustedScorePro   float64   `json:"adjusted_score_pro"`
-	AdjustedScoreFlash float64   `json:"adjusted_score_flash"`
-	AdjustedScoreLite  float64   `json:"adjusted_score_flashlite"`
+	Handler        string                 `json:"handler"`
+	ID             string                 `json:"id"`
+	Status         string                 `json:"status"`
+	Email          string                 `json:"email"`
+	ProjectID      string                 `json:"project_id"`
+	PlanType       string                 `json:"plan_type"`
+	Expired        time.Time              `json:"expired"`
+	Reason         string                 `json:"reason"`
+	ThrottledUntil time.Time              `json:"throttled_until"`
+	SyncedAt       time.Time              `json:"synced_at"`
+	Pro            geminiSchedulingMetric `json:"pro"`
+	Flash          geminiSchedulingMetric `json:"flash"`
+	Flashlite      geminiSchedulingMetric `json:"flashlite"`
 }
 
 func (a *AdminHandler) ListGemini(c *gin.Context) {
@@ -66,7 +51,8 @@ func (a *AdminHandler) ListGemini(c *gin.Context) {
 	}
 
 	filters := geminiCredentialFiltersFromRequest(c)
-	total, rows, err := a.listGeminiCredentials(c.Request.Context(), page, pageSize, filters)
+	sortOptions := credentialSortOptionsFromRequest(c.Query, geminiCredentialSortKeys)
+	total, rows, err := a.listGeminiCredentials(c.Request.Context(), page, pageSize, filters, sortOptions)
 	if err != nil {
 		writeInternalError(c, err)
 		return
@@ -191,15 +177,21 @@ func (a *AdminHandler) BatchDeleteGemini(c *gin.Context) {
 	})
 }
 
-func (a *AdminHandler) listGeminiCredentials(ctx context.Context, page, pageSize int, filters db.CredentialFilterParams) (int64, []geminiListItem, error) {
+func (a *AdminHandler) listGeminiCredentials(ctx context.Context, page, pageSize int, filters db.CredentialFilterParams, sortOptions credentialSortOptions) (int64, []geminiListItem, error) {
 	total, err := a.store.CountGeminiCLIFiltered(ctx, filters)
 	if err != nil {
 		return 0, nil, err
 	}
 
+	offset := int32((page - 1) * pageSize)
+	limit := int32(pageSize)
+	if sortOptions.enabled() {
+		offset = 0
+		limit = credentialFetchLimit(total)
+	}
 	rows, err := a.store.ListGeminiCLIPaged(ctx, db.ListCredentialPagedParams{
-		Limit:                  int32(pageSize),
-		Offset:                 int32((page - 1) * pageSize),
+		Limit:                  limit,
+		Offset:                 offset,
 		CredentialFilterParams: filters,
 	})
 	if err != nil {
@@ -251,35 +243,42 @@ func (a *AdminHandler) listGeminiCredentials(ctx context.Context, page, pageSize
 		wFlashlite := scheduling.CalcWeight(erFlashlite)
 
 		items[i] = geminiListItem{
-			Handler:            string(utils.HandlerGemini),
-			ID:                 row.ID,
-			Status:             row.Status,
-			Email:              row.Email,
-			ProjectID:          row.ProjectID,
-			PlanType:           row.PlanType,
-			Expired:            row.Expired,
-			Reason:             row.Reason,
-			QuotaPro:           row.QuotaPro,
-			ResetPro:           row.ResetPro,
-			QuotaFlash:         row.QuotaFlash,
-			ResetFlash:         row.ResetFlash,
-			QuotaFlashlite:     row.QuotaFlashlite,
-			ResetFlashlite:     row.ResetFlashlite,
-			ThrottledUntil:     row.ThrottledUntil,
-			SyncedAt:           row.SyncedAt,
-			ScorePro:           scorePro,
-			ScoreFlash:         scoreFlash,
-			ScoreFlashlite:     scoreFlashlite,
-			ErrorRatePro:       erPro,
-			WeightPro:          wPro,
-			ErrorRateFlash:     erFlash,
-			WeightFlash:        wFlash,
-			ErrorRateFlashlite: erFlashlite,
-			WeightFlashlite:    wFlashlite,
-			AdjustedScorePro:   scheduling.AdjustedScore(scorePro, wPro),
-			AdjustedScoreFlash: scheduling.AdjustedScore(scoreFlash, wFlash),
-			AdjustedScoreLite:  scheduling.AdjustedScore(scoreFlashlite, wFlashlite),
+			Handler:        string(utils.HandlerGemini),
+			ID:             row.ID,
+			Status:         row.Status,
+			Email:          row.Email,
+			ProjectID:      row.ProjectID,
+			PlanType:       row.PlanType,
+			Expired:        row.Expired,
+			Reason:         row.Reason,
+			ThrottledUntil: row.ThrottledUntil,
+			SyncedAt:       row.SyncedAt,
+			Pro: geminiSchedulingMetric{
+				Available: scorePro >= 0,
+				Quota:     row.QuotaPro,
+				Reset:     row.ResetPro,
+				Score:     scorePro,
+				Weight:    wPro,
+			},
+			Flash: geminiSchedulingMetric{
+				Available: scoreFlash >= 0,
+				Quota:     row.QuotaFlash,
+				Reset:     row.ResetFlash,
+				Score:     scoreFlash,
+				Weight:    wFlash,
+			},
+			Flashlite: geminiSchedulingMetric{
+				Available: scoreFlashlite >= 0,
+				Quota:     row.QuotaFlashlite,
+				Reset:     row.ResetFlashlite,
+				Score:     scoreFlashlite,
+				Weight:    wFlashlite,
+			},
 		}
+	}
+	if sortOptions.enabled() {
+		sortGeminiListItems(items, sortOptions)
+		items = paginateGeminiListItems(items, page, pageSize)
 	}
 	return total, items, nil
 }

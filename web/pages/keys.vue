@@ -50,7 +50,7 @@ const summaryTiles = computed(() => [
     label: '全部密钥',
     value: items.value.length,
     helper: '后台和 API 共用的密钥总数',
-    icon: 'mdi-key-outline',
+    icon: 'mdi-key-variant',
   },
   {
     label: '管理员',
@@ -232,7 +232,7 @@ watch(
       icon="mdi-shield-key-outline"
     >
       <template #meta>
-        <AdminBadge tone="secondary" icon="mdi-counter">
+        <AdminBadge tone="secondary" icon="mdi-key-variant">
           共 {{ items.length }} 个密钥
         </AdminBadge>
         <AdminBadge v-if="changedCount" tone="warning" icon="mdi-content-save-alert-outline">
@@ -368,6 +368,7 @@ watch(
       :open="modalOpen"
       title="新建 API 密钥"
       description="不填写自定义密钥时，系统会自动生成"
+      icon="mdi-key-plus"
       @close="closeModal"
     >
       <div class="d-grid ga-4">

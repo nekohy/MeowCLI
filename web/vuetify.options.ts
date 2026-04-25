@@ -122,6 +122,10 @@ export default defineVuetifyConfiguration({
       rounded: 'lg',
       density: 'comfortable',
       hideDetails: 'auto',
+      menuProps: {
+        contentClass: 'admin-select-menu',
+        offset: 6,
+      },
     },
     VSnackbar: {
       rounded: 'xl',

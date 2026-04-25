@@ -80,7 +80,7 @@ async function openPage(path: string) {
     </div>
 
     <SectionCard
-      title="服务处理器"
+      title="后端服务"
       icon="mdi-cpu-64-bit"
     >
       <div class="dashboard-handler-grid">

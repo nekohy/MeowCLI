@@ -51,22 +51,20 @@ type availableSnapshot struct {
 
 // availableRow 缓存中的单条凭证，Score 由 CalcScore 计算用于排序选择
 type availableRow struct {
-	ID             string
-	PlanTypeCode   int
-	Quota5h        float64
-	Quota7d        float64
-	QuotaSpark5h   float64
-	QuotaSpark7d   float64
-	Reset5h        time.Time
-	Reset7d        time.Time
-	ResetSpark5h   time.Time
-	ResetSpark7d   time.Time
-	Score          float64
-	ScoreSpark     float64
-	ErrorRate      float64
-	Weight         float64
-	ErrorRateSpark float64
-	WeightSpark    float64
+	ID           string
+	PlanTypeCode int
+	Quota5h      float64
+	Quota7d      float64
+	QuotaSpark5h float64
+	QuotaSpark7d float64
+	Reset5h      time.Time
+	Reset7d      time.Time
+	ResetSpark5h time.Time
+	ResetSpark7d time.Time
+	Score        float64
+	ScoreSpark   float64
+	Weight       float64
+	WeightSpark  float64
 }
 
 // Scheduler 根据配额比率和重置时间优先级选择最佳可用凭证，
@@ -350,11 +348,9 @@ func (s *Scheduler) updateAvailableQuota(id string, q *codexAPI.Quota) {
 			newScore := CalcScore(q.Quota5h, q.Quota7d, q.Reset5h, q.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
 			newScoreSpark := CalcScoreSpark(q.QuotaSpark5h, q.QuotaSpark7d, q.ResetSpark5h, q.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
 			if updated[i].Score < 0 && newScore >= 0 {
-				updated[i].ErrorRate = 0
 				updated[i].Weight = 1.0
 			}
 			if updated[i].ScoreSpark < 0 && newScoreSpark >= 0 {
-				updated[i].ErrorRateSpark = 0
 				updated[i].WeightSpark = 1.0
 			}
 			updated[i].Quota5h = q.Quota5h
@@ -975,11 +971,9 @@ func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) 
 
 	for i := range rows {
 		if rate, ok := ratesDefault[rows[i].ID]; ok && rate > 0 {
-			rows[i].ErrorRate = rate
 			rows[i].Weight = scheduling.CalcWeight(rate)
 		}
 		if rate, ok := ratesSpark[rows[i].ID]; ok && rate > 0 {
-			rows[i].ErrorRateSpark = rate
 			rows[i].WeightSpark = scheduling.CalcWeight(rate)
 		}
 	}

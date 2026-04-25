@@ -129,6 +129,24 @@ export interface SettingsForm {
   relay_max_retries: string
 }
 
+export interface CodexSchedulingMetric {
+  available: boolean
+  quota_5h: number
+  quota_7d: number
+  reset_5h: string
+  reset_7d: string
+  score: number
+  weight: number
+}
+
+export interface GeminiSchedulingMetric {
+  available: boolean
+  quota: number
+  reset: string
+  score: number
+  weight: number
+}
+
 export interface CodexItem {
   handler: 'codex'
   id: string
@@ -136,25 +154,10 @@ export interface CodexItem {
   expired: string
   synced_at: string
   throttled_until: string
-  quota_5h: number
-  quota_7d: number
-  quota_spark_5h: number
-  quota_spark_7d: number
-  reset_5h: string
-  reset_7d: string
-  reset_spark_5h: string
-  reset_spark_7d: string
   plan_type: string | null
   reason: string
-  score: number
-  score_spark: number
-  spark_available: boolean
-  error_rate: number
-  weight: number
-  error_rate_spark: number
-  weight_spark: number
-  adjusted_score: number
-  adjusted_spark: number
+  default: CodexSchedulingMetric
+  spark: CodexSchedulingMetric
 }
 
 export interface GeminiCredentialItem {
@@ -166,26 +169,11 @@ export interface GeminiCredentialItem {
   plan_type: string
   expired: string
   reason: string
-  quota_pro: number
-  reset_pro: string
-  quota_flash: number
-  reset_flash: string
-  quota_flashlite: number
-  reset_flashlite: string
   synced_at: string
   throttled_until: string
-  score_pro: number
-  score_flash: number
-  score_flashlite: number
-  error_rate_pro: number
-  weight_pro: number
-  error_rate_flash: number
-  weight_flash: number
-  error_rate_flashlite: number
-  weight_flashlite: number
-  adjusted_score_pro: number
-  adjusted_score_flash: number
-  adjusted_score_flashlite: number
+  pro: GeminiSchedulingMetric
+  flash: GeminiSchedulingMetric
+  flashlite: GeminiSchedulingMetric
 }
 
 export interface GenericCredentialItem {

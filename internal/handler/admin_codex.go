@@ -25,31 +25,16 @@ type batchError struct {
 }
 
 type codexListItem struct {
-	Handler        string    `json:"handler"`
-	ID             string    `json:"id"`
-	Status         string    `json:"status"`
-	Expired        time.Time `json:"expired"`
-	PlanType       string    `json:"plan_type"`
-	Reason         string    `json:"reason"`
-	Quota5h        float64   `json:"quota_5h"`
-	Quota7d        float64   `json:"quota_7d"`
-	QuotaSpark5h   float64   `json:"quota_spark_5h"`
-	QuotaSpark7d   float64   `json:"quota_spark_7d"`
-	Reset5h        time.Time `json:"reset_5h"`
-	Reset7d        time.Time `json:"reset_7d"`
-	ResetSpark5h   time.Time `json:"reset_spark_5h"`
-	ResetSpark7d   time.Time `json:"reset_spark_7d"`
-	ThrottledUntil time.Time `json:"throttled_until"`
-	SyncedAt       time.Time `json:"synced_at"`
-	Score          float64   `json:"score"`
-	ScoreSpark     float64   `json:"score_spark"`
-	SparkAvailable bool      `json:"spark_available"`
-	ErrorRate      float64   `json:"error_rate"`
-	Weight         float64   `json:"weight"`
-	ErrorRateSpark float64   `json:"error_rate_spark"`
-	WeightSpark    float64   `json:"weight_spark"`
-	AdjustedScore  float64   `json:"adjusted_score"`
-	AdjustedSpark  float64   `json:"adjusted_spark"`
+	Handler        string                `json:"handler"`
+	ID             string                `json:"id"`
+	Status         string                `json:"status"`
+	Expired        time.Time             `json:"expired"`
+	PlanType       string                `json:"plan_type"`
+	Reason         string                `json:"reason"`
+	ThrottledUntil time.Time             `json:"throttled_until"`
+	SyncedAt       time.Time             `json:"synced_at"`
+	Default        codexSchedulingMetric `json:"default"`
+	Spark          codexSchedulingMetric `json:"spark"`
 }
 
 func (a *AdminHandler) ListCodex(c *gin.Context) {
@@ -63,6 +48,7 @@ func (a *AdminHandler) ListCodex(c *gin.Context) {
 	}
 
 	filters := codexFiltersFromRequest(c)
+	sortOptions := credentialSortOptionsFromRequest(c.Query, codexCredentialSortKeys)
 
 	total, err := a.store.CountCodexFiltered(c.Request.Context(), filters)
 	if err != nil {
@@ -71,8 +57,13 @@ func (a *AdminHandler) ListCodex(c *gin.Context) {
 	}
 
 	offset := int32((page - 1) * pageSize)
+	limit := int32(pageSize)
+	if sortOptions.enabled() {
+		offset = 0
+		limit = credentialFetchLimit(total)
+	}
 	rows, err := a.store.ListCodexPaged(c.Request.Context(), db.ListCredentialPagedParams{
-		Limit:                  int32(pageSize),
+		Limit:                  limit,
 		Offset:                 offset,
 		CredentialFilterParams: filters,
 	})
@@ -80,12 +71,17 @@ func (a *AdminHandler) ListCodex(c *gin.Context) {
 		writeInternalError(c, err)
 		return
 	}
+	items := a.serializeCodexRows(c.Request.Context(), rows)
+	if sortOptions.enabled() {
+		sortCodexListItems(items, sortOptions)
+		items = paginateCodexListItems(items, page, pageSize)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"total":     total,
 		"page":      page,
 		"page_size": pageSize,
-		"data":      a.serializeCodexRows(c.Request.Context(), rows),
+		"data":      items,
 	})
 }
 
@@ -350,35 +346,29 @@ func (a *AdminHandler) serializeCodexRows(ctx context.Context, rows []db.ListCod
 			Expired:        row.Expired,
 			PlanType:       corecodex.NormalizePlanType(row.PlanType),
 			Reason:         row.Reason,
-			Quota5h:        row.Quota5h,
-			Quota7d:        row.Quota7d,
-			QuotaSpark5h:   row.QuotaSpark5h,
-			QuotaSpark7d:   row.QuotaSpark7d,
-			Reset5h:        row.Reset5h,
-			Reset7d:        row.Reset7d,
-			ResetSpark5h:   row.ResetSpark5h,
-			ResetSpark7d:   row.ResetSpark7d,
 			ThrottledUntil: row.ThrottledUntil,
 			SyncedAt:       row.SyncedAt,
-			Score:          score,
-			ScoreSpark:     scoreSpark,
-			SparkAvailable: isSparkAvailable(row, scoreSpark),
-			ErrorRate:      er,
-			Weight:         w,
-			ErrorRateSpark: erSpark,
-			WeightSpark:    wSpark,
-			AdjustedScore:  scheduling.AdjustedScore(score, w),
-			AdjustedSpark:  scheduling.AdjustedScore(scoreSpark, wSpark),
+			Default: codexSchedulingMetric{
+				Available: score >= 0,
+				Quota5h:   row.Quota5h,
+				Quota7d:   row.Quota7d,
+				Reset5h:   row.Reset5h,
+				Reset7d:   row.Reset7d,
+				Score:     score,
+				Weight:    w,
+			},
+			Spark: codexSchedulingMetric{
+				Available: scoreSpark >= 0,
+				Quota5h:   row.QuotaSpark5h,
+				Quota7d:   row.QuotaSpark7d,
+				Reset5h:   row.ResetSpark5h,
+				Reset7d:   row.ResetSpark7d,
+				Score:     scoreSpark,
+				Weight:    wSpark,
+			},
 		})
 	}
 	return items
-}
-
-func isSparkAvailable(row db.ListCodexRow, scoreSpark float64) bool {
-	if scoreSpark < 0 {
-		return false
-	}
-	return true
 }
 
 type batchUpdateStatusReq struct {

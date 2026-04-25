@@ -852,6 +852,75 @@ pre {
   align-self: start;
 }
 
+.v-overlay-container .admin-select-menu {
+  overflow: auto;
+  border: 1px solid rgba(var(--v-theme-outline-variant), 0.52);
+  border-radius: var(--admin-radius-panel) !important;
+  background: rgb(var(--v-theme-surface-container-highest)) !important;
+  box-shadow:
+    0 2px 6px rgba(var(--v-theme-shadow), 0.12),
+    0 12px 28px rgba(var(--v-theme-shadow), 0.2);
+  -ms-overflow-style: none;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.v-menu > .v-overlay__content.admin-select-menu > .v-sheet {
+  overflow: auto !important;
+  border-radius: inherit !important;
+  background: rgb(var(--v-theme-surface-container-highest)) !important;
+  box-shadow: none !important;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.v-overlay-container .admin-select-menu::-webkit-scrollbar,
+.v-overlay-container .admin-select-menu > .v-sheet::-webkit-scrollbar,
+.v-overlay-container .admin-select-menu .v-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.v-overlay-container .admin-select-menu .v-list {
+  padding: 6px !important;
+  background: transparent !important;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.v-overlay-container .admin-select-menu .v-list-item {
+  margin-block: 2px;
+  padding-inline: 12px 14px !important;
+  border-radius: 12px !important;
+  color: rgba(var(--v-theme-on-surface), 0.86);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.v-overlay-container .admin-select-menu .v-list-item-title {
+  font-size: 0.92rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.v-overlay-container .admin-select-menu .v-list-item:hover,
+.v-overlay-container .admin-select-menu .v-list-item:focus-visible {
+  background: rgba(var(--v-theme-primary-container), 0.38);
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.v-overlay-container .admin-select-menu .v-list-item--active {
+  background: rgba(var(--v-theme-primary-container), 0.9) !important;
+  color: rgb(var(--v-theme-on-primary-container)) !important;
+}
+
+.v-overlay-container .admin-select-menu .v-list-item__overlay,
+.v-overlay-container .admin-select-menu .v-list-item__underlay {
+  opacity: 0 !important;
+}
+
 .selection-bar,
 .pagination-bar {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -962,7 +1031,37 @@ pre {
 .stack-card-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px 12px;
+  align-items: center;
+}
+
+.stack-card-meta > * {
+  position: relative;
+}
+
+.stack-card-meta > * + *::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -7px;
+  width: 1px;
+  height: 16px;
+  transform: translateY(-50%);
+  background: rgba(var(--v-theme-outline), 0.28);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.stack-card-meta .admin-badge {
+  overflow: visible;
+  min-height: var(--admin-chip-height);
+  font-size: 0.875rem;
+  font-weight: 700 !important;
+  letter-spacing: 0;
+}
+
+.stack-card-meta .admin-badge .v-chip__content {
+  padding-inline: 0;
 }
 
 .stack-card-title {

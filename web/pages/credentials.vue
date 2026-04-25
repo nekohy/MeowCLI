@@ -39,6 +39,8 @@ const searchInput = ref('')
 const searchQuery = ref('')
 const statusFilter = ref<'all' | 'enabled' | 'disabled'>('all')
 const planFilter = ref('all')
+const sortBy = ref('')
+const sortOrder = ref<'desc' | 'asc'>('desc')
 const selectedIds = ref<string[]>([])
 const actionBusy = ref(false)
 
@@ -118,6 +120,43 @@ const availableStatusFilters = computed(() => {
   return filters
 })
 
+const defaultSortOption = { title: '默认', value: '' }
+
+const codexSortOptions = [
+  { title: 'Score', value: 'default_score' },
+  { title: 'Spark Score', value: 'spark_score' },
+  { title: '5h额度', value: 'default_quota_5h' },
+  { title: '7d额度', value: 'default_quota_7d' },
+  { title: '错误率', value: 'default_error_rate' },
+  { title: 'Spark错误率', value: 'spark_error_rate' },
+  { title: 'Spark 5h额度', value: 'spark_quota_5h' },
+  { title: 'Spark 7d额度', value: 'spark_quota_7d' },
+  { title: '退避截止', value: 'throttled_until' },
+]
+
+const geminiSortOptions = [
+  { title: 'Pro Score', value: 'pro_score' },
+  { title: 'Pro错误率', value: 'pro_error_rate' },
+  { title: 'Pro额度', value: 'pro_quota' },
+  { title: 'Flash Score', value: 'flash_score' },
+  { title: 'Flash错误率', value: 'flash_error_rate' },
+  { title: 'Flash额度', value: 'flash_quota' },
+  { title: 'Lite Score', value: 'flashlite_score' },
+  { title: 'Lite错误率', value: 'flashlite_error_rate' },
+  { title: 'Lite额度', value: 'flashlite_quota' },
+  { title: '退避截止', value: 'throttled_until' },
+]
+
+const sortOrderOptions = [
+  { title: '降序', value: 'desc' },
+  { title: '升序', value: 'asc' },
+]
+
+const credentialSortOptions = computed(() => [
+  defaultSortOption,
+  ...(isGeminiHandler.value ? geminiSortOptions : codexSortOptions),
+])
+
 const hasActiveFilters = computed(() => (
   Boolean(searchInput.value.trim())
   || statusFilter.value !== 'all'
@@ -188,18 +227,18 @@ function toggleSelectOne(id: string) {
     : [...selectedIds.value, id]
 }
 
-function quotaPercentValue(item: CodexItem, quotaKey: 'quota_5h' | 'quota_7d' | 'quota_spark_5h' | 'quota_spark_7d', resetKey: 'reset_5h' | 'reset_7d' | 'reset_spark_5h' | 'reset_spark_7d') {
-  if (item[quotaKey] === 1 && isZeroTime(item[resetKey])) {
+function codexQuotaPercentValue(metric: CodexItem['default'], quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
+  if (metric[quotaKey] === 1 && isZeroTime(metric[resetKey])) {
     return null
   }
-  return Math.max(0, Math.min(100, Math.round((item[quotaKey] || 0) * 100)))
+  return Math.max(0, Math.min(100, Math.round((metric[quotaKey] || 0) * 100)))
 }
 
-function geminiQuotaPercentValue(item: GeminiCredentialItem, quotaKey: 'quota_pro' | 'quota_flash' | 'quota_flashlite', resetKey: 'reset_pro' | 'reset_flash' | 'reset_flashlite') {
-  if (item[quotaKey] === 1 && isZeroTime(item[resetKey])) {
+function geminiQuotaPercentValue(metric: GeminiCredentialItem['pro']) {
+  if (metric.quota === 1 && isZeroTime(metric.reset)) {
     return null
   }
-  return Math.max(0, Math.min(100, Math.round((item[quotaKey] || 0) * 100)))
+  return Math.max(0, Math.min(100, Math.round((metric.quota || 0) * 100)))
 }
 
 function quotaTone(percent: number | null) {
@@ -215,28 +254,91 @@ function quotaTone(percent: number | null) {
   return 'danger'
 }
 
-function renderQuotaValue(item: CodexItem, quotaKey: 'quota_5h' | 'quota_7d' | 'quota_spark_5h' | 'quota_spark_7d', resetKey: 'reset_5h' | 'reset_7d' | 'reset_spark_5h' | 'reset_spark_7d') {
-  if (item[quotaKey] === 1 && isZeroTime(item[resetKey])) {
+function renderCodexQuotaValue(metric: CodexItem['default'], quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
+  if (metric[quotaKey] === 1 && isZeroTime(metric[resetKey])) {
     return '不适用'
   }
-  return formatPercent(item[quotaKey])
+  return formatPercent(metric[quotaKey])
 }
 
-function renderGeminiQuotaValue(item: GeminiCredentialItem, quotaKey: 'quota_pro' | 'quota_flash' | 'quota_flashlite', resetKey: 'reset_pro' | 'reset_flash' | 'reset_flashlite') {
-  if (item[quotaKey] === 1 && isZeroTime(item[resetKey])) {
+function renderGeminiQuotaValue(metric: GeminiCredentialItem['pro']) {
+  if (metric.quota === 1 && isZeroTime(metric.reset)) {
     return '不适用'
   }
-  return formatPercent(item[quotaKey])
+  return formatPercent(metric.quota)
+}
+
+function codexQuotaCard(label: string, metric: CodexItem['default'], quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
+  const percent = codexQuotaPercentValue(metric, quotaKey, resetKey)
+  return {
+    label,
+    percent,
+    tone: quotaTone(percent),
+    value: renderCodexQuotaValue(metric, quotaKey, resetKey),
+    reset: metric[resetKey],
+  }
+}
+
+function codexQuotaCards(item: CodexItem) {
+  const cards = [
+    codexQuotaCard('5 小时额度', item.default, 'quota_5h', 'reset_5h'),
+    codexQuotaCard('7 天额度', item.default, 'quota_7d', 'reset_7d'),
+  ]
+  if (isSparkAvailable(item)) {
+    cards.push(
+      codexQuotaCard('Spark 5h', item.spark, 'quota_5h', 'reset_5h'),
+      codexQuotaCard('Spark 7d', item.spark, 'quota_7d', 'reset_7d'),
+    )
+  }
+  return cards
+}
+
+function geminiQuotaCard(label: string, metric: GeminiCredentialItem['pro']) {
+  const percent = geminiQuotaPercentValue(metric)
+  return {
+    label,
+    percent,
+    tone: quotaTone(percent),
+    value: renderGeminiQuotaValue(metric),
+    reset: metric.reset,
+  }
+}
+
+function geminiQuotaCards(item: GeminiCredentialItem) {
+  return [
+    geminiQuotaCard('Pro 额度', item.pro),
+    geminiQuotaCard('Flash 额度', item.flash),
+    geminiQuotaCard('Lite 额度', item.flashlite),
+  ]
 }
 
 function isSparkAvailable(item: CodexItem) {
-  return item.spark_available
+  return item.spark.available
 }
 
 function errorRateTone(rate: number): UiTone {
   if (rate <= 0) return 'success'
   if (rate < 0.2) return 'warning'
   return 'danger'
+}
+
+function errorRateFromWeight(metric: { weight: number }) {
+  return Math.max(0, Math.min(1, 1 - metric.weight))
+}
+
+function statusIcon(status: string) {
+  return status === 'enabled' ? 'mdi-check' : 'mdi-close-circle'
+}
+
+function formatScore(value: number) {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return '-'
+  }
+  return value.toFixed(2)
+}
+
+function scoreBadgeLabel(metric: { score: number; weight: number }) {
+  return `Score: ${formatScore(metric.score)}(${formatPercent(errorRateFromWeight(metric))})`
 }
 
 function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.value) {
@@ -248,6 +350,8 @@ function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.valu
       ? statusFilter.value
       : undefined,
     planType: planFilter.value !== 'all' ? planFilter.value : undefined,
+    sortBy: sortBy.value || undefined,
+    sortOrder: sortOrder.value,
   }
 }
 
@@ -414,6 +518,8 @@ watch(
   () => {
     statusFilter.value = 'all'
     planFilter.value = 'all'
+    sortBy.value = ''
+    sortOrder.value = 'desc'
     searchInput.value = ''
     searchQuery.value = ''
     if (!admin.activeHandler.value?.supports_credentials) {
@@ -423,7 +529,7 @@ watch(
 )
 
 watch(
-  () => [searchQuery.value, statusFilter.value, planFilter.value, credentialHandlerKey.value],
+  () => [searchQuery.value, statusFilter.value, planFilter.value, sortBy.value, sortOrder.value, credentialHandlerKey.value],
   () => {
     if (admin.authReady.value && admin.activeHandler.value?.supports_credentials) {
       void loadCredentials(1, pageSize.value)
@@ -445,7 +551,7 @@ onBeforeUnmount(() => {
       icon="mdi-key-chain-variant"
     >
       <template #meta>
-        <AdminBadge tone="secondary" icon="mdi-counter">
+        <AdminBadge tone="secondary" icon="mdi-key-chain-variant">
           总量 {{ total }}
         </AdminBadge>
         <AdminBadge v-if="selectedIds.length" tone="accent" icon="mdi-checkbox-multiple-marked-outline">
@@ -526,6 +632,18 @@ onBeforeUnmount(() => {
                 :items="pageSizeOptions"
                 @update:model-value="(value) => loadCredentials(1, Number(value))"
               />
+              <VSelect
+                v-model="sortBy"
+                class="filter-select"
+                label="排序"
+                :items="credentialSortOptions"
+              />
+              <VSelect
+                v-model="sortOrder"
+                class="filter-select"
+                label="排序方向"
+                :items="sortOrderOptions"
+              />
             </div>
 
             <VChipGroup v-model="statusFilter" mandatory color="primary">
@@ -591,17 +709,17 @@ onBeforeUnmount(() => {
                         <div class="stack-card-copy">
                           <div class="stack-card-title">{{ codexCredentialEmail(item.id) }}</div>
                           <div class="stack-card-meta">
-                            <AdminBadge :tone="toneForStatus(item.status)">
-                              {{ statusText(item.status) }}
-                            </AdminBadge>
                             <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
                               {{ planTypeText(item.plan_type) }}
                             </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(item.error_rate)" subtle icon="mdi-alert-circle-outline">
-                              错误率 {{ formatPercent(item.error_rate) }}
+                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="statusIcon(item.status)">
+                              {{ statusText(item.status) }}
                             </AdminBadge>
-                            <AdminBadge v-if="isSparkAvailable(item)" :tone="errorRateTone(item.error_rate_spark)" subtle icon="mdi-alert-circle-outline">
-                              Spark错误率 {{ formatPercent(item.error_rate_spark) }}
+                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.default))" subtle icon="mdi-chart-line">
+                              {{ scoreBadgeLabel(item.default) }}
+                            </AdminBadge>
+                            <AdminBadge v-if="isSparkAvailable(item)" :tone="errorRateTone(errorRateFromWeight(item.spark))" subtle icon="mdi-chart-line">
+                              Spark {{ scoreBadgeLabel(item.spark) }}
                             </AdminBadge>
                             <AdminBadge v-else tone="secondary" subtle icon="mdi-cancel">
                               Spark不可用
@@ -612,75 +730,21 @@ onBeforeUnmount(() => {
                     </div>
 
                     <div class="quota-grid">
-                      <div class="quota-card">
+                      <div v-for="quota in codexQuotaCards(item)" :key="quota.label" class="quota-card">
                         <div class="quota-row">
-                          <div class="quota-label text-medium-emphasis">5 小时额度</div>
-                          <span :class="'text-' + quotaTone(quotaPercentValue(item, 'quota_5h', 'reset_5h'))" class="quota-value font-weight-bold">
-                            {{ renderQuotaValue(item, 'quota_5h', 'reset_5h') }}
+                          <div class="quota-label text-medium-emphasis">{{ quota.label }}</div>
+                          <span :class="'text-' + quota.tone" class="quota-value font-weight-bold">
+                            {{ quota.value }}
                           </span>
                         </div>
                         <VProgressLinear
-                          :model-value="quotaPercentValue(item, 'quota_5h', 'reset_5h') ?? 0"
-                          :color="quotaTone(quotaPercentValue(item, 'quota_5h', 'reset_5h'))"
+                          :model-value="quota.percent ?? 0"
+                          :color="quota.tone"
                           rounded
                           height="8"
                         />
                         <div class="quota-caption text-medium-emphasis">
-                          重置 {{ formatTime(item.reset_5h) }}
-                        </div>
-                      </div>
-
-                      <div class="quota-card">
-                        <div class="quota-row">
-                          <div class="quota-label text-medium-emphasis">7 天额度</div>
-                          <span :class="'text-' + quotaTone(quotaPercentValue(item, 'quota_7d', 'reset_7d'))" class="quota-value font-weight-bold">
-                            {{ renderQuotaValue(item, 'quota_7d', 'reset_7d') }}
-                          </span>
-                        </div>
-                        <VProgressLinear
-                          :model-value="quotaPercentValue(item, 'quota_7d', 'reset_7d') ?? 0"
-                          :color="quotaTone(quotaPercentValue(item, 'quota_7d', 'reset_7d'))"
-                          rounded
-                          height="8"
-                        />
-                        <div class="quota-caption text-medium-emphasis">
-                          重置 {{ formatTime(item.reset_7d) }}
-                        </div>
-                      </div>
-
-                      <div v-if="isSparkAvailable(item)" class="quota-card">
-                        <div class="quota-row">
-                          <div class="quota-label text-medium-emphasis">Spark 5h</div>
-                          <span :class="'text-' + quotaTone(quotaPercentValue(item, 'quota_spark_5h', 'reset_spark_5h'))" class="quota-value font-weight-bold">
-                            {{ renderQuotaValue(item, 'quota_spark_5h', 'reset_spark_5h') }}
-                          </span>
-                        </div>
-                        <VProgressLinear
-                          :model-value="quotaPercentValue(item, 'quota_spark_5h', 'reset_spark_5h') ?? 0"
-                          :color="quotaTone(quotaPercentValue(item, 'quota_spark_5h', 'reset_spark_5h'))"
-                          rounded
-                          height="8"
-                        />
-                        <div class="quota-caption text-medium-emphasis">
-                          重置 {{ formatTime(item.reset_spark_5h) }}
-                        </div>
-                      </div>
-
-                      <div v-if="isSparkAvailable(item)" class="quota-card">
-                        <div class="quota-row">
-                          <div class="quota-label text-medium-emphasis">Spark 7d</div>
-                          <span :class="'text-' + quotaTone(quotaPercentValue(item, 'quota_spark_7d', 'reset_spark_7d'))" class="quota-value font-weight-bold">
-                            {{ renderQuotaValue(item, 'quota_spark_7d', 'reset_spark_7d') }}
-                          </span>
-                        </div>
-                        <VProgressLinear
-                          :model-value="quotaPercentValue(item, 'quota_spark_7d', 'reset_spark_7d') ?? 0"
-                          :color="quotaTone(quotaPercentValue(item, 'quota_spark_7d', 'reset_spark_7d'))"
-                          rounded
-                          height="8"
-                        />
-                        <div class="quota-caption text-medium-emphasis">
-                          重置 {{ formatTime(item.reset_spark_7d) }}
+                          重置 {{ formatTime(quota.reset) }}
                         </div>
                       </div>
                     </div>
@@ -729,20 +793,20 @@ onBeforeUnmount(() => {
                         <div class="stack-card-copy">
                           <div class="stack-card-title">{{ item.email || item.id }}</div>
                           <div class="stack-card-meta">
-                            <AdminBadge :tone="toneForStatus(item.status)">
-                              {{ statusText(item.status) }}
-                            </AdminBadge>
                             <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
                               {{ planTypeText(item.plan_type) }}
                             </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(item.error_rate_pro)" subtle icon="mdi-alert-circle-outline">
-                              Pro错误 {{ formatPercent(item.error_rate_pro) }}
+                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="statusIcon(item.status)">
+                              {{ statusText(item.status) }}
                             </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(item.error_rate_flash)" subtle icon="mdi-alert-circle-outline">
-                              Flash错误 {{ formatPercent(item.error_rate_flash) }}
+                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.pro))" subtle icon="mdi-chart-line">
+                              Pro {{ scoreBadgeLabel(item.pro) }}
                             </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(item.error_rate_flashlite)" subtle icon="mdi-alert-circle-outline">
-                              Lite错误 {{ formatPercent(item.error_rate_flashlite) }}
+                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.flash))" subtle icon="mdi-chart-line">
+                              Flash {{ scoreBadgeLabel(item.flash) }}
+                            </AdminBadge>
+                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.flashlite))" subtle icon="mdi-chart-line">
+                              Lite {{ scoreBadgeLabel(item.flashlite) }}
                             </AdminBadge>
                           </div>
                         </div>
@@ -750,57 +814,21 @@ onBeforeUnmount(() => {
                     </div>
 
                     <div class="quota-grid">
-                      <div class="quota-card">
+                      <div v-for="quota in geminiQuotaCards(item)" :key="quota.label" class="quota-card">
                         <div class="quota-row">
-                          <div class="quota-label text-medium-emphasis">Pro 额度</div>
-                          <span :class="'text-' + quotaTone(geminiQuotaPercentValue(item, 'quota_pro', 'reset_pro'))" class="quota-value font-weight-bold">
-                            {{ renderGeminiQuotaValue(item, 'quota_pro', 'reset_pro') }}
+                          <div class="quota-label text-medium-emphasis">{{ quota.label }}</div>
+                          <span :class="'text-' + quota.tone" class="quota-value font-weight-bold">
+                            {{ quota.value }}
                           </span>
                         </div>
                         <VProgressLinear
-                          :model-value="geminiQuotaPercentValue(item, 'quota_pro', 'reset_pro') ?? 0"
-                          :color="quotaTone(geminiQuotaPercentValue(item, 'quota_pro', 'reset_pro'))"
+                          :model-value="quota.percent ?? 0"
+                          :color="quota.tone"
                           rounded
                           height="8"
                         />
                         <div class="quota-caption text-medium-emphasis">
-                          重置 {{ formatTime(item.reset_pro) }}
-                        </div>
-                      </div>
-
-                      <div class="quota-card">
-                        <div class="quota-row">
-                          <div class="quota-label text-medium-emphasis">Flash 额度</div>
-                          <span :class="'text-' + quotaTone(geminiQuotaPercentValue(item, 'quota_flash', 'reset_flash'))" class="quota-value font-weight-bold">
-                            {{ renderGeminiQuotaValue(item, 'quota_flash', 'reset_flash') }}
-                          </span>
-                        </div>
-                        <VProgressLinear
-                          :model-value="geminiQuotaPercentValue(item, 'quota_flash', 'reset_flash') ?? 0"
-                          :color="quotaTone(geminiQuotaPercentValue(item, 'quota_flash', 'reset_flash'))"
-                          rounded
-                          height="8"
-                        />
-                        <div class="quota-caption text-medium-emphasis">
-                          重置 {{ formatTime(item.reset_flash) }}
-                        </div>
-                      </div>
-
-                      <div class="quota-card">
-                        <div class="quota-row">
-                          <div class="quota-label text-medium-emphasis">Lite 额度</div>
-                          <span :class="'text-' + quotaTone(geminiQuotaPercentValue(item, 'quota_flashlite', 'reset_flashlite'))" class="quota-value font-weight-bold">
-                            {{ renderGeminiQuotaValue(item, 'quota_flashlite', 'reset_flashlite') }}
-                          </span>
-                        </div>
-                        <VProgressLinear
-                          :model-value="geminiQuotaPercentValue(item, 'quota_flashlite', 'reset_flashlite') ?? 0"
-                          :color="quotaTone(geminiQuotaPercentValue(item, 'quota_flashlite', 'reset_flashlite'))"
-                          rounded
-                          height="8"
-                        />
-                        <div class="quota-caption text-medium-emphasis">
-                          重置 {{ formatTime(item.reset_flashlite) }}
+                          重置 {{ formatTime(quota.reset) }}
                         </div>
                       </div>
                     </div>
@@ -849,11 +877,11 @@ onBeforeUnmount(() => {
                         <div class="stack-card-copy">
                           <div class="stack-card-title">{{ item.id }}</div>
                           <div class="stack-card-meta">
-                            <AdminBadge :tone="toneForStatus(item.status)">
-                              {{ statusText(item.status) }}
-                            </AdminBadge>
                             <AdminBadge v-if="item.plan_type" tone="secondary" subtle icon="mdi-star-circle-outline">
                               {{ planTypeText(item.plan_type) }}
+                            </AdminBadge>
+                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="statusIcon(item.status)">
+                              {{ statusText(item.status) }}
                             </AdminBadge>
                           </div>
                         </div>
@@ -935,7 +963,7 @@ onBeforeUnmount(() => {
         />
 
         <div class="d-flex flex-wrap ga-2">
-          <AdminBadge tone="secondary" subtle icon="mdi-counter">
+          <AdminBadge tone="secondary" subtle icon="mdi-text-box-plus-outline">
             待导入 {{ importLines.length }} 条
           </AdminBadge>
           <AdminBadge v-if="activeCredentialField?.help_text" tone="neutral" subtle icon="mdi-information-outline">
