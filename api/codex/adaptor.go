@@ -1,16 +1,19 @@
 package codex
 
 import (
+	"bufio"
 	"bytes"
 	"context"
-	"github.com/nekohy/MeowCLI/api"
-	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
-	"github.com/nekohy/MeowCLI/internal/settings"
-	"github.com/nekohy/MeowCLI/utils"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/nekohy/MeowCLI/api"
+	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
+	"github.com/nekohy/MeowCLI/internal/settings"
+	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/bytedance/sonic"
 	"github.com/go-resty/resty/v2"
@@ -106,14 +109,9 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	body := req.Body
 	credentialID := req.CredID
 	headers := req.Headers
-	// 预处理 body：读取 stream 标志，补充缺失的 instructions 字段
-	isStream := gjson.GetBytes(body, "stream").Bool()
-
-	if !gjson.GetBytes(body, "instructions").Exists() {
-		if modified, err := sjson.SetBytes(body, "instructions", ""); err == nil {
-			body = modified
-		}
-	}
+	// Codex upstream only supports stream processing reliably; preserve the
+	// client's requested mode locally and force the upstream request to stream.
+	body, clientStream := prepareCodexResponsesRequestBody(body)
 
 	r := c.client.R().
 		SetContext(ctx).
@@ -125,6 +123,7 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 			r.SetHeader(k, vs[0])
 		}
 	}
+	r.SetHeader("Accept", "text/event-stream")
 
 	resp, err := r.Post(codexutils.ChatURL)
 	if err != nil {
@@ -133,13 +132,14 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 
 	raw := resp.RawResponse
 
-	// stream 请求时确保响应带有 SSE Content-Type，便于下游正确识别流式响应
-	if isStream && raw.Header.Get("Content-Type") == "" {
+	// Upstream is always requested as SSE. Ensure downstream stream handling can
+	// detect it even if the upstream omits Content-Type.
+	if clientStream && raw != nil && raw.Header.Get("Content-Type") == "" {
 		raw.Header.Set("Content-Type", "text/event-stream")
 	}
 
-	if !isStream && raw != nil && raw.StatusCode >= 200 && raw.StatusCode < 300 {
-		translated, translateErr := translateCodexNonStreamResponse(raw)
+	if !clientStream && raw != nil && raw.StatusCode >= 200 && raw.StatusCode < 300 {
+		translated, translateErr := translateCodexStreamResponseToNonStream(raw)
 		if translateErr != nil {
 			_ = raw.Body.Close()
 			return nil, translateErr
@@ -158,6 +158,24 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	return raw, nil
 }
 
+// 必要的注入头
+func prepareCodexResponsesRequestBody(body []byte) ([]byte, bool) {
+	clientStream := gjson.GetBytes(body, "stream").Bool()
+	out := body
+	if modified, err := sjson.SetBytes(out, "stream", true); err == nil {
+		out = modified
+	}
+	if modified, err := sjson.SetBytes(out, "store", false); err == nil {
+		out = modified
+	}
+	if !gjson.GetBytes(out, "instructions").Exists() {
+		if modified, err := sjson.SetBytes(out, "instructions", ""); err == nil {
+			out = modified
+		}
+	}
+	return out, clientStream
+}
+
 func resolveQuotaTierFromBody(body []byte) string {
 	model := strings.ToLower(gjson.GetBytes(body, "model").String())
 	if strings.Contains(model, "spark") {
@@ -166,31 +184,58 @@ func resolveQuotaTierFromBody(body []byte) string {
 	return "default"
 }
 
-func translateCodexNonStreamResponse(resp *http.Response) (*http.Response, error) {
+func translateCodexStreamResponseToNonStream(resp *http.Response) (*http.Response, error) {
 	if resp == nil || resp.Body == nil {
 		return resp, nil
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := readCodexCompletedResponse(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 	_ = resp.Body.Close()
 
-	translated := body
-	root := gjson.ParseBytes(body)
-	if root.Get("type").String() == "response.completed" {
-		if response := root.Get("response"); response.Exists() && response.Type == gjson.JSON {
-			translated = []byte(response.Raw)
-		}
-	}
-
 	cloned := resp.Header.Clone()
 	cloned.Set("Content-Type", "application/json")
 	cloned.Del("Content-Length")
 	resp.Header = cloned
-	resp.Body = io.NopCloser(bytes.NewReader(translated))
-	resp.ContentLength = int64(len(translated))
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
 	return resp, nil
+}
+
+func readCodexCompletedResponse(r io.Reader) ([]byte, error) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), 52_428_800)
+
+	var outputItems []string
+	for scanner.Scan() {
+		payload := bytes.TrimSpace(scanner.Bytes())
+		switch gjson.GetBytes(payload, "type").String() {
+		case "response.output_item.done":
+			if item := gjson.GetBytes(payload, "item"); item.Exists() && item.Type == gjson.JSON {
+				outputItems = append(outputItems, item.Raw)
+			}
+		case "response.completed":
+			response := gjson.GetBytes(payload, "response").Raw
+			// 回填完整响应
+			items := make([]json.RawMessage, 0, len(outputItems))
+			for _, item := range outputItems {
+				items = append(items, json.RawMessage(item))
+			}
+
+			if rawOutput, err := sonic.Marshal(items); err == nil {
+				patched, err := sjson.SetRawBytes([]byte(response), "output", rawOutput)
+				if err == nil {
+					response = string(patched)
+				}
+			}
+			return []byte(response), nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return nil, io.ErrUnexpectedEOF
 }
 
 func (c *Client) proxyURL() (*url.URL, error) {
