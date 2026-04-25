@@ -120,70 +120,66 @@ func (s *Scheduler) SetLogStore(store db.LogStore) {
 // StartQuotaSyncer 启动后台协程，定期从上游 API 获取配额并写入 quota 表
 // 当 ctx 被取消时停止
 func (s *Scheduler) StartQuotaSyncer(ctx context.Context) {
-	go func() {
-		// 立即执行一次初始同步
-		s.syncAllQuotas(ctx)
-
-		for {
-			timer := time.NewTimer(s.settingsSnapshot().QuotaSyncInterval())
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-				s.syncAllQuotas(ctx)
-			}
-		}
-	}()
+	s.quotaSyncer().Start(ctx)
 }
 
-// syncAllQuotas 遍历所有启用的凭证，获取其上游配额，
-// 并将结果写入 quota 表
-func (s *Scheduler) syncAllQuotas(ctx context.Context) {
+func (s *Scheduler) quotaSyncer() scheduling.QuotaSyncer[db.ListAvailableCodexRow] {
+	return scheduling.QuotaSyncer[db.ListAvailableCodexRow]{
+		Interval: func() time.Duration {
+			return s.settingsSnapshot().QuotaSyncInterval()
+		},
+		List: s.store.ListAvailableCodex,
+		Refresh: func(ctx context.Context, rows []db.ListAvailableCodexRow) {
+			s.refreshAvailableFromRows(ctx, rows)
+		},
+		Sync:     s.syncQuotaRow,
+		RowID:    func(row db.ListAvailableCodexRow) string { return row.ID },
+		SyncedAt: func(row db.ListAvailableCodexRow) time.Time { return row.SyncedAt },
+		WithSyncedAt: func(row db.ListAvailableCodexRow, syncedAt time.Time) db.ListAvailableCodexRow {
+			row.SyncedAt = syncedAt
+			return row
+		},
+		LogError: func(err error, message string) {
+			log.Error().Err(err).Msg(message)
+		},
+		WarmErrorMessage:    "codex quota-sync: warm available cache",
+		ListErrorMessage:    "codex quota-sync: list credentials",
+		RefreshErrorMessage: "codex quota-sync: refresh available cache",
+	}
+}
+
+func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableCodexRow) {
 	if s.fetcher == nil {
 		return
 	}
 
-	rows, err := s.store.ListAvailableCodex(ctx)
+	token, err := s.manager.AccessToken(ctx, row.ID, scheduling.UseCached)
 	if err != nil {
-		log.Error().Err(err).Msg("codex quota-sync: list credentials")
+		log.Error().Err(err).Str("credential", row.ID).Msg("codex quota-sync: get token")
 		return
 	}
 
-	for _, row := range rows {
-		token, err := s.manager.AccessToken(ctx, row.ID, scheduling.UseCached)
-		if err != nil {
-			log.Error().Err(err).Str("credential", row.ID).Msg("codex quota-sync: get token")
-			continue
+	quotaCtx, cancel := context.WithTimeout(ctx, s.settingsSnapshot().ImportedCheckTimeout())
+	q, err := s.fetcher.FetchQuota(quotaCtx, row.ID, token)
+	cancel()
+	if err != nil {
+		if statusCode, body, ok := codexclient.ParseAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
+			s.HandleUnauthorized(ctx, row.ID, int32(statusCode), body, "")
+			return
 		}
-
-		quotaCtx, cancel := context.WithTimeout(ctx, s.settingsSnapshot().ImportedCheckTimeout())
-		q, err := s.fetcher.FetchQuota(quotaCtx, row.ID, token)
-		cancel()
-		if err != nil {
-			if statusCode, body, ok := codexclient.ParseAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
-				s.HandleUnauthorized(ctx, row.ID, int32(statusCode), body, "")
-				continue
-			}
-			log.Error().Err(err).Str("credential", row.ID).Msg("codex quota-sync: fetch quota")
-			continue
-		}
-
-		log.Info().
-			Str("credential", row.ID).
-			Float64("quota_5h", q.Quota5h).
-			Float64("quota_7d", q.Quota7d).
-			Time("reset_5h", q.Reset5h).
-			Time("reset_7d", q.Reset7d).
-			Msg("codex quota-sync: fetched")
-
-		s.StoreQuota(ctx, row.ID, q)
+		log.Error().Err(err).Str("credential", row.ID).Msg("codex quota-sync: fetch quota")
+		return
 	}
 
-	// 同步完成后刷新可用凭证缓存，确保新增/移除的凭证被感知
-	if _, err := s.RefreshAvailable(ctx); err != nil {
-		log.Error().Err(err).Msg("codex quota-sync: refresh available cache")
-	}
+	log.Info().
+		Str("credential", row.ID).
+		Float64("quota_5h", q.Quota5h).
+		Float64("quota_7d", q.Quota7d).
+		Time("reset_5h", q.Reset5h).
+		Time("reset_7d", q.Reset7d).
+		Msg("codex quota-sync: fetched")
+
+	s.StoreQuota(ctx, row.ID, q)
 }
 
 // Pick 根据优先级评分选择最佳可用凭证。
@@ -284,6 +280,10 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 		return nil, fmt.Errorf("list available codex: %w", err)
 	}
 
+	return s.refreshAvailableFromRows(ctx, dbRows), nil
+}
+
+func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.ListAvailableCodexRow) []availableRow {
 	config := s.settingsSnapshot()
 	planTypes := s.planTypeCodec()
 	rows := make([]availableRow, 0, len(dbRows))
@@ -328,7 +328,7 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 
 	s.available.Store(buildAvailableSnapshot(rows))
 	s.pruneExpiredThrottles(time.Now())
-	return rows, nil
+	return rows
 }
 
 // updateAvailableQuota 更新缓存中指定凭证的评分并重新排序

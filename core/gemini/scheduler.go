@@ -116,72 +116,68 @@ func (s *Scheduler) SetLogStore(store db.LogStore) {
 // quotas from the upstream API and writes them to the quota table.
 // It stops when ctx is cancelled.
 func (s *Scheduler) StartQuotaSyncer(ctx context.Context) {
-	go func() {
-		// Perform an initial sync immediately.
-		s.syncAllQuotas(ctx)
-
-		for {
-			timer := time.NewTimer(s.settingsSnapshot().QuotaSyncInterval())
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-				s.syncAllQuotas(ctx)
-			}
-		}
-	}()
+	s.quotaSyncer().Start(ctx)
 }
 
-// syncAllQuotas iterates all enabled credentials, fetches their upstream quota,
-// and writes the result to the quota table.
-func (s *Scheduler) syncAllQuotas(ctx context.Context) {
+func (s *Scheduler) quotaSyncer() scheduling.QuotaSyncer[db.ListAvailableGeminiCLIRow] {
+	return scheduling.QuotaSyncer[db.ListAvailableGeminiCLIRow]{
+		Interval: func() time.Duration {
+			return s.settingsSnapshot().QuotaSyncInterval()
+		},
+		List: s.store.ListAvailableGeminiCLI,
+		Refresh: func(ctx context.Context, rows []db.ListAvailableGeminiCLIRow) {
+			s.refreshAvailableFromRows(ctx, rows)
+		},
+		Sync:     s.syncQuotaRow,
+		RowID:    func(row db.ListAvailableGeminiCLIRow) string { return row.ID },
+		SyncedAt: func(row db.ListAvailableGeminiCLIRow) time.Time { return row.SyncedAt },
+		WithSyncedAt: func(row db.ListAvailableGeminiCLIRow, syncedAt time.Time) db.ListAvailableGeminiCLIRow {
+			row.SyncedAt = syncedAt
+			return row
+		},
+		LogError: func(err error, message string) {
+			log.Error().Err(err).Msg(message)
+		},
+		WarmErrorMessage:    "gemini quota-sync: warm available cache",
+		ListErrorMessage:    "gemini quota-sync: list credentials",
+		RefreshErrorMessage: "gemini quota-sync: refresh available cache",
+	}
+}
+
+func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableGeminiCLIRow) {
 	if s.fetcher == nil {
 		return
 	}
 
-	rows, err := s.store.ListAvailableGeminiCLI(ctx)
+	token, err := s.manager.AccessToken(ctx, row.ID, scheduling.UseCached)
 	if err != nil {
-		log.Error().Err(err).Msg("gemini quota-sync: list credentials")
+		log.Error().Err(err).Str("credential", row.ID).Msg("gemini quota-sync: get token")
 		return
 	}
 
-	for _, row := range rows {
-		token, err := s.manager.AccessToken(ctx, row.ID, scheduling.UseCached)
-		if err != nil {
-			log.Error().Err(err).Str("credential", row.ID).Msg("gemini quota-sync: get token")
-			continue
+	quotaCtx, cancel := context.WithTimeout(ctx, s.settingsSnapshot().ImportedCheckTimeout())
+	q, err := s.fetcher.FetchQuota(quotaCtx, row.ID, token, row.ProjectID)
+	cancel()
+	if err != nil {
+		if statusCode, body, ok := geminiapi.ParseAPIError(err); ok && isUnauthorizedStatus(statusCode) {
+			s.HandleUnauthorized(ctx, row.ID, int32(statusCode), body, "")
+			return
 		}
-
-		quotaCtx, cancel := context.WithTimeout(ctx, s.settingsSnapshot().ImportedCheckTimeout())
-		q, err := s.fetcher.FetchQuota(quotaCtx, row.ID, token, row.ProjectID)
-		cancel()
-		if err != nil {
-			if statusCode, body, ok := geminiapi.ParseAPIError(err); ok && isUnauthorizedStatus(statusCode) {
-				s.HandleUnauthorized(ctx, row.ID, int32(statusCode), body, "")
-				continue
-			}
-			log.Error().Err(err).Str("credential", row.ID).Msg("gemini quota-sync: fetch quota")
-			continue
-		}
-
-		log.Info().
-			Str("credential", row.ID).
-			Float64("quota_pro", q.QuotaPro).
-			Float64("quota_flash", q.QuotaFlash).
-			Float64("quota_flashlite", q.QuotaFlashlite).
-			Time("reset_pro", q.ResetPro).
-			Time("reset_flash", q.ResetFlash).
-			Time("reset_flashlite", q.ResetFlashlite).
-			Msg("gemini quota-sync: fetched")
-
-		s.UpdateQuota(ctx, row.ID, q)
+		log.Error().Err(err).Str("credential", row.ID).Msg("gemini quota-sync: fetch quota")
+		return
 	}
 
-	// After sync, refresh available cache to reflect added/removed credentials.
-	if _, err := s.RefreshAvailable(ctx); err != nil {
-		log.Error().Err(err).Msg("gemini quota-sync: refresh available cache")
-	}
+	log.Info().
+		Str("credential", row.ID).
+		Float64("quota_pro", q.QuotaPro).
+		Float64("quota_flash", q.QuotaFlash).
+		Float64("quota_flashlite", q.QuotaFlashlite).
+		Time("reset_pro", q.ResetPro).
+		Time("reset_flash", q.ResetFlash).
+		Time("reset_flashlite", q.ResetFlashlite).
+		Msg("gemini quota-sync: fetched")
+
+	s.UpdateQuota(ctx, row.ID, q)
 }
 
 // Pick selects the best available credential based on priority scoring.
@@ -292,6 +288,10 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 		return nil, fmt.Errorf("list available gemini cli: %w", err)
 	}
 
+	return s.refreshAvailableFromRows(ctx, dbRows), nil
+}
+
+func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.ListAvailableGeminiCLIRow) []availableRow {
 	config := s.settingsSnapshot()
 	planTypes := s.planTypeCodec()
 	ws := config.QuotaWindowGeminiSeconds()
@@ -339,7 +339,7 @@ func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error
 
 	s.available.Store(buildAvailableSnapshot(rows))
 	s.pruneExpiredThrottles(time.Now())
-	return rows, nil
+	return rows
 }
 
 // updateAvailableQuota updates the scores for a specific credential in the cache and re-sorts.
