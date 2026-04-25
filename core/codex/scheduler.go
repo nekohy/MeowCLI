@@ -177,7 +177,7 @@ func (s *Scheduler) syncAllQuotas(ctx context.Context) {
 			Time("reset_7d", q.Reset7d).
 			Msg("codex quota-sync: fetched")
 
-		s.UpdateQuota(ctx, row.ID, q)
+		s.StoreQuota(ctx, row.ID, q)
 	}
 
 	// 同步完成后刷新可用凭证缓存，确保新增/移除的凭证被感知
@@ -699,9 +699,24 @@ func (s *Scheduler) GetAccessToken(ctx context.Context, credentialID string) (st
 	return s.manager.AccessToken(ctx, credentialID, scheduling.UseCached)
 }
 
-// UpdateQuota 从 API 响应更新凭证配额（写入 DB + 刷新缓存）
-// Quota 中的 Reset5h/Reset7d 为 API 直接提供的绝对时间戳，无需二次计算
+// UpdateQuota updates the in-memory scheduling cache only.
+// Header-derived quota updates can be very frequent, so DB persistence is kept
+// on explicit quota-sync paths via StoreQuota.
 func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *codexAPI.Quota) {
+	if q == nil {
+		return
+	}
+	if !q.HasDefaultQuota && !q.HasSparkQuota {
+		return
+	}
+	merged := s.mergeQuotaUpdate(credentialID, q)
+	q = &merged
+	s.updateAvailableQuota(credentialID, q)
+}
+
+// StoreQuota updates the in-memory scheduling cache and persists the quota.
+// Quota Reset fields are upstream absolute timestamps and are not recalculated.
+func (s *Scheduler) StoreQuota(ctx context.Context, credentialID string, q *codexAPI.Quota) {
 	if q == nil {
 		return
 	}
@@ -857,7 +872,7 @@ func (s *Scheduler) validateCredentialUsageAfterRefresh(ctx context.Context, cre
 		return
 	}
 
-	s.UpdateQuota(ctx, credentialID, q)
+	s.StoreQuota(ctx, credentialID, q)
 	log.Info().Str("credential", credentialID).Msg("credential usage verification succeeded after refresh")
 }
 
@@ -896,7 +911,7 @@ func (s *Scheduler) validateImportedCredential(ctx context.Context, credentialID
 		Float64("quota_5h", q.Quota5h).
 		Float64("quota_7d", q.Quota7d).
 		Msg("sync-credentials: fetched")
-	s.UpdateQuota(ctx, credentialID, q)
+	s.StoreQuota(ctx, credentialID, q)
 }
 
 func isCredentialRejectedStatus(statusCode int) bool {

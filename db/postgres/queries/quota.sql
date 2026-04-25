@@ -66,7 +66,7 @@ SELECT
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE c.status = 'enabled'
-  AND c.expired > NOW()
+  AND (c.expired > NOW() OR c.refresh_token != '')
 ORDER BY
     COALESCE(q.quota_5h, 1.0) DESC,
     COALESCE(q.quota_7d, 1.0) DESC;

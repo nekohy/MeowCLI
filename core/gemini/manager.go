@@ -54,6 +54,9 @@ type GeminiCache struct {
 
 type GeminiEntry struct {
 	refreshing atomic.Bool
+	mu         sync.Mutex
+	done       chan struct{}
+	lastErr    error
 }
 
 func NewManager(cfg ManagerConfig) (*Manager, error) {
@@ -137,7 +140,7 @@ func (m *Manager) cachedCredential(ctx context.Context, credentialID string) (db
 		return m.credentialFromCache(snapshot), nil
 	}
 	if entry.refreshing.Load() {
-		return m.waitForCachedCredential(ctx, credentialID)
+		return m.waitForCachedCredential(ctx, entry, credentialID)
 	}
 
 	row, err := m.store.GetGeminiCLI(ctx, credentialID)
@@ -157,8 +160,17 @@ func (m *Manager) cachedCredential(ctx context.Context, credentialID string) (db
 	}
 
 	if entry.refreshing.CompareAndSwap(false, true) {
-		defer entry.refreshing.Store(false)
-		return m.refreshAndWriteBack(ctx, row)
+		entry.beginRefresh()
+		var refreshErr error
+		defer func() {
+			entry.finishRefresh(refreshErr)
+			entry.refreshing.Store(false)
+		}()
+		refreshed, err := m.refreshAndWriteBack(ctx, row)
+		if err != nil {
+			refreshErr = err
+		}
+		return refreshed, err
 	}
 
 	return m.waitForCredential(ctx, entry, credentialID)
@@ -172,19 +184,29 @@ func (m *Manager) RefreshCredential(ctx context.Context, credentialID string) er
 func (m *Manager) forceRefreshCredential(ctx context.Context, credentialID string) (db.GeminiCredential, error) {
 	entry := m.entry(credentialID)
 	if !entry.refreshing.CompareAndSwap(false, true) {
-		return m.waitForCachedCredential(ctx, credentialID)
+		return m.waitForCachedCredential(ctx, entry, credentialID)
 	}
-	defer entry.refreshing.Store(false)
+	entry.beginRefresh()
+	var refreshErr error
+	defer func() {
+		entry.finishRefresh(refreshErr)
+		entry.refreshing.Store(false)
+	}()
 	m.invalidateCache(credentialID)
 
 	row, err := m.store.GetGeminiCLI(ctx, credentialID)
 	if err != nil {
+		refreshErr = err
 		return db.GeminiCredential{}, err
 	}
 
 	row.AccessToken = ""
 	row.Expired = time.Time{}
-	return m.refreshAndWriteBack(ctx, row)
+	refreshed, err := m.refreshAndWriteBack(ctx, row)
+	if err != nil {
+		refreshErr = err
+	}
+	return refreshed, err
 }
 
 func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.GeminiCredential) (db.GeminiCredential, error) {
@@ -250,9 +272,19 @@ func (m *Manager) waitForCredential(ctx context.Context, entry *GeminiEntry, cre
 	defer ticker.Stop()
 
 	for {
+		done, _ := entry.refreshState()
 		select {
 		case <-ctx.Done():
 			return db.GeminiCredential{}, fmt.Errorf("waiting for gemini token refresh: %w", ctx.Err())
+		case <-done:
+			if snapshot, ok := m.readCache(credentialID); ok {
+				return m.credentialFromCache(snapshot), nil
+			}
+			_, refreshErr := entry.refreshState()
+			if refreshErr != nil {
+				return db.GeminiCredential{}, fmt.Errorf("waiting for gemini token refresh: %w", refreshErr)
+			}
+			return db.GeminiCredential{}, fmt.Errorf("waiting for gemini token refresh: refresh finished without cached credential")
 		case <-ticker.C:
 			if snapshot, ok := m.readCache(credentialID); ok {
 				return m.credentialFromCache(snapshot), nil
@@ -273,22 +305,40 @@ func (m *Manager) waitForCredential(ctx context.Context, entry *GeminiEntry, cre
 				return row, nil
 			}
 			if entry.refreshing.CompareAndSwap(false, true) {
+				entry.beginRefresh()
+				var refreshErr error
+				defer func() {
+					entry.finishRefresh(refreshErr)
+					entry.refreshing.Store(false)
+				}()
 				refreshed, err := m.refreshAndWriteBack(ctx, row)
-				entry.refreshing.Store(false)
+				if err != nil {
+					refreshErr = err
+				}
 				return refreshed, err
 			}
 		}
 	}
 }
 
-func (m *Manager) waitForCachedCredential(ctx context.Context, credentialID string) (db.GeminiCredential, error) {
+func (m *Manager) waitForCachedCredential(ctx context.Context, entry *GeminiEntry, credentialID string) (db.GeminiCredential, error) {
 	ticker := time.NewTicker(m.settingsSnapshot().PollInterval())
 	defer ticker.Stop()
 
 	for {
+		done, _ := entry.refreshState()
 		select {
 		case <-ctx.Done():
 			return db.GeminiCredential{}, fmt.Errorf("waiting for forced gemini token refresh: %w", ctx.Err())
+		case <-done:
+			if snapshot, ok := m.readCache(credentialID); ok {
+				return m.credentialFromCache(snapshot), nil
+			}
+			_, refreshErr := entry.refreshState()
+			if refreshErr != nil {
+				return db.GeminiCredential{}, fmt.Errorf("waiting for forced gemini token refresh: %w", refreshErr)
+			}
+			return db.GeminiCredential{}, fmt.Errorf("waiting for forced gemini token refresh: refresh finished without cached credential")
 		case <-ticker.C:
 			if snapshot, ok := m.readCache(credentialID); ok {
 				return m.credentialFromCache(snapshot), nil
@@ -348,6 +398,28 @@ func (m *Manager) entry(id string) *GeminiEntry {
 	return actual.(*GeminiEntry)
 }
 
+func (e *GeminiEntry) beginRefresh() {
+	e.mu.Lock()
+	e.done = make(chan struct{})
+	e.lastErr = nil
+	e.mu.Unlock()
+}
+
+func (e *GeminiEntry) finishRefresh(err error) {
+	e.mu.Lock()
+	if e.done != nil {
+		e.lastErr = err
+		close(e.done)
+	}
+	e.mu.Unlock()
+}
+
+func (e *GeminiEntry) refreshState() (<-chan struct{}, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.done, e.lastErr
+}
+
 func (m *Manager) InvalidateCredential(id string) {
 	if m == nil {
 		return
@@ -370,17 +442,24 @@ func (m *Manager) proactiveRefresh(id string) {
 	if !entry.refreshing.CompareAndSwap(false, true) {
 		return
 	}
-	defer entry.refreshing.Store(false)
+	entry.beginRefresh()
+	var refreshErr error
+	defer func() {
+		entry.finishRefresh(refreshErr)
+		entry.refreshing.Store(false)
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	row, err := m.store.GetGeminiCLI(ctx, id)
 	if err != nil {
+		refreshErr = err
 		log.Error().Err(err).Str("credential", id).Msg("gemini proactive-refresh: get credential")
 		return
 	}
 	if _, err := m.refreshAndWriteBack(ctx, row); err != nil {
+		refreshErr = err
 		log.Error().Err(err).Str("credential", id).Msg("gemini proactive-refresh: failed")
 	}
 }

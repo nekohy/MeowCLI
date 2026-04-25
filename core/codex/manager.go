@@ -64,6 +64,9 @@ type Manager struct {
 
 type CodexEntry struct {
 	refreshing atomic.Bool
+	mu         sync.Mutex
+	done       chan struct{}
+	lastErr    error
 }
 
 // CodexCache 缓存结构
@@ -140,7 +143,7 @@ func (m *Manager) cachedAccessToken(ctx context.Context, id string) (string, err
 		return snapshot.AccessToken, nil
 	}
 	if entry.refreshing.Load() {
-		snapshot, err := m.waitForCachedToken(ctx, id)
+		snapshot, err := m.waitForCachedToken(ctx, entry, id)
 		if err != nil {
 			return "", err
 		}
@@ -161,10 +164,16 @@ func (m *Manager) cachedAccessToken(ctx context.Context, id string) (string, err
 	}
 
 	if entry.refreshing.CompareAndSwap(false, true) {
-		defer entry.refreshing.Store(false)
+		entry.beginRefresh()
+		var refreshErr error
+		defer func() {
+			entry.finishRefresh(refreshErr)
+			entry.refreshing.Store(false)
+		}()
 
 		refreshed, err := m.refreshAndWriteBack(ctx, row)
 		if err != nil {
+			refreshErr = err
 			return "", err
 		}
 
@@ -241,21 +250,28 @@ func (m *Manager) RefreshCredential(ctx context.Context, id string) error {
 func (m *Manager) forceRefreshCredential(ctx context.Context, id string) (string, error) {
 	entry := m.entry(id)
 	if !entry.refreshing.CompareAndSwap(false, true) {
-		snapshot, err := m.waitForCachedToken(ctx, id)
+		snapshot, err := m.waitForCachedToken(ctx, entry, id)
 		if err != nil {
 			return "", err
 		}
 		return snapshot.AccessToken, nil
 	}
-	defer entry.refreshing.Store(false)
+	entry.beginRefresh()
+	var refreshErr error
+	defer func() {
+		entry.finishRefresh(refreshErr)
+		entry.refreshing.Store(false)
+	}()
 	m.invalidateCache(id)
 
 	row, err := m.store.GetCodex(ctx, id)
 	if err != nil {
+		refreshErr = err
 		return "", err
 	}
 	refreshed, err := m.refreshAndWriteBack(ctx, row)
 	if err != nil {
+		refreshErr = err
 		return "", err
 	}
 	return refreshed.AccessToken, nil
@@ -339,9 +355,19 @@ func (m *Manager) waitForNewToken(ctx context.Context, entry *CodexEntry, id str
 	defer ticker.Stop()
 
 	for {
+		done, _ := entry.refreshState()
 		select {
 		case <-ctx.Done():
 			return CodexCache{}, fmt.Errorf("waiting for codex token refresh: %w", ctx.Err())
+		case <-done:
+			if snapshot, ok := m.readCache(id); ok {
+				return snapshot, nil
+			}
+			_, refreshErr := entry.refreshState()
+			if refreshErr != nil {
+				return CodexCache{}, fmt.Errorf("waiting for codex token refresh: %w", refreshErr)
+			}
+			return CodexCache{}, errors.New("waiting for codex token refresh: refresh finished without cached token")
 		case <-ticker.C:
 			if snapshot, ok := m.readCache(id); ok {
 				return snapshot, nil
@@ -362,9 +388,15 @@ func (m *Manager) waitForNewToken(ctx context.Context, entry *CodexEntry, id str
 			}
 
 			if entry.refreshing.CompareAndSwap(false, true) {
+				entry.beginRefresh()
+				var refreshErr error
+				defer func() {
+					entry.finishRefresh(refreshErr)
+					entry.refreshing.Store(false)
+				}()
 				refreshed, err := m.refreshAndWriteBack(ctx, row)
-				entry.refreshing.Store(false)
 				if err != nil {
+					refreshErr = err
 					return CodexCache{}, err
 				}
 
@@ -374,14 +406,24 @@ func (m *Manager) waitForNewToken(ctx context.Context, entry *CodexEntry, id str
 	}
 }
 
-func (m *Manager) waitForCachedToken(ctx context.Context, id string) (CodexCache, error) {
+func (m *Manager) waitForCachedToken(ctx context.Context, entry *CodexEntry, id string) (CodexCache, error) {
 	ticker := time.NewTicker(m.settingsSnapshot().PollInterval())
 	defer ticker.Stop()
 
 	for {
+		done, _ := entry.refreshState()
 		select {
 		case <-ctx.Done():
 			return CodexCache{}, fmt.Errorf("waiting for forced codex token refresh: %w", ctx.Err())
+		case <-done:
+			if snapshot, ok := m.readCache(id); ok {
+				return snapshot, nil
+			}
+			_, refreshErr := entry.refreshState()
+			if refreshErr != nil {
+				return CodexCache{}, fmt.Errorf("waiting for forced codex token refresh: %w", refreshErr)
+			}
+			return CodexCache{}, errors.New("waiting for forced codex token refresh: refresh finished without cached token")
 		case <-ticker.C:
 			if snapshot, ok := m.readCache(id); ok {
 				return snapshot, nil
@@ -410,6 +452,28 @@ func (m *Manager) entry(id string) *CodexEntry {
 	return actual.(*CodexEntry)
 }
 
+func (e *CodexEntry) beginRefresh() {
+	e.mu.Lock()
+	e.done = make(chan struct{})
+	e.lastErr = nil
+	e.mu.Unlock()
+}
+
+func (e *CodexEntry) finishRefresh(err error) {
+	e.mu.Lock()
+	if e.done != nil {
+		e.lastErr = err
+		close(e.done)
+	}
+	e.mu.Unlock()
+}
+
+func (e *CodexEntry) refreshState() (<-chan struct{}, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.done, e.lastErr
+}
+
 func (m *Manager) InvalidateCredential(id string) {
 	if m == nil {
 		return
@@ -433,13 +497,19 @@ func (m *Manager) proactiveRefresh(id string) {
 	if !entry.refreshing.CompareAndSwap(false, true) {
 		return
 	}
-	defer entry.refreshing.Store(false)
+	entry.beginRefresh()
+	var refreshErr error
+	defer func() {
+		entry.finishRefresh(refreshErr)
+		entry.refreshing.Store(false)
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), m.refreshTimeout())
 	defer cancel()
 
 	row, err := m.store.GetCodex(ctx, id)
 	if err != nil {
+		refreshErr = err
 		log.Error().Err(err).Str("credential", id).Msg("proactive-refresh: get codex")
 		return
 	}
@@ -449,6 +519,7 @@ func (m *Manager) proactiveRefresh(id string) {
 	}
 
 	if _, err := m.refreshAndWriteBack(ctx, row); err != nil {
+		refreshErr = err
 		log.Error().Err(err).Str("credential", id).Msg("proactive-refresh: failed")
 	} else {
 		log.Info().Str("credential", id).Msg("proactive-refresh: success")
