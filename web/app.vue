@@ -21,6 +21,7 @@ const sessionReady = ref(false)
 const drawer = ref(false)
 
 const faviconPath = computed(() => `${runtimeConfig.app.baseURL}faction.ico`)
+const displayVersion = computed(() => admin.buildInfo.value.version || 'dev')
 
 const currentNav = computed(() => {
   const routeKey = String(route.meta.navKey || 'dashboard')
@@ -221,7 +222,7 @@ onBeforeUnmount(() => {
                       <div class="loading-copy">
                         <div class="text-overline loading-eyebrow">管理台</div>
                         <div class="text-h5 font-weight-bold">恢复控制台会话</div>
-                        <div class="text-body-2 text-medium-emphasis">正在恢复本地状态</div>
+                        <div class="text-body-2 text-medium-emphasis">正在恢复本地状态 · 当前版本 {{ displayVersion }}</div>
                       </div>
                     </div>
                   <VProgressLinear indeterminate rounded color="primary" />
@@ -246,6 +247,7 @@ onBeforeUnmount(() => {
                 <div class="text-center">
                   <div class="text-overline" style="color: rgb(var(--v-theme-primary))">MEOWCLI</div>
                   <h1 class="text-h4 font-weight-bold">管理控制台</h1>
+                  <div class="version-inline">当前版本 {{ displayVersion }}</div>
                 </div>
               </div>
 
@@ -410,6 +412,18 @@ onBeforeUnmount(() => {
             </VList>
 
           </div>
+
+          <VSheet
+            tag="a"
+            href="https://github.com/Nekohy/MeowCLI"
+            aria-label="打开 GitHub 仓库"
+            class="drawer-footer-surface"
+            color="surface-container-high"
+            rounded="xl"
+          >
+            <div class="drawer-footer-heading">当前版本</div>
+            <div class="drawer-footer-title">{{ displayVersion }}</div>
+          </VSheet>
         </VNavigationDrawer>
 
         <VAppBar height="68" class="app-bar" rounded="xl" style="margin: 12px 12px 0">

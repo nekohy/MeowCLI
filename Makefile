@@ -17,13 +17,11 @@ RELEASE_EXT := $(if $(filter windows,$(RELEASE_OS)),.exe,)
 RELEASE_BINARY := $(DIST_DIR)/$(APP_NAME)-$(RELEASE_OS)-$(RELEASE_ARCH)$(RELEASE_EXT)
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_TIME ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 GOFLAGS ?=
 
 LDFLAGS := -s -w \
 	-X '$(MODULE)/internal/app.Version=$(VERSION)' \
-	-X '$(MODULE)/internal/app.Commit=$(COMMIT)' \
 	-X '$(MODULE)/internal/app.BuildTime=$(BUILD_TIME)'
 
 .PHONY: frontend build frontend-dev release checksums docker clean
@@ -55,7 +53,6 @@ checksums:
 docker:
 	docker build \
 		--build-arg VERSION="$(VERSION)" \
-		--build-arg COMMIT="$(COMMIT)" \
 		--build-arg BUILD_TIME="$(BUILD_TIME)" \
 		-t "$(DOCKER_IMAGE)" .
 

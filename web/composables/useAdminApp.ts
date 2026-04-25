@@ -8,6 +8,7 @@ import {
   resolveInitialTheme,
 } from '~/lib/admin'
 import type {
+  BuildInfo,
   HandlerOverview,
   OverviewResponse,
   SetupResult,
@@ -29,6 +30,11 @@ const EMPTY_OVERVIEW: OverviewResponse = {
   recent_logs: [],
 }
 
+const DEFAULT_BUILD_INFO: BuildInfo = {
+  version: 'dev',
+  build_time: 'unknown',
+}
+
 export function useAdminApp() {
   const theme = useState<ThemeMode>('admin-theme', () => 'light')
   const token = useState<string>('admin-token', () => '')
@@ -41,6 +47,7 @@ export function useAdminApp() {
   const setupResult = useState<SetupResult | null>('admin-setup-result', () => null)
   const loginError = useState<string>('admin-login-error', () => '')
   const overview = useState<OverviewResponse>('admin-overview', () => EMPTY_OVERVIEW)
+  const buildInfo = useState<BuildInfo>('admin-build-info', () => DEFAULT_BUILD_INFO)
   const toast = useState<ToastMessage | null>('admin-toast', () => null)
   const selectedHandler = useState<string>('admin-selected-handler', () => 'codex')
 
@@ -122,6 +129,7 @@ export function useAdminApp() {
     booting.value = true
     try {
       const status = await adminApi.status()
+      buildInfo.value = status.build_info || DEFAULT_BUILD_INFO
       if (status.need_setup) {
         needSetup.value = true
         authReady.value = false
@@ -200,6 +208,7 @@ export function useAdminApp() {
     authReady,
     boot,
     booting,
+    buildInfo,
     dismissToast,
     handlerLookup,
     handlers,

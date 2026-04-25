@@ -37,6 +37,12 @@ const (
 )
 
 func Run(ctx context.Context, cfg Config) error {
+	buildInfo := CurrentBuildInfo()
+	log.Info().
+		Str("version", buildInfo.Version).
+		Str("build_time", buildInfo.BuildTime).
+		Str("listen_addr", cfg.ListenAddr).
+		Msg("starting MeowCLI")
 	log.Info().Str("db_type", cfg.DBType).Str("dsn", RedactedDatabaseURL(cfg.DatabaseURL)).Msg("database config")
 
 	store, err := openStore(ctx, cfg)
@@ -114,6 +120,13 @@ func Run(ctx context.Context, cfg Config) error {
 	})
 	adminHandler.SetLogStore(logStore)
 	adminHandler.SetSettingsService(settingsSvc)
+	adminHandler.SetBuildInfoProvider(func() handler.BuildInfo {
+		info := CurrentBuildInfo()
+		return handler.BuildInfo{
+			Version:   info.Version,
+			BuildTime: info.BuildTime,
+		}
+	})
 
 	r := gin.New()
 	r.Use(gin.Recovery())

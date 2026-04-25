@@ -266,6 +266,13 @@ pre {
   gap: 6px;
 }
 
+.version-inline {
+  margin-top: 8px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+}
+
 .page-header-card,
 .modal-card {
   border: 1px solid rgba(var(--v-theme-outline-variant), 0.72);
@@ -347,8 +354,10 @@ pre {
 
 .drawer-layout {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
   gap: 6px;
+  min-height: 0;
+  flex: 0 0 auto;
 }
 
 .drawer-brand-surface,
@@ -442,6 +451,25 @@ pre {
 
 .drawer-footer-surface {
   margin-top: auto;
+  width: 100%;
+  padding-inline: 14px;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.drawer-footer-surface:hover,
+.drawer-footer-surface:focus-visible {
+  background: rgba(var(--v-theme-primary-container), 0.62) !important;
+  transform: translateY(-1px);
+}
+
+.drawer-footer-surface:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 2px;
 }
 
 .drawer-footer-actions {

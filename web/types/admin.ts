@@ -83,6 +83,16 @@ export interface OverviewResponse {
   recent_logs: LogItem[]
 }
 
+export interface BuildInfo {
+  version: string
+  build_time: string
+}
+
+export interface StatusResponse {
+  need_setup: boolean
+  build_info: BuildInfo
+}
+
 export interface SettingsSnapshot {
   allow_user_plan_type_header: boolean
   global_proxy: string

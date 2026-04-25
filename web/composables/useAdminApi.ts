@@ -12,6 +12,7 @@ import type {
   PaginatedResponse,
   SettingsSnapshot,
   SetupResult,
+  StatusResponse,
 } from '~/types/admin'
 
 const PRIMARY_TOKEN_KEY = 'meowcli_admin_token'
@@ -168,7 +169,7 @@ function buildPaginatedQuery<TExtra extends QueryOptions>(options: PaginationOpt
 
 export const adminApi = {
   status() {
-    return apiRequest<{ need_setup: boolean }>('/status')
+    return apiRequest<StatusResponse>('/status')
   },
   setup(payload: Partial<{ key: string; note: string }>) {
     return apiRequest<SetupResult>('/setup', { method: 'POST', body: payload })

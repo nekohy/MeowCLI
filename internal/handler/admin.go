@@ -34,6 +34,13 @@ type ModelCache interface {
 	InvalidateModel(alias string)
 }
 
+type BuildInfo struct {
+	Version   string `json:"version"`
+	BuildTime string `json:"build_time"`
+}
+
+type BuildInfoProvider func() BuildInfo
+
 // AdminHandler 管理后台 API
 type AdminHandler struct {
 	store       db.Store
@@ -45,6 +52,7 @@ type AdminHandler struct {
 	modelCache  ModelCache
 	settingsSvc *settings.Service
 	importJobs  *importJobManager
+	buildInfo   BuildInfoProvider
 	mu          sync.Mutex
 }
 
@@ -71,6 +79,10 @@ func (a *AdminHandler) SetModelCache(cache ModelCache) {
 
 func (a *AdminHandler) SetSettingsService(svc *settings.Service) {
 	a.settingsSvc = svc
+}
+
+func (a *AdminHandler) SetBuildInfoProvider(provider BuildInfoProvider) {
+	a.buildInfo = provider
 }
 
 func (a *AdminHandler) ensureAuthCache(c *gin.Context) bool {
@@ -180,4 +192,14 @@ func (a *AdminHandler) currentSettings() settings.Snapshot {
 		return settings.DefaultSnapshot()
 	}
 	return a.settingsSvc.Snapshot()
+}
+
+func (a *AdminHandler) currentBuildInfo() BuildInfo {
+	if a == nil || a.buildInfo == nil {
+		return BuildInfo{
+			Version:   "dev",
+			BuildTime: "unknown",
+		}
+	}
+	return a.buildInfo()
 }

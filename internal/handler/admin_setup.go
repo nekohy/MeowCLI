@@ -89,6 +89,7 @@ func (a *AdminHandler) Status(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"need_setup": a.authCache.NeedsSetup(),
+		"build_info": a.currentBuildInfo(),
 	})
 }
 

@@ -11,7 +11,6 @@ RUN npm run build:ssg
 FROM golang:1.25-alpine AS builder
 
 ARG VERSION=dev
-ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
 ARG TARGETOS
 ARG TARGETARCH
@@ -27,7 +26,6 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags "\
       -s -w \
       -X 'github.com/nekohy/MeowCLI/internal/app.Version=${VERSION}' \
-      -X 'github.com/nekohy/MeowCLI/internal/app.Commit=${COMMIT}' \
       -X 'github.com/nekohy/MeowCLI/internal/app.BuildTime=${BUILD_TIME}'" \
     -trimpath \
     -o /out/meowcli .
