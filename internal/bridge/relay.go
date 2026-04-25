@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/utils"
@@ -12,8 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )
-
-const logOnlyFailure time.Duration = -1
 
 // relayConfig encapsulates the parameters that differ between relay handlers.
 type relayConfig struct {
@@ -136,7 +133,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 		}
 
 		if !shouldRetryUpstreamStatus(resp.StatusCode) {
-			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, logOnlyFailure)
+			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, 0)
 			writeRelayError(c, lastRelayErr)
 			return
 		}
@@ -164,7 +161,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 					}
 					graceCredentialID = credID
 					graceRetriedCredentialID = credID
-					cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, logOnlyFailure)
+					cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, 0)
 					if !sleepWithContext(cfg.ctx, delay) {
 						return
 					}

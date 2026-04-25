@@ -6,7 +6,17 @@ import (
 	"time"
 )
 
-const MinErrorRateSamples = 2
+const (
+	MinErrorRateSamples                 = 1
+	ConsecutiveFailureThrottleThreshold = 3
+)
+
+type FailureThrottleDecision struct {
+	Throttle           bool
+	Backoff            time.Duration
+	ExplicitRetryAfter bool
+	Reason             string
+}
 
 type RefreshMode int
 
@@ -34,6 +44,45 @@ func AdjustedScore(score, weight float64) float64 {
 		return score
 	}
 	return score * weight
+}
+
+func DecideFailureThrottle(statusCode int32, retryAfter time.Duration, consecutive int, base time.Duration, max time.Duration) FailureThrottleDecision {
+	if statusCode == http.StatusTooManyRequests && retryAfter > 0 {
+		return FailureThrottleDecision{
+			Throttle:           true,
+			Backoff:            retryAfter,
+			ExplicitRetryAfter: true,
+			Reason:             "Retry-After",
+		}
+	}
+	if consecutive < ConsecutiveFailureThrottleThreshold {
+		return FailureThrottleDecision{}
+	}
+	return FailureThrottleDecision{
+		Throttle: true,
+		Backoff:  calcBackoff(consecutive, base, max),
+		Reason:   "consecutive failure threshold",
+	}
+}
+
+func calcBackoff(consecutive int, base time.Duration, max time.Duration) time.Duration {
+	if base <= 0 {
+		return 0
+	}
+	if consecutive <= 1 {
+		return base
+	}
+	d := base
+	for range consecutive - 1 {
+		if max > 0 && d >= max/2 {
+			return max
+		}
+		d *= 2
+	}
+	if max > 0 && d > max {
+		return max
+	}
+	return d
 }
 
 // UrgencyFactor returns how urgent a credential window reset is (second-level precision).

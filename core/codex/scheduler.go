@@ -24,8 +24,6 @@ var (
 	ErrNoAvailableCredential = errors.New("no available codex credential")
 )
 
-const logOnlyFailure time.Duration = -1
-
 // SchedulerStore 描述调度器所依赖的 SQL 操作
 type SchedulerStore interface {
 	ListAvailableCodex(ctx context.Context) ([]db.ListAvailableCodexRow, error)
@@ -582,9 +580,8 @@ func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, status
 	}
 }
 
-// RecordFailure 记录失败请求并临时禁用凭证
-// 当 retryAfter > 0 时直接使用该时长；否则使用指数退避：
-// 基础 1 分钟 × 2^(连续失败次数-1)，上限 30 分钟
+// RecordFailure records the response for error-rate weighting.
+// Throttling is reserved for explicit 429 retry windows or repeated consecutive failures.
 func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, statusCode int32, text string, modelTier string, retryAfter time.Duration) {
 	// 使用 background context：日志记录和节流是服务端内务操作，
 	// 不应受客户端请求 context 取消的影响
@@ -592,10 +589,6 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 
 	if err := s.recordResponse(bgCtx, credentialID, statusCode, text, modelTier); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert failure log")
-	}
-
-	if retryAfter == logOnlyFailure {
-		return
 	}
 
 	now := time.Now()
@@ -614,44 +607,55 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 	consecutive := state.consecutive
 	s.mu.Unlock()
 
-	var backoff time.Duration
-	var reason string
-	if retryAfter > 0 {
-		backoff = retryAfter
-		reason = "Retry-After"
-	} else {
-		config := s.settingsSnapshot()
-		backoff = utils.CalcBackoff(consecutive, config.ThrottleBase(), config.ThrottleMax())
-		reason = fmt.Sprintf("attempt #%d", consecutive)
+	config := s.settingsSnapshot()
+	decision := scheduling.DecideFailureThrottle(statusCode, retryAfter, consecutive, config.ThrottleBase(), config.ThrottleMax())
+	if !decision.Throttle {
+		return
 	}
 
-	throttledUntil := now.Add(backoff)
-	if err := s.store.SetQuotaThrottled(bgCtx, credentialID, modelTier, throttledUntil); err != nil {
+	throttleTier := ""
+	if decision.ExplicitRetryAfter {
+		throttleTier = modelTier
+	}
+	throttledUntil := now.Add(decision.Backoff)
+	if err := s.store.SetQuotaThrottled(bgCtx, credentialID, throttleTier, throttledUntil); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: set throttled")
 	}
 	s.setThrottleUntil(credentialID, throttledUntil)
 
-	if statusCode == http.StatusTooManyRequests && modelTier != "" {
+	if decision.ExplicitRetryAfter && modelTier != "" {
 		s.markTierUnavailable(credentialID, modelTier)
-		log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Dur("backoff", backoff).Str("reason", reason).Msg("credential tier throttled")
+		log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Msg("credential tier throttled")
 		return
 	}
 
 	// 凭证被节流，从缓存中移除
 	s.removeFromAvailable(credentialID)
 
-	log.Warn().Str("credential", credentialID).Dur("backoff", backoff).Str("reason", reason).Msg("credential throttled")
+	log.Warn().Str("credential", credentialID).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Int("consecutive_failures", consecutive).Msg("credential throttled")
 }
 
-// HandleUnauthorized 先将 401 凭证踢出可用池，再异步用 refresh token + usage 校验
+// HandleUnauthorized handles auth/account terminal statuses outside the error-rate backoff path.
 func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) bool {
-	if !isCredentialRejectedStatus(int(statusCode)) {
-		return false
+	if isCredentialDirectDisableStatus(int(statusCode)) {
+		s.recordAuthRejection(context.Background(), credentialID, statusCode, text, modelTier)
+		s.mu.Lock()
+		delete(s.throttle, credentialID)
+		delete(s.checking, credentialID)
+		s.mu.Unlock()
+		s.removeFromAvailable(credentialID)
+		if s.manager == nil {
+			log.Warn().
+				Str("credential", credentialID).
+				Int32("status", statusCode).
+				Msg("credential direct disable skipped because manager is unavailable")
+			return true
+		}
+		s.manager.DisableCredential(context.Background(), credentialID, fmt.Sprintf("credential rejected (%d)", statusCode))
+		return true
 	}
-
-	recordedImmediately := statusCode != http.StatusUnauthorized
-	if recordedImmediately {
-		s.RecordFailure(context.Background(), credentialID, statusCode, text, modelTier, logOnlyFailure)
+	if !isCredentialRefreshStatus(int(statusCode)) {
+		return false
 	}
 
 	s.mu.Lock()
@@ -681,9 +685,7 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 		return true
 	}
 	if s.manager == nil {
-		if !recordedImmediately {
-			s.RecordFailure(context.Background(), credentialID, statusCode, text, modelTier, logOnlyFailure)
-		}
+		s.recordAuthRejection(context.Background(), credentialID, statusCode, text, modelTier)
 		log.Warn().
 			Str("credential", credentialID).
 			Int32("status", statusCode).
@@ -823,12 +825,12 @@ func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string, statu
 		log.Info().Str("credential", credentialID).Msg("credential refresh verification succeeded after auth rejection response")
 	case errors.Is(err, ErrRefreshTokenMissing):
 		if statusCode == http.StatusUnauthorized {
-			s.RecordFailure(ctx, credentialID, statusCode, text, modelTier, logOnlyFailure)
+			s.recordAuthRejection(ctx, credentialID, statusCode, text, modelTier)
 		}
 		log.Warn().Str("credential", credentialID).Msg("credential removed after auth rejection response because refresh token is missing")
 	default:
 		if statusCode == http.StatusUnauthorized {
-			s.RecordFailure(ctx, credentialID, statusCode, text, modelTier, logOnlyFailure)
+			s.recordAuthRejection(ctx, credentialID, statusCode, text, modelTier)
 		}
 		log.Warn().Err(err).Str("credential", credentialID).Msg("credential refresh verification finished with error after auth rejection response")
 	}
@@ -917,7 +919,15 @@ func (s *Scheduler) validateImportedCredential(ctx context.Context, credentialID
 }
 
 func isCredentialRejectedStatus(statusCode int) bool {
+	return isCredentialRefreshStatus(statusCode) || isCredentialDirectDisableStatus(statusCode)
+}
+
+func isCredentialRefreshStatus(statusCode int) bool {
 	return statusCode == http.StatusUnauthorized
+}
+
+func isCredentialDirectDisableStatus(statusCode int) bool {
+	return statusCode == http.StatusPaymentRequired
 }
 
 func (s *Scheduler) settingsSnapshot() settings.Snapshot {
@@ -942,6 +952,12 @@ func (s *Scheduler) recordResponse(ctx context.Context, credentialID string, sta
 		Text:         text,
 		ModelTier:    modelTier,
 	})
+}
+
+func (s *Scheduler) recordAuthRejection(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) {
+	if err := s.recordResponse(ctx, credentialID, statusCode, text, modelTier); err != nil {
+		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert auth rejection log")
+	}
 }
 
 func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) {

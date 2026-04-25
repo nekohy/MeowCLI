@@ -21,8 +21,6 @@ import (
 
 var ErrNoAvailableCredential = fmt.Errorf("no available gemini credential")
 
-const logOnlyFailure time.Duration = -1
-
 // SchedulerStore describes the SQL operations the scheduler depends on.
 type SchedulerStore interface {
 	ListAvailableGeminiCLI(ctx context.Context) ([]db.ListAvailableGeminiCLIRow, error)
@@ -158,7 +156,7 @@ func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableGemini
 	q, err := s.fetcher.FetchQuota(quotaCtx, row.ID, token, row.ProjectID)
 	cancel()
 	if err != nil {
-		if statusCode, body, ok := geminiapi.ParseAPIError(err); ok && isUnauthorizedStatus(statusCode) {
+		if statusCode, body, ok := geminiapi.ParseAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
 			s.HandleUnauthorized(ctx, row.ID, int32(statusCode), body, "")
 			return
 		}
@@ -565,18 +563,13 @@ func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, status
 	}
 }
 
-// RecordFailure records a failed request and temporarily disables the credential.
-// When retryAfter > 0 it uses that duration directly; otherwise exponential backoff:
-// base 1 minute * 2^(consecutive failures - 1), capped at 30 minutes.
+// RecordFailure records the response for error-rate weighting.
+// Throttling is reserved for explicit 429 retry windows or repeated consecutive failures.
 func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, statusCode int32, text string, modelTier string, retryAfter time.Duration) {
 	bgCtx := context.Background()
 
 	if err := s.recordResponse(bgCtx, credentialID, statusCode, text, modelTier); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: insert failure log")
-	}
-
-	if retryAfter == logOnlyFailure {
-		return
 	}
 
 	now := time.Now()
@@ -595,36 +588,46 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 	consecutive := state.consecutive
 	s.mu.Unlock()
 
-	if retryAfter <= 0 {
-		retryAfter = utils.CalcBackoff(consecutive, s.settingsSnapshot().ThrottleBase(), s.settingsSnapshot().ThrottleMax())
+	config := s.settingsSnapshot()
+	decision := scheduling.DecideFailureThrottle(statusCode, retryAfter, consecutive, config.ThrottleBase(), config.ThrottleMax())
+	if !decision.Throttle {
+		return
 	}
 
-	throttledUntil := now.Add(retryAfter)
-	if err := s.store.SetGeminiQuotaThrottled(bgCtx, credentialID, modelTier, throttledUntil); err != nil {
+	throttleTier := ""
+	if decision.ExplicitRetryAfter {
+		throttleTier = modelTier
+	}
+	throttledUntil := now.Add(decision.Backoff)
+	if err := s.store.SetGeminiQuotaThrottled(bgCtx, credentialID, throttleTier, throttledUntil); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: set throttled")
 	}
 	s.setThrottleUntil(credentialID, throttledUntil)
 
-	if statusCode == http.StatusTooManyRequests && modelTier != "" {
+	if decision.ExplicitRetryAfter && modelTier != "" {
 		s.markTierUnavailable(credentialID, modelTier)
-		log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Dur("backoff", retryAfter).Msg("gemini credential tier throttled")
+		log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Msg("gemini credential tier throttled")
 		return
 	}
 
 	// Credential is throttled; remove from cache.
 	s.removeFromAvailable(credentialID)
+	log.Warn().Str("credential", credentialID).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Int("consecutive_failures", consecutive).Msg("gemini credential throttled")
 }
 
-// HandleUnauthorized first evicts the 401 credential from the available pool,
-// then asynchronously verifies it using refresh token + quota check.
+// HandleUnauthorized handles auth/account terminal statuses outside the error-rate backoff path.
 func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) bool {
-	if !isUnauthorizedStatus(int(statusCode)) {
-		return false
+	if isDirectDisableStatus(int(statusCode)) {
+		s.recordAuthRejection(context.Background(), credentialID, statusCode, text, modelTier)
+		s.mu.Lock()
+		delete(s.throttle, credentialID)
+		delete(s.checking, credentialID)
+		s.mu.Unlock()
+		s.DisableCredential(context.Background(), credentialID, fmt.Sprintf("credential rejected (%d)", statusCode))
+		return true
 	}
-
-	recordedImmediately := statusCode != http.StatusUnauthorized
-	if recordedImmediately {
-		s.RecordFailure(context.Background(), credentialID, statusCode, text, modelTier, logOnlyFailure)
+	if !isRefreshableAuthStatus(int(statusCode)) {
+		return false
 	}
 
 	s.mu.Lock()
@@ -654,9 +657,7 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 		return true
 	}
 	if s.manager == nil {
-		if !recordedImmediately {
-			s.RecordFailure(context.Background(), credentialID, statusCode, text, modelTier, logOnlyFailure)
-		}
+		s.recordAuthRejection(context.Background(), credentialID, statusCode, text, modelTier)
 		log.Warn().
 			Str("credential", credentialID).
 			Int32("status", statusCode).
@@ -770,7 +771,7 @@ func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string, statu
 		log.Info().Str("credential", credentialID).Msg("gemini credential refresh verification succeeded after auth rejection response")
 	default:
 		if statusCode == http.StatusUnauthorized {
-			s.RecordFailure(ctx, credentialID, statusCode, text, modelTier, logOnlyFailure)
+			s.recordAuthRejection(ctx, credentialID, statusCode, text, modelTier)
 		}
 		log.Warn().Err(err).Str("credential", credentialID).Msg("gemini credential refresh verification finished with error after auth rejection response")
 	}
@@ -798,7 +799,7 @@ func (s *Scheduler) validateCredentialUsageAfterRefresh(ctx context.Context, cre
 
 	q, err := s.fetcher.FetchQuota(ctx, credentialID, token, projectID)
 	if err != nil {
-		if statusCode, body, ok := geminiapi.ParseAPIError(err); ok && isUnauthorizedStatus(statusCode) {
+		if statusCode, body, ok := geminiapi.ParseAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
 			if err := s.insertLog(ctx, db.InsertLogParams{
 				Handler:      string(utils.HandlerGemini),
 				CredentialID: credentialID,
@@ -833,7 +834,7 @@ func (s *Scheduler) validateImportedCredential(ctx context.Context, credentialID
 
 	q, err := s.fetcher.FetchQuota(ctx, credentialID, token, projectID)
 	if err != nil {
-		if statusCode, body, ok := geminiapi.ParseAPIError(err); ok && isUnauthorizedStatus(statusCode) {
+		if statusCode, body, ok := geminiapi.ParseAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
 			if logErr := s.insertLog(ctx, db.InsertLogParams{
 				Handler:      string(utils.HandlerGemini),
 				CredentialID: credentialID,
@@ -885,8 +886,16 @@ func (s *Scheduler) DisableCredential(ctx context.Context, id string, reason str
 	event.Msg("gemini credential disabled")
 }
 
-func isUnauthorizedStatus(statusCode int) bool {
+func isCredentialRejectedStatus(statusCode int) bool {
+	return isRefreshableAuthStatus(statusCode) || isDirectDisableStatus(statusCode)
+}
+
+func isRefreshableAuthStatus(statusCode int) bool {
 	return statusCode == http.StatusUnauthorized
+}
+
+func isDirectDisableStatus(statusCode int) bool {
+	return statusCode == http.StatusPaymentRequired
 }
 
 func (s *Scheduler) RetryDelay(statusCode int32, text string, headers http.Header) time.Duration {
@@ -931,6 +940,12 @@ func (s *Scheduler) recordResponse(ctx context.Context, credentialID string, sta
 		Text:         text,
 		ModelTier:    modelTier,
 	})
+}
+
+func (s *Scheduler) recordAuthRejection(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) {
+	if err := s.recordResponse(ctx, credentialID, statusCode, text, modelTier); err != nil {
+		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: insert auth rejection log")
+	}
 }
 
 func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) {
