@@ -7,19 +7,20 @@ import (
 )
 
 type LogRow = db.LogRow
+type LogFilterParams = db.LogFilterParams
 type ListLogsParams = db.ListLogsParams
 
 type LogStore interface {
-	CountLogs(ctx context.Context) (int64, error)
+	CountLogs(ctx context.Context, filter db.LogFilterParams) (db.LogStats, error)
 	ListLogs(ctx context.Context, params db.ListLogsParams) ([]db.LogRow, error)
 	ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, since []db.ErrorRateSince, minSamples int) (map[string]float64, error)
 }
 
-func (a *AdminHandler) countLogs(ctx context.Context) (int64, error) {
+func (a *AdminHandler) countLogs(ctx context.Context, filter LogFilterParams) (db.LogStats, error) {
 	if a == nil || a.logStore == nil {
-		return 0, nil
+		return db.LogStats{StatusCodes: []db.LogStatusCount{}}, nil
 	}
-	return a.logStore.CountLogs(ctx)
+	return a.logStore.CountLogs(ctx, filter)
 }
 
 func (a *AdminHandler) listLogs(ctx context.Context, params ListLogsParams) ([]LogRow, error) {

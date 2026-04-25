@@ -6,9 +6,9 @@ import type {
   CreateAuthKeyResponse,
   ImportJobListResponse,
   ImportJobSnapshot,
+  LogListResponse,
   ModelItem,
   OverviewResponse,
-  LogItem,
   PaginatedResponse,
   SettingsSnapshot,
   SetupResult,
@@ -126,6 +126,12 @@ type CredentialListFilters = {
   planType?: string
 }
 
+type LogListFilters = {
+  search?: string
+  handler?: string
+  statusCode?: number
+}
+
 function normalizeCredentialEndpoint(endpoint = '') {
   const trimmed = endpoint.trim()
   if (!trimmed) {
@@ -238,10 +244,19 @@ export const adminApi = {
       method: 'DELETE',
     })
   },
-  listLogs(token: string, options: ListOptions = {}) {
-    return apiRequest<PaginatedResponse<LogItem>>('/logs', {
+  listLogs(token: string, options: ListOptions<LogListFilters> = {}) {
+    const {
+      search = '',
+      handler,
+      statusCode,
+    } = options
+    return apiRequest<LogListResponse>('/logs', {
       token,
-      query: buildPaginatedQuery(options),
+      query: buildPaginatedQuery(options, {
+        search,
+        handler,
+        status_code: statusCode,
+      }),
     })
   },
   listAuthKeys(token: string) {

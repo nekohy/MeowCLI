@@ -17,11 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const defaultCodexPageSize = 25
-
-type batchCreateResult struct {
-	ID string `json:"id"`
-}
+const defaultCodexPageSize = 6
 
 type batchError struct {
 	Input string `json:"input"`

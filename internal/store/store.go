@@ -232,9 +232,17 @@ type ListCredentialPagedParams struct {
 	CredentialFilterParams
 }
 
+type LogFilterParams struct {
+	Search        string
+	Handler       string
+	StatusCode    int32
+	HasStatusCode bool
+}
+
 type ListLogsParams struct {
 	Limit  int32
 	Offset int32
+	LogFilterParams
 }
 
 type AuthKey struct {
@@ -242,6 +250,16 @@ type AuthKey struct {
 	Role      string    `json:"role"`
 	Note      string    `json:"note"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type LogStatusCount struct {
+	StatusCode int32 `json:"status_code"`
+	Total      int64 `json:"total"`
+}
+
+type LogStats struct {
+	Total       int64            `json:"total"`
+	StatusCodes []LogStatusCount `json:"status_codes"`
 }
 
 type CreateAuthKeyParams struct {
@@ -264,7 +282,7 @@ type UpsertSettingParams struct {
 type LogStore interface {
 	InsertLog(ctx context.Context, arg InsertLogParams) error
 	ListLogs(ctx context.Context, arg ListLogsParams) ([]LogRow, error)
-	CountLogs(ctx context.Context) (int64, error)
+	CountLogs(ctx context.Context, filter LogFilterParams) (LogStats, error)
 	ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, since []ErrorRateSince, minSamples int) (map[string]float64, error)
 }
 

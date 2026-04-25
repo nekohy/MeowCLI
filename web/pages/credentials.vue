@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
 import {
-  PAGE_SIZE_OPTIONS,
+  CREDENTIAL_PAGE_SIZE_OPTIONS,
   codexCredentialAccountID,
   codexCredentialEmail,
   formatPercent,
@@ -33,7 +33,7 @@ const rows = ref<CredentialItem[]>([])
 const rowsHandlerKey = ref('')
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(25)
+const pageSize = ref(6)
 const loading = ref(false)
 const searchInput = ref('')
 const searchQuery = ref('')
@@ -141,8 +141,8 @@ const selectedSet = computed(() => new Set(selectedIds.value))
 const allVisibleSelected = computed(() => (
   rows.value.length > 0 && rows.value.every((item) => selectedSet.value.has(item.id))
 ))
-const maxPage = computed(() => Math.max(1, Math.ceil((total.value || 0) / (pageSize.value || 25))))
-const pageSizeOptions = PAGE_SIZE_OPTIONS
+const maxPage = computed(() => Math.max(1, Math.ceil((total.value || 0) / (pageSize.value || 6))))
+const pageSizeOptions = CREDENTIAL_PAGE_SIZE_OPTIONS
 const importDescription = computed(() => (
   activeCredentialField.value?.help_text || '一行一个凭据，保存后会纳入当前处理器调度'
 ))

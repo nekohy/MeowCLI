@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
 import { PAGE_SIZE_OPTIONS, formatTime } from '~/lib/admin'
-import type { LogItem } from '~/types/admin'
+import type { LogItem, LogStatusCount } from '~/types/admin'
 
 definePageMeta({
   navKey: 'logs',
@@ -11,49 +11,31 @@ const admin = useAdminApp()
 
 const items = ref<LogItem[]>([])
 const total = ref(0)
+const summary = ref<{ total: number, status_codes: LogStatusCount[] }>({ total: 0, status_codes: [] })
 const page = ref(1)
 const pageSize = ref(25)
 const loading = ref(false)
-const search = ref('')
+const searchInput = ref('')
+const searchQuery = ref('')
 const handlerFilter = ref('all')
-const severityFilter = ref<'all' | 'errors' | 'success'>('all')
-
-const filteredItems = computed(() => {
-  const query = search.value.trim().toLowerCase()
-  return items.value.filter((item) => {
-    if (handlerFilter.value !== 'all' && item.handler !== handlerFilter.value) {
-      return false
-    }
-    if (severityFilter.value === 'errors' && item.status_code < 400) {
-      return false
-    }
-    if (severityFilter.value === 'success' && item.status_code >= 400) {
-      return false
-    }
-    if (!query) {
-      return true
-    }
-    return [item.handler, item.credential_id, item.text, item.status_code]
-      .some((value) => String(value || '').toLowerCase().includes(query))
-  })
-})
+const statusCodeFilter = ref('all')
 
 const summaryTiles = computed(() => [
   {
-    label: '本页日志',
-    value: items.value.length,
-    helper: '当前页拉取到的记录数',
+    label: '总日志',
+    value: summary.value.total,
+    helper: '保留期内全部记录',
     icon: 'mdi-file-document-outline',
   },
   {
-    label: '错误请求',
-    value: items.value.filter((item) => item.status_code >= 400).length,
-    helper: 'HTTP 400 及以上',
-    icon: 'mdi-alert-circle-outline',
+    label: '状态码',
+    value: summary.value.status_codes.length,
+    helper: '当前条件下出现的状态码',
+    icon: 'mdi-numeric',
   },
   {
     label: '筛选结果',
-    value: filteredItems.value.length,
+    value: total.value,
     helper: '应用当前搜索与过滤后',
     icon: 'mdi-filter-check-outline',
   },
@@ -61,6 +43,15 @@ const summaryTiles = computed(() => [
 
 const maxPage = computed(() => Math.max(1, Math.ceil((total.value || 0) / (pageSize.value || 25))))
 const pageSizeOptions = PAGE_SIZE_OPTIONS
+const statusCodeOptions = computed(() => [
+  { value: 'all', label: '全部状态码' },
+  ...summary.value.status_codes.map((item) => ({
+    value: String(item.status_code),
+    label: `${item.status_code} (${item.total})`,
+  })),
+])
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+let latestLoadToken = 0
 
 function previewLog(text: string) {
   const line = text
@@ -70,25 +61,53 @@ function previewLog(text: string) {
   return line ? line.slice(0, 140) : '无详细文本'
 }
 
-async function loadLogs(nextPage = page.value, nextPageSize = pageSize.value) {
-  loading.value = true
-  try {
-    const data = await adminApi.listLogs(admin.token.value, { page: nextPage, pageSize: nextPageSize })
-    items.value = data.data || []
-    total.value = data.total || 0
-    page.value = data.page || nextPage
-    pageSize.value = data.page_size || nextPageSize
-  } catch (error) {
-    admin.notify(error instanceof Error ? error.message : '加载日志失败', 'danger')
-  } finally {
-    loading.value = false
+function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.value) {
+  const statusCode = Number(statusCodeFilter.value)
+  return {
+    page: nextPage,
+    pageSize: nextPageSize,
+    search: searchQuery.value.trim(),
+    handler: handlerFilter.value !== 'all' ? handlerFilter.value : undefined,
+    statusCode: Number.isFinite(statusCode) ? statusCode : undefined,
   }
 }
 
-onMounted(() => {
-  if (admin.authReady.value) {
-    void loadLogs()
+async function loadLogs(nextPage = page.value, nextPageSize = pageSize.value) {
+  const requestToken = ++latestLoadToken
+  loading.value = true
+  try {
+    const data = await adminApi.listLogs(admin.token.value, currentQueryOptions(nextPage, nextPageSize))
+    if (requestToken !== latestLoadToken) {
+      return
+    }
+    items.value = data.data || []
+    total.value = data.total || 0
+    summary.value = {
+      total: data.summary?.total || 0,
+      status_codes: data.summary?.status_codes || [],
+    }
+    page.value = data.page || nextPage
+    pageSize.value = data.page_size || nextPageSize
+  } catch (error) {
+    if (requestToken === latestLoadToken) {
+      items.value = []
+      total.value = 0
+      admin.notify(error instanceof Error ? error.message : '加载日志失败', 'danger')
+    }
+  } finally {
+    if (requestToken === latestLoadToken) {
+      loading.value = false
+    }
   }
+}
+
+watch(searchInput, (value) => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
+  searchTimer = setTimeout(() => {
+    searchQuery.value = value.trim()
+  }, 250)
 })
 
 watch(
@@ -98,7 +117,23 @@ watch(
       void loadLogs(1, pageSize.value)
     }
   },
+  { immediate: true },
 )
+
+watch(
+  () => [searchQuery.value, handlerFilter.value, statusCodeFilter.value],
+  () => {
+    if (admin.authReady.value) {
+      void loadLogs(1, pageSize.value)
+    }
+  },
+)
+
+onBeforeUnmount(() => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
+})
 </script>
 
 <template>
@@ -109,10 +144,10 @@ watch(
     >
       <template #meta>
         <AdminBadge tone="secondary" icon="mdi-counter">
-          {{ total }} 条记录
+          {{ summary.total }} 条记录
         </AdminBadge>
-        <AdminBadge tone="danger" icon="mdi-alert-circle-outline">
-          {{ items.filter((item) => item.status_code >= 400).length }} 错误
+        <AdminBadge tone="secondary" icon="mdi-numeric">
+          {{ summary.status_codes.length }} 种状态码
         </AdminBadge>
       </template>
     </PageHeader>
@@ -136,19 +171,32 @@ watch(
         <div class="toolbar-panel">
           <div class="filter-toolbar">
             <VTextField
-              v-model="search"
+              v-model="searchInput"
               class="filter-grow"
               label="搜索"
               placeholder="处理器 / 凭据 / 状态码"
               prepend-inner-icon="mdi-magnify"
               clearable
             />
+            <VSelect
+              v-model="pageSize"
+              class="filter-select"
+              label="每页条数"
+              :items="pageSizeOptions"
+              @update:model-value="(value) => loadLogs(1, Number(value))"
+            />
           </div>
 
-          <VChipGroup v-model="severityFilter" mandatory color="primary">
-            <VChip value="all" filter size="small">全部结果</VChip>
-            <VChip value="errors" filter size="small">错误请求</VChip>
-            <VChip value="success" filter size="small">成功请求</VChip>
+          <VChipGroup v-model="statusCodeFilter" mandatory color="primary">
+            <VChip
+              v-for="status in statusCodeOptions"
+              :key="status.value"
+              :value="status.value"
+              filter
+              size="small"
+            >
+              {{ status.label }}
+            </VChip>
           </VChipGroup>
 
           <VChipGroup v-model="handlerFilter" mandatory color="secondary">
@@ -186,12 +234,12 @@ watch(
         </div>
 
         <VExpansionPanels
-          v-if="filteredItems.length"
+          v-if="items.length"
           variant="accordion"
           class="log-panels"
         >
           <VExpansionPanel
-            v-for="item in filteredItems"
+            v-for="item in items"
             :key="`${item.handler}-${item.credential_id}-${item.created_at}-${item.status_code}`"
             elevation="0"
             border
@@ -217,8 +265,8 @@ watch(
 
         <EmptyState
           v-else
-          title="这一页没有匹配的日志"
-          description="可以切换页码、调整筛选，或等待新的请求进入"
+          title="没有匹配的日志"
+          description="可以调整筛选，或等待新的请求进入"
           icon="mdi-text-box-remove-outline"
         />
       </div>

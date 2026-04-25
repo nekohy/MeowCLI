@@ -59,6 +59,16 @@ export interface LogItem {
   created_at: string
 }
 
+export interface LogStatusCount {
+  status_code: number
+  total: number
+}
+
+export interface LogListSummary {
+  total: number
+  status_codes: LogStatusCount[]
+}
+
 export interface OverviewSummary {
   credentials_enabled: number
   credentials_total: number
@@ -221,6 +231,10 @@ export interface PaginatedResponse<T> {
   page: number
   page_size: number
   data: T[]
+}
+
+export interface LogListResponse extends PaginatedResponse<LogItem> {
+  summary: LogListSummary
 }
 
 export interface BatchOperationError {

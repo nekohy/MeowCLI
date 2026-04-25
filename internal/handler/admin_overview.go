@@ -79,7 +79,7 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 		return overviewResponse{}, err
 	}
 
-	logCount, err := a.countLogs(ctx)
+	logStats, err := a.countLogs(ctx, LogFilterParams{})
 	if err != nil {
 		return overviewResponse{}, err
 	}
@@ -128,7 +128,7 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 			CredentialsEnabled: codexEnabled + geminiEnabled,
 			CredentialsTotal:   int(codexTotal + geminiTotal),
 			ModelsTotal:        int(modelsTotal),
-			LogsTotal:          logCount,
+			LogsTotal:          logStats.Total,
 			AuthKeysTotal:      authKeysTotal,
 		},
 		Handlers:   handlers,

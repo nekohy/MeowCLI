@@ -2,6 +2,9 @@ package logs
 
 import (
 	"context"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,28 +82,28 @@ func (s *Store) ListLogs(ctx context.Context, arg db.ListLogsParams) ([]db.LogRo
 	return rows, nil
 }
 
-func (s *Store) CountLogs(ctx context.Context) (int64, error) {
+func (s *Store) CountLogs(ctx context.Context, filter db.LogFilterParams) (db.LogStats, error) {
 	if err := contextErr(ctx); err != nil {
-		return 0, err
+		return db.LogStats{}, err
 	}
 	if s == nil {
-		return 0, nil
+		return emptyLogStats(), nil
 	}
 
 	now := time.Now()
 	if s.needsPrune(now) {
 		s.mu.Lock()
 		s.pruneLocked(now)
-		count := int64(len(s.rows) - s.head)
+		stats := s.countLocked(filter)
 		s.compactLocked()
 		s.mu.Unlock()
-		return count, nil
+		return stats, nil
 	}
 
 	s.mu.RLock()
-	count := int64(len(s.rows) - s.head)
+	stats := s.countLocked(filter)
 	s.mu.RUnlock()
-	return count, nil
+	return stats, nil
 }
 
 func (s *Store) ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, since []db.ErrorRateSince, minSamples int) (map[string]float64, error) {
@@ -230,17 +233,93 @@ func (s *Store) listLocked(arg db.ListLogsParams) []db.LogRow {
 		return []db.LogRow{}
 	}
 
-	start := len(s.rows) - 1 - int(arg.Offset)
-	if start < s.head {
-		return []db.LogRow{}
-	}
-
 	limit := int(arg.Limit)
-	result := make([]db.LogRow, 0, min(limit, start-s.head+1))
-	for i := start; i >= s.head && len(result) < limit; i-- {
-		result = append(result, s.rows[i])
+	result := make([]db.LogRow, 0, min(limit, visible))
+	skipped := int32(0)
+	for i := len(s.rows) - 1; i >= s.head && len(result) < limit; i-- {
+		row := s.rows[i]
+		if !matchesLogFilter(row, arg.LogFilterParams) {
+			continue
+		}
+		if skipped < arg.Offset {
+			skipped++
+			continue
+		}
+		result = append(result, row)
 	}
 	return result
+}
+
+func (s *Store) countLocked(filter db.LogFilterParams) db.LogStats {
+	if s == nil || s.head >= len(s.rows) {
+		return emptyLogStats()
+	}
+
+	counts := make(map[int32]int64)
+	var total int64
+	for i := len(s.rows) - 1; i >= s.head; i-- {
+		row := s.rows[i]
+		if matchesLogFilter(row, filter) {
+			total++
+			counts[row.StatusCode]++
+		}
+	}
+
+	return db.LogStats{
+		Total:       total,
+		StatusCodes: logStatusCounts(counts),
+	}
+}
+
+func emptyLogStats() db.LogStats {
+	return db.LogStats{StatusCodes: []db.LogStatusCount{}}
+}
+
+func logStatusCounts(counts map[int32]int64) []db.LogStatusCount {
+	if len(counts) == 0 {
+		return []db.LogStatusCount{}
+	}
+
+	result := make([]db.LogStatusCount, 0, len(counts))
+	for statusCode, total := range counts {
+		result = append(result, db.LogStatusCount{
+			StatusCode: statusCode,
+			Total:      total,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].StatusCode < result[j].StatusCode
+	})
+	return result
+}
+
+func matchesLogFilter(row db.LogRow, filter db.LogFilterParams) bool {
+	handler := strings.TrimSpace(filter.Handler)
+	if handler != "" && handler != "all" && row.Handler != handler {
+		return false
+	}
+
+	if filter.HasStatusCode && row.StatusCode != filter.StatusCode {
+		return false
+	}
+
+	query := strings.ToLower(strings.TrimSpace(filter.Search))
+	if query == "" {
+		return true
+	}
+
+	values := []string{
+		row.Handler,
+		row.CredentialID,
+		row.Text,
+		strconv.Itoa(int(row.StatusCode)),
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), query) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) needsPrune(now time.Time) bool {

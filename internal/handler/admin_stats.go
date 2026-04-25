@@ -15,7 +15,7 @@ func (a *AdminHandler) Stats(c *gin.Context) {
 		writeInternalError(c, err)
 		return
 	}
-	logCount, err := a.countLogs(ctx)
+	logStats, err := a.countLogs(ctx, LogFilterParams{})
 	if err != nil {
 		writeInternalError(c, err)
 		return
@@ -28,7 +28,7 @@ func (a *AdminHandler) Stats(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"credentials_enabled": credCount,
-		"logs_total":          logCount,
+		"logs_total":          logStats.Total,
 		"models_total":        modelsTotal,
 	})
 }

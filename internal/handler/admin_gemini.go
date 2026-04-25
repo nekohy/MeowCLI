@@ -18,7 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const defaultGeminiPageSize = 25
+const defaultGeminiPageSize = 6
 
 type batchCreateGeminiReq struct {
 	Tokens []string `json:"tokens" binding:"required,min=1"`
@@ -319,7 +319,7 @@ func (a *AdminHandler) upsertGeminiCredentialFromTokenData(ctx context.Context, 
 		if normalized := coregemini.NormalizePlanType(current.PlanType); normalized != "" {
 			planType = normalized
 		}
-	} else if getErr != nil && !isStoreNotFound(getErr) {
+	} else if !isStoreNotFound(getErr) {
 		return db.GeminiCredential{}, getErr
 	}
 

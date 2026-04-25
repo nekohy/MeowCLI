@@ -64,6 +64,13 @@ export const PAGE_SIZE_OPTIONS = [
   { title: '100 条 / 页', value: 100 },
 ]
 
+export const CREDENTIAL_PAGE_SIZE_OPTIONS = [
+  { title: '6 条 / 页', value: 6 },
+  { title: '12 条 / 页', value: 12 },
+  { title: '30 条 / 页', value: 30 },
+  { title: '60 条 / 页', value: 60 },
+]
+
 export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   allow_user_plan_type_header: false,
   global_proxy: '',

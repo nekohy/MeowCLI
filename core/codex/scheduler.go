@@ -656,16 +656,6 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 		return false
 	}
 
-	if err := s.insertLog(ctx, db.InsertLogParams{
-		Handler:      string(utils.HandlerCodex),
-		CredentialID: credentialID,
-		StatusCode:   statusCode,
-		Text:         text,
-		ModelTier:    modelTier,
-	}); err != nil {
-		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert invalidation log")
-	}
-
 	s.mu.Lock()
 	delete(s.throttle, credentialID)
 	_, alreadyChecking := s.checking[credentialID]
@@ -693,13 +683,14 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 		return true
 	}
 	if s.manager == nil {
+		s.recordUnauthorizedLog(ctx, credentialID, statusCode, text, modelTier, "scheduler: insert invalidation log")
 		log.Warn().
 			Str("credential", credentialID).
 			Int32("status", statusCode).
 			Msg("credential verification skipped because manager is unavailable")
 		return true
 	}
-	go s.verifyCredentialAfterUnauthorized(credentialID)
+	go s.verifyCredentialAfterUnauthorized(credentialID, statusCode, text, modelTier)
 	return true
 }
 
@@ -808,7 +799,7 @@ func (s *Scheduler) finishChecking(credentialID string) {
 	s.mu.Unlock()
 }
 
-func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string) {
+func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string, statusCode int32, text string, modelTier string) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.settingsSnapshot().UnauthorizedCheckTimeout())
 	defer cancel()
 	defer s.finishChecking(credentialID)
@@ -818,8 +809,10 @@ func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string) {
 	case err == nil:
 		log.Info().Str("credential", credentialID).Msg("credential refresh verification succeeded after auth rejection response")
 	case errors.Is(err, ErrRefreshTokenMissing):
+		s.recordUnauthorizedLog(ctx, credentialID, statusCode, text, modelTier, "scheduler: insert invalidation log")
 		log.Warn().Str("credential", credentialID).Msg("credential removed after auth rejection response because refresh token is missing")
 	default:
+		s.recordUnauthorizedLog(ctx, credentialID, statusCode, text, modelTier, "scheduler: insert invalidation log")
 		log.Warn().Err(err).Str("credential", credentialID).Msg("credential refresh verification finished with error after auth rejection response")
 	}
 	if err == nil {
@@ -922,6 +915,18 @@ func (s *Scheduler) insertLog(ctx context.Context, arg db.InsertLogParams) error
 		return nil
 	}
 	return s.logStore.InsertLog(ctx, arg)
+}
+
+func (s *Scheduler) recordUnauthorizedLog(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string, failureMsg string) {
+	if err := s.insertLog(ctx, db.InsertLogParams{
+		Handler:      string(utils.HandlerCodex),
+		CredentialID: credentialID,
+		StatusCode:   statusCode,
+		Text:         text,
+		ModelTier:    modelTier,
+	}); err != nil {
+		log.Error().Err(err).Str("credential", credentialID).Msg(failureMsg)
+	}
 }
 
 func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) {
