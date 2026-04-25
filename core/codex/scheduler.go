@@ -24,6 +24,8 @@ var (
 	ErrNoAvailableCredential = errors.New("no available codex credential")
 )
 
+const logOnlyFailure time.Duration = -1
+
 // SchedulerStore 描述调度器所依赖的 SQL 操作
 type SchedulerStore interface {
 	ListAvailableCodex(ctx context.Context) ([]db.ListAvailableCodexRow, error)
@@ -575,13 +577,7 @@ func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, status
 	delete(s.throttle, credentialID)
 	s.mu.Unlock()
 
-	if err := s.insertLog(context.Background(), db.InsertLogParams{
-		Handler:      string(utils.HandlerCodex),
-		CredentialID: credentialID,
-		StatusCode:   statusCode,
-		Text:         "",
-		ModelTier:    modelTier,
-	}); err != nil {
+	if err := s.recordResponse(context.Background(), credentialID, statusCode, "", modelTier); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert success log")
 	}
 }
@@ -589,19 +585,17 @@ func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, status
 // RecordFailure 记录失败请求并临时禁用凭证
 // 当 retryAfter > 0 时直接使用该时长；否则使用指数退避：
 // 基础 1 分钟 × 2^(连续失败次数-1)，上限 30 分钟
-func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, statusCode int32, text string, retryAfter time.Duration, modelTier string) {
+func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, statusCode int32, text string, modelTier string, retryAfter time.Duration) {
 	// 使用 background context：日志记录和节流是服务端内务操作，
 	// 不应受客户端请求 context 取消的影响
 	bgCtx := context.Background()
 
-	if err := s.insertLog(bgCtx, db.InsertLogParams{
-		Handler:      string(utils.HandlerCodex),
-		CredentialID: credentialID,
-		StatusCode:   statusCode,
-		Text:         text,
-		ModelTier:    modelTier,
-	}); err != nil {
+	if err := s.recordResponse(bgCtx, credentialID, statusCode, text, modelTier); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert failure log")
+	}
+
+	if retryAfter == logOnlyFailure {
+		return
 	}
 
 	now := time.Now()
@@ -649,10 +643,15 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 	log.Warn().Str("credential", credentialID).Dur("backoff", backoff).Str("reason", reason).Msg("credential throttled")
 }
 
-// HandleUnauthorized 先将 401/402 凭证踢出可用池，再异步用 refresh token + usage 校验
+// HandleUnauthorized 先将 401 凭证踢出可用池，再异步用 refresh token + usage 校验
 func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) bool {
 	if !isCredentialRejectedStatus(int(statusCode)) {
 		return false
+	}
+
+	recordedImmediately := statusCode != http.StatusUnauthorized
+	if recordedImmediately {
+		s.RecordFailure(context.Background(), credentialID, statusCode, text, modelTier, logOnlyFailure)
 	}
 
 	s.mu.Lock()
@@ -682,7 +681,9 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 		return true
 	}
 	if s.manager == nil {
-		s.recordUnauthorizedLog(ctx, credentialID, statusCode, text, modelTier, "scheduler: insert invalidation log")
+		if !recordedImmediately {
+			s.RecordFailure(context.Background(), credentialID, statusCode, text, modelTier, logOnlyFailure)
+		}
 		log.Warn().
 			Str("credential", credentialID).
 			Int32("status", statusCode).
@@ -821,10 +822,14 @@ func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string, statu
 	case err == nil:
 		log.Info().Str("credential", credentialID).Msg("credential refresh verification succeeded after auth rejection response")
 	case errors.Is(err, ErrRefreshTokenMissing):
-		s.recordUnauthorizedLog(ctx, credentialID, statusCode, text, modelTier, "scheduler: insert invalidation log")
+		if statusCode == http.StatusUnauthorized {
+			s.RecordFailure(ctx, credentialID, statusCode, text, modelTier, logOnlyFailure)
+		}
 		log.Warn().Str("credential", credentialID).Msg("credential removed after auth rejection response because refresh token is missing")
 	default:
-		s.recordUnauthorizedLog(ctx, credentialID, statusCode, text, modelTier, "scheduler: insert invalidation log")
+		if statusCode == http.StatusUnauthorized {
+			s.RecordFailure(ctx, credentialID, statusCode, text, modelTier, logOnlyFailure)
+		}
 		log.Warn().Err(err).Str("credential", credentialID).Msg("credential refresh verification finished with error after auth rejection response")
 	}
 	if err == nil {
@@ -912,7 +917,7 @@ func (s *Scheduler) validateImportedCredential(ctx context.Context, credentialID
 }
 
 func isCredentialRejectedStatus(statusCode int) bool {
-	return statusCode == http.StatusUnauthorized || statusCode == http.StatusPaymentRequired
+	return statusCode == http.StatusUnauthorized
 }
 
 func (s *Scheduler) settingsSnapshot() settings.Snapshot {
@@ -929,16 +934,14 @@ func (s *Scheduler) insertLog(ctx context.Context, arg db.InsertLogParams) error
 	return s.logStore.InsertLog(ctx, arg)
 }
 
-func (s *Scheduler) recordUnauthorizedLog(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string, failureMsg string) {
-	if err := s.insertLog(ctx, db.InsertLogParams{
+func (s *Scheduler) recordResponse(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) error {
+	return s.insertLog(ctx, db.InsertLogParams{
 		Handler:      string(utils.HandlerCodex),
 		CredentialID: credentialID,
 		StatusCode:   statusCode,
 		Text:         text,
 		ModelTier:    modelTier,
-	}); err != nil {
-		log.Error().Err(err).Str("credential", credentialID).Msg(failureMsg)
-	}
+	})
 }
 
 func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) {

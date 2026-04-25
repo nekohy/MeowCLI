@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/utils"
@@ -11,6 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )
+
+const logOnlyFailure time.Duration = -1
 
 // relayConfig encapsulates the parameters that differ between relay handlers.
 type relayConfig struct {
@@ -64,7 +67,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			if cfg.ctx.Err() != nil {
 				return
 			}
-			cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), 0, cfg.modelTier)
+			cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), cfg.modelTier, 0)
 			lastRelayErr = errUpstreamAuthFailed
 			haveLastRelayErr = true
 			log.Warn().Err(err).Str("credential", credID).Msg("get auth headers failed, retrying")
@@ -85,7 +88,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			if cfg.ctx.Err() != nil {
 				return
 			}
-			cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), 0, cfg.modelTier)
+			cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), cfg.modelTier, 0)
 			lastRelayErr = errUpstreamRequestFailed
 			haveLastRelayErr = true
 			log.Warn().Err(err).Str("credential", credID).Int("attempt", attempt+1).Msg("upstream request failed, retrying")
@@ -98,7 +101,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 				if cfg.ctx.Err() != nil {
 					return
 				}
-				cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), 0, cfg.modelTier)
+				cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), cfg.modelTier, 0)
 				log.Warn().Err(err).Str("credential", credID).Int("status", resp.StatusCode).Msg("relay response write failed")
 				if !c.Writer.Written() {
 					writeRelayError(c, errRelayResponseFailed)
@@ -133,6 +136,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 		}
 
 		if !shouldRetryUpstreamStatus(resp.StatusCode) {
+			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, logOnlyFailure)
 			writeRelayError(c, lastRelayErr)
 			return
 		}
@@ -149,7 +153,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 					if graceRetriedCredentialID == credID {
 						graceCredentialID = ""
 						graceRetriedCredentialID = ""
-						cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, retryAfter, cfg.modelTier)
+						cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, retryAfter)
 						log.Warn().
 							Int("status", resp.StatusCode).
 							Str("credential", credID).
@@ -160,6 +164,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 					}
 					graceCredentialID = credID
 					graceRetriedCredentialID = credID
+					cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, logOnlyFailure)
 					if !sleepWithContext(cfg.ctx, delay) {
 						return
 					}
@@ -175,11 +180,11 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			}
 			graceCredentialID = ""
 			graceRetriedCredentialID = ""
-			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, retryAfter, cfg.modelTier)
+			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, retryAfter)
 		} else {
 			graceCredentialID = ""
 			graceRetriedCredentialID = ""
-			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, 0, cfg.modelTier)
+			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, 0)
 		}
 
 		log.Warn().

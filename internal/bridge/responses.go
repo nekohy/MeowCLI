@@ -44,7 +44,7 @@ type CredentialScheduler interface {
 	// AuthHeaders 返回该凭证的认证头（如 Authorization, Account-Id 等），由各类型自行实现
 	AuthHeaders(ctx context.Context, credentialID string) (http.Header, error)
 	RecordSuccess(ctx context.Context, credentialID string, statusCode int32, modelTier string)
-	RecordFailure(ctx context.Context, credentialID string, statusCode int32, text string, retryAfter time.Duration, modelTier string)
+	RecordFailure(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string, retryAfter time.Duration)
 	HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) bool
 }
 
