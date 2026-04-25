@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"database/sql"
 	"encoding/json"
 	"time"
 
@@ -18,6 +19,10 @@ func fmtTime(value time.Time) string {
 		return ""
 	}
 	return value.UTC().Format(timeLayout)
+}
+
+func sqliteTimeString(value time.Time) sql.NullString {
+	return sql.NullString{String: fmtTime(value), Valid: true}
 }
 
 func authKeyTo(value sqlcsqlite.AuthKey) db.AuthKey {

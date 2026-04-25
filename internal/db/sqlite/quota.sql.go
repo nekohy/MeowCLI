@@ -7,6 +7,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 )
 
 const deleteQuota = `-- name: DeleteQuota :execrows
@@ -54,10 +55,10 @@ SELECT
     COALESCE(q.quota_7d, 1.0)                    AS quota_7d,
     COALESCE(q.quota_spark_5h, 1.0)              AS quota_spark_5h,
     COALESCE(q.quota_spark_7d, 1.0)              AS quota_spark_7d,
-    COALESCE(q.reset_5h, datetime('now'))         AS reset_5h,
-    COALESCE(q.reset_7d, datetime('now'))         AS reset_7d,
-    COALESCE(q.reset_spark_5h, datetime('now'))   AS reset_spark_5h,
-    COALESCE(q.reset_spark_7d, datetime('now'))   AS reset_spark_7d,
+    COALESCE(q.reset_5h, '')                      AS reset_5h,
+    COALESCE(q.reset_7d, '')                      AS reset_7d,
+    COALESCE(q.reset_spark_5h, '')                AS reset_spark_5h,
+    COALESCE(q.reset_spark_7d, '')                AS reset_spark_7d,
     COALESCE(q.throttled_until, datetime('now')) AS throttled_until,
     COALESCE(q.throttled_until_spark, datetime('now')) AS throttled_until_spark,
     COALESCE(q.synced_at, '')                     AS synced_at
@@ -205,15 +206,15 @@ RETURNING credential_id, quota_5h, quota_7d, quota_spark_5h, quota_spark_7d, res
 `
 
 type UpsertQuotaParams struct {
-	CredentialID string  `json:"credential_id"`
-	Quota5h      float64 `json:"quota_5h"`
-	Quota7d      float64 `json:"quota_7d"`
-	QuotaSpark5h float64 `json:"quota_spark_5h"`
-	QuotaSpark7d float64 `json:"quota_spark_7d"`
-	Reset5h      string  `json:"reset_5h"`
-	Reset7d      string  `json:"reset_7d"`
-	ResetSpark5h string  `json:"reset_spark_5h"`
-	ResetSpark7d string  `json:"reset_spark_7d"`
+	CredentialID string         `json:"credential_id"`
+	Quota5h      float64        `json:"quota_5h"`
+	Quota7d      float64        `json:"quota_7d"`
+	QuotaSpark5h float64        `json:"quota_spark_5h"`
+	QuotaSpark7d float64        `json:"quota_spark_7d"`
+	Reset5h      sql.NullString `json:"reset_5h"`
+	Reset7d      sql.NullString `json:"reset_7d"`
+	ResetSpark5h sql.NullString `json:"reset_spark_5h"`
+	ResetSpark7d sql.NullString `json:"reset_spark_7d"`
 }
 
 // Syncs remaining quota ratios and reset timestamps from upstream.

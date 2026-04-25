@@ -4,6 +4,10 @@
 
 package sqlite
 
+import (
+	"database/sql"
+)
+
 type AuthKey struct {
 	Key       string `json:"key"`
 	Role      string `json:"role"`
@@ -22,18 +26,18 @@ type Codex struct {
 }
 
 type CodexQuotum struct {
-	CredentialID        string  `json:"credential_id"`
-	Quota5h             float64 `json:"quota_5h"`
-	Quota7d             float64 `json:"quota_7d"`
-	QuotaSpark5h        float64 `json:"quota_spark_5h"`
-	QuotaSpark7d        float64 `json:"quota_spark_7d"`
-	Reset5h             string  `json:"reset_5h"`
-	Reset7d             string  `json:"reset_7d"`
-	ResetSpark5h        string  `json:"reset_spark_5h"`
-	ResetSpark7d        string  `json:"reset_spark_7d"`
-	ThrottledUntil      string  `json:"throttled_until"`
-	ThrottledUntilSpark string  `json:"throttled_until_spark"`
-	SyncedAt            string  `json:"synced_at"`
+	CredentialID        string         `json:"credential_id"`
+	Quota5h             float64        `json:"quota_5h"`
+	Quota7d             float64        `json:"quota_7d"`
+	QuotaSpark5h        float64        `json:"quota_spark_5h"`
+	QuotaSpark7d        float64        `json:"quota_spark_7d"`
+	Reset5h             sql.NullString `json:"reset_5h"`
+	Reset7d             sql.NullString `json:"reset_7d"`
+	ResetSpark5h        sql.NullString `json:"reset_spark_5h"`
+	ResetSpark7d        sql.NullString `json:"reset_spark_7d"`
+	ThrottledUntil      string         `json:"throttled_until"`
+	ThrottledUntilSpark string         `json:"throttled_until_spark"`
+	SyncedAt            string         `json:"synced_at"`
 }
 
 type Gemini struct {

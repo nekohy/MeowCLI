@@ -1,0 +1,9 @@
+ALTER TABLE codex_quota
+    ALTER COLUMN reset_5h DROP NOT NULL,
+    ALTER COLUMN reset_5h DROP DEFAULT,
+    ALTER COLUMN reset_7d DROP NOT NULL,
+    ALTER COLUMN reset_7d DROP DEFAULT,
+    ALTER COLUMN reset_spark_5h DROP NOT NULL,
+    ALTER COLUMN reset_spark_5h DROP DEFAULT,
+    ALTER COLUMN reset_spark_7d DROP NOT NULL,
+    ALTER COLUMN reset_spark_7d DROP DEFAULT;

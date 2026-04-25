@@ -554,6 +554,9 @@ func CalcScore(quota5h, quota7d float64, reset5h, reset7d time.Time, window5hSec
 // Uses the same 5h/7d layered weighting as CalcScore.
 // If either spark window quota is exhausted (0%), returns -1 (unusable for spark).
 func CalcScoreSpark(quotaSpark5h, quotaSpark7d float64, resetSpark5h, resetSpark7d time.Time, window5hSeconds, window7dSeconds int64) float64 {
+	if resetSpark5h.IsZero() && resetSpark7d.IsZero() {
+		return -1
+	}
 	if quotaSpark5h == 0 || quotaSpark7d == 0 {
 		return -1
 	}
@@ -723,8 +726,6 @@ func (s *Scheduler) StoreQuota(ctx context.Context, credentialID string, q *code
 	if !q.HasDefaultQuota && !q.HasSparkQuota {
 		return
 	}
-	merged := s.mergeQuotaUpdate(credentialID, q)
-	q = &merged
 	s.updateAvailableQuota(credentialID, q)
 	if err := s.store.UpsertQuota(ctx, db.UpsertQuotaParams{
 		CredentialID: credentialID,

@@ -162,7 +162,7 @@ function genericDetailEntries(item: CredentialItem) {
   return [
     { label: '凭据 ID', value: item.id },
     { label: '套餐类型', value: planTypeText(item.plan_type || '') },
-    { label: '到期时间', value: item.expired ? formatTime(String(item.expired)) : '-' },
+    { label: 'AT到期', value: item.expired ? formatTime(String(item.expired)) : '-' },
     { label: '最近同步', value: item.synced_at ? formatTime(String(item.synced_at)) : '-' },
     { label: '退避截止', value: item.throttled_until && !isPastTime(String(item.throttled_until)) ? formatTime(String(item.throttled_until)) : '-' },
   ].filter((entry) => entry.value && entry.value !== 'unknown')
@@ -687,7 +687,7 @@ onBeforeUnmount(() => {
 
                     <div class="detail-grid">
                       <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">账号到期</div>
+                        <div class="detail-label text-medium-emphasis">AT到期</div>
                         <div class="detail-value">{{ formatTime(item.expired) }}</div>
                       </div>
                       <div class="detail-block">
@@ -811,7 +811,7 @@ onBeforeUnmount(() => {
                         <div class="detail-value">{{ item.project_id || '-' }}</div>
                       </div>
                       <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">到期时间</div>
+                        <div class="detail-label text-medium-emphasis">AT到期</div>
                         <div class="detail-value">{{ formatTime(item.expired) }}</div>
                       </div>
                       <div class="detail-block">

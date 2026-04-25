@@ -15,10 +15,10 @@ func (s *Store) UpsertQuota(ctx context.Context, arg db.UpsertQuotaParams) error
 		Quota7d:      arg.Quota7d,
 		QuotaSpark5h: arg.QuotaSpark5h,
 		QuotaSpark7d: arg.QuotaSpark7d,
-		Reset5h:      fmtTime(arg.Reset5h),
-		Reset7d:      fmtTime(arg.Reset7d),
-		ResetSpark5h: fmtTime(arg.ResetSpark5h),
-		ResetSpark7d: fmtTime(arg.ResetSpark7d),
+		Reset5h:      sqliteTimeString(arg.Reset5h),
+		Reset7d:      sqliteTimeString(arg.Reset7d),
+		ResetSpark5h: sqliteTimeString(arg.ResetSpark5h),
+		ResetSpark7d: sqliteTimeString(arg.ResetSpark7d),
 	})
 	return err
 }
