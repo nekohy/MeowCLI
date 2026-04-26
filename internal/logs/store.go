@@ -49,8 +49,13 @@ func (s *Store) InsertLog(ctx context.Context, arg db.InsertLogParams) error {
 		Handler:      arg.Handler,
 		CredentialID: arg.CredentialID,
 		StatusCode:   arg.StatusCode,
-		Text:         arg.Text,
 		ModelTier:    arg.ModelTier,
+		Model:        arg.Model,
+		APIType:      arg.APIType,
+		Stream:       arg.Stream,
+		FirstByte:    arg.FirstByte,
+		Duration:     arg.Duration,
+		Error:        db.LogJSONError(arg.Error),
 		CreatedAt:    now,
 	})
 	s.compactLocked()
@@ -311,7 +316,9 @@ func matchesLogFilter(row db.LogRow, filter db.LogFilterParams) bool {
 	values := []string{
 		row.Handler,
 		row.CredentialID,
-		row.Text,
+		row.Model,
+		row.APIType,
+		row.Error,
 		strconv.Itoa(int(row.StatusCode)),
 	}
 	for _, value := range values {

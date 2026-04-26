@@ -11,6 +11,7 @@ import (
 
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/internal/settings"
+	db "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
@@ -43,9 +44,9 @@ type CredentialScheduler interface {
 	Pick(ctx context.Context, headers http.Header, preferredCredentialID string, allowedPlanTypes []string) (credentialID string, err error)
 	// AuthHeaders 返回该凭证的认证头（如 Authorization, Account-Id 等），由各类型自行实现
 	AuthHeaders(ctx context.Context, credentialID string) (http.Header, error)
-	RecordSuccess(ctx context.Context, credentialID string, statusCode int32, modelTier string)
-	RecordFailure(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string, retryAfter time.Duration)
-	HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) bool
+	RecordSuccess(ctx context.Context, credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics)
+	RecordFailure(ctx context.Context, credentialID string, statusCode int32, modelTier string, retryAfter time.Duration, metrics db.LogRequestMetrics)
+	HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) bool
 }
 
 type RetryDelayParser interface {

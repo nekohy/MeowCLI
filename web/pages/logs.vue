@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
-import { PAGE_SIZE_OPTIONS, formatTime } from '~/lib/admin'
+import { PAGE_SIZE_OPTIONS } from '~/lib/admin'
+import { hasLogError, logItemKey, logMetaItems } from '~/lib/logs'
 import type { LogItem, LogStatusCount } from '~/types/admin'
 
 definePageMeta({
@@ -58,17 +59,6 @@ const statusCodeOptions = computed(() => [
 ])
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let latestLoadToken = 0
-
-function hasLogDetail(text: string) {
-  return text
-    .split(/\r?\n/)
-    .map((item) => item.trim())
-    .some(Boolean)
-}
-
-function logItemKey(item: LogItem) {
-  return `${item.handler}-${item.credential_id}-${item.created_at}-${item.status_code}`
-}
 
 function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.value) {
   const statusCode = Number(statusCodeFilter.value)
@@ -183,7 +173,7 @@ onBeforeUnmount(() => {
               v-model="searchInput"
               class="filter-grow"
               label="搜索"
-              placeholder="处理器 / 凭据 / 状态码"
+              placeholder="处理器 / 凭据 / 模型 / 错误 / 状态码"
               prepend-inner-icon="mdi-magnify"
               clearable
             />
@@ -251,7 +241,6 @@ onBeforeUnmount(() => {
             :key="logItemKey(item)"
           >
             <VExpansionPanels
-              v-if="hasLogDetail(item.text)"
               variant="accordion"
               class="log-panels"
             >
@@ -262,41 +251,41 @@ onBeforeUnmount(() => {
                 <VExpansionPanelTitle>
                   <div class="activity-title">
                     <div class="activity-topline">
-                      <AdminBadge :tone="item.status_code < 400 ? 'success' : 'danger'">
+                      <span
+                        class="log-status-pill"
+                        :class="item.status_code < 400 ? 'log-status-pill--success' : 'log-status-pill--error'"
+                      >
+                        <span class="log-status-dot" />
                         {{ item.status_code }}
-                      </AdminBadge>
+                      </span>
                       <span class="font-weight-medium">{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
-                      <span class="text-medium-emphasis">{{ item.credential_id || '未记录凭据' }}</span>
-                      <span class="text-medium-emphasis">{{ formatTime(item.created_at) }}</span>
                     </div>
                   </div>
                 </VExpansionPanelTitle>
                 <VExpansionPanelText>
-                  <VSheet color="surface-container-high" rounded="lg" class="log-detail-surface">
-                    <pre class="log-text">{{ item.text }}</pre>
-                  </VSheet>
+                  <div class="log-detail-stack">
+                    <div class="log-meta-panel">
+                      <div
+                        v-for="meta in logMetaItems(item)"
+                        :key="meta.label"
+                        class="log-meta-item"
+                        :class="{ 'log-meta-item--wide': meta.wide }"
+                      >
+                        <span>{{ meta.label }}</span>
+                        <strong>{{ meta.value }}</strong>
+                      </div>
+                    </div>
+                    <div v-if="hasLogError(item.error)" class="log-detail-surface">
+                      <div class="log-detail-heading">
+                        <span>错误响应</span>
+                        <span>JSON</span>
+                      </div>
+                      <pre class="log-text">{{ item.error }}</pre>
+                    </div>
+                  </div>
                 </VExpansionPanelText>
               </VExpansionPanel>
             </VExpansionPanels>
-
-            <VSheet
-              v-else
-              class="log-static-row"
-              color="surface-container"
-              rounded="xl"
-              border
-            >
-              <div class="activity-title">
-                <div class="activity-topline">
-                  <AdminBadge :tone="item.status_code < 400 ? 'success' : 'danger'">
-                    {{ item.status_code }}
-                  </AdminBadge>
-                  <span class="font-weight-medium">{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
-                  <span class="text-medium-emphasis">{{ item.credential_id || '未记录凭据' }}</span>
-                  <span class="text-medium-emphasis">{{ formatTime(item.created_at) }}</span>
-                </div>
-              </div>
-            </VSheet>
           </template>
         </div>
 

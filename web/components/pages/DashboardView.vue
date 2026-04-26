@@ -1,23 +1,12 @@
 <script setup lang="ts">
-import { formatTime, statusText, toneForStatus } from '~/lib/admin'
-import type { LogItem } from '~/types/admin'
+import { statusText, toneForStatus } from '~/lib/admin'
+import { hasLogError, logItemKey, logMetaItems } from '~/lib/logs'
 
 const admin = useAdminApp()
 const router = useRouter()
 
 const summary = computed(() => admin.overview.value.summary)
 const recentLogs = computed(() => admin.overview.value.recent_logs)
-
-function hasLogDetail(text: string) {
-  return text
-    .split(/\r?\n/)
-    .map((item) => item.trim())
-    .some(Boolean)
-}
-
-function logItemKey(item: LogItem) {
-  return `${item.handler}-${item.credential_id}-${item.created_at}-${item.status_code}`
-}
 
 async function openHandler(key: string, supportsCredentials: boolean) {
   admin.selectedHandler.value = key
@@ -134,7 +123,6 @@ async function openPage(path: string) {
           :key="logItemKey(item)"
         >
           <VExpansionPanels
-            v-if="hasLogDetail(item.text)"
             variant="accordion"
             class="log-panels"
           >
@@ -145,43 +133,42 @@ async function openPage(path: string) {
               <VExpansionPanelTitle class="py-3">
                 <div class="activity-title w-100">
                   <div class="d-flex align-center ga-3">
-                    <AdminBadge :tone="item.status_code < 400 ? 'success' : 'danger'">
+                    <span
+                      class="log-status-pill"
+                      :class="item.status_code < 400 ? 'log-status-pill--success' : 'log-status-pill--error'"
+                    >
+                      <span class="log-status-dot" />
                       {{ item.status_code }}
-                    </AdminBadge>
+                    </span>
                     <span class="text-subtitle-2 font-weight-bold">{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
-                    <span class="text-caption text-medium-emphasis d-none d-sm-inline">{{ item.credential_id || 'SYSTEM' }}</span>
                     <VSpacer />
-                    <span class="text-caption text-medium-emphasis">{{ formatTime(item.created_at) }}</span>
                   </div>
                 </div>
               </VExpansionPanelTitle>
               <VExpansionPanelText>
-                <VSheet color="surface-container-high" rounded="lg" class="log-detail-surface">
-                  <pre class="log-text">{{ item.text }}</pre>
-                </VSheet>
+                <div class="log-detail-stack">
+                  <div class="log-meta-panel">
+                    <div
+                      v-for="meta in logMetaItems(item, 'SYSTEM')"
+                      :key="meta.label"
+                      class="log-meta-item"
+                      :class="{ 'log-meta-item--wide': meta.wide }"
+                    >
+                      <span>{{ meta.label }}</span>
+                      <strong>{{ meta.value }}</strong>
+                    </div>
+                  </div>
+                  <div v-if="hasLogError(item.error)" class="log-detail-surface">
+                    <div class="log-detail-heading">
+                      <span>错误响应</span>
+                      <span>JSON</span>
+                    </div>
+                    <pre class="log-text">{{ item.error }}</pre>
+                  </div>
+                </div>
               </VExpansionPanelText>
             </VExpansionPanel>
           </VExpansionPanels>
-
-          <VSheet
-            v-else
-            class="log-static-row"
-            color="surface-container"
-            rounded="xl"
-            border
-          >
-            <div class="activity-title w-100">
-              <div class="d-flex align-center ga-3">
-                <AdminBadge :tone="item.status_code < 400 ? 'success' : 'danger'">
-                  {{ item.status_code }}
-                </AdminBadge>
-                <span class="text-subtitle-2 font-weight-bold">{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
-                <span class="text-caption text-medium-emphasis d-none d-sm-inline">{{ item.credential_id || 'SYSTEM' }}</span>
-                <VSpacer />
-                <span class="text-caption text-medium-emphasis">{{ formatTime(item.created_at) }}</span>
-              </div>
-            </div>
-          </VSheet>
         </template>
       </div>
 

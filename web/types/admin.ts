@@ -54,8 +54,13 @@ export interface HandlerOverview {
 export interface LogItem {
   handler: string
   credential_id: string
-  text: string
   status_code: number
+  model: string
+  api_type: string
+  stream: boolean
+  first_byte: number
+  duration: number
+  error: string
   created_at: string
 }
 

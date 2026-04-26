@@ -4,8 +4,10 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/nekohy/MeowCLI/api"
+	db "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
@@ -21,6 +23,7 @@ type relayConfig struct {
 	streamRequest  bool
 	modelAlias     string
 	modelTier      string
+	apiType        utils.APIType
 	backend        api.Backend
 	needReplace    bool
 	responseAlias  string
@@ -64,7 +67,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			if cfg.ctx.Err() != nil {
 				return
 			}
-			cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), cfg.modelTier, 0)
+			cfg.sched.RecordFailure(cfg.ctx, credID, 0, cfg.modelTier, 0, cfg.logMetrics(0, 0, ""))
 			lastRelayErr = errUpstreamAuthFailed
 			haveLastRelayErr = true
 			log.Warn().Err(err).Str("credential", credID).Msg("get auth headers failed, retrying")
@@ -78,6 +81,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			headers[k] = vs
 		}
 
+		upstreamStarted := time.Now()
 		attemptCtx, cancel := relayAttemptContext(cfg.ctx, cfg.streamRequest)
 		resp, err := cfg.doRequest(attemptCtx, credID, headers)
 		if err != nil {
@@ -85,20 +89,21 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			if cfg.ctx.Err() != nil {
 				return
 			}
-			cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), cfg.modelTier, 0)
+			cfg.sched.RecordFailure(cfg.ctx, credID, 0, cfg.modelTier, 0, cfg.logMetrics(0, time.Since(upstreamStarted), ""))
 			lastRelayErr = errUpstreamRequestFailed
 			haveLastRelayErr = true
 			log.Warn().Err(err).Str("credential", credID).Int("attempt", attempt+1).Msg("upstream request failed, retrying")
 			continue
 		}
-
 		if isSuccessfulUpstreamStatus(resp.StatusCode) {
-			if err := h.writeResponse(c, resp, cfg.backend, cfg.responseAlias, cfg.needReplace); err != nil {
+			timing, err := h.writeResponse(c, resp, cfg.backend, cfg.responseAlias, cfg.needReplace, upstreamStarted)
+			metrics := cfg.logMetrics(timing.firstByte, timing.duration, "")
+			if err != nil {
 				cancel()
 				if cfg.ctx.Err() != nil {
 					return
 				}
-				cfg.sched.RecordFailure(cfg.ctx, credID, 0, err.Error(), cfg.modelTier, 0)
+				cfg.sched.RecordFailure(cfg.ctx, credID, 0, cfg.modelTier, 0, metrics)
 				log.Warn().Err(err).Str("credential", credID).Int("status", resp.StatusCode).Msg("relay response write failed")
 				if !c.Writer.Written() {
 					writeRelayError(c, errRelayResponseFailed)
@@ -110,19 +115,22 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			if cfg.onSuccess != nil {
 				cfg.onSuccess(credID)
 			}
-			cfg.sched.RecordSuccess(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier)
+			cfg.sched.RecordSuccess(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, metrics)
 			return
 		}
 
 		// 上游返回错误
-		errBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		_ = resp.Body.Close()
+		timedBody := newTimedReadCloser(resp.Body, upstreamStarted)
+		errBytes, _ := io.ReadAll(io.LimitReader(timedBody, 4096))
+		_ = timedBody.Close()
+		timing := timedBody.timing()
 		cancel()
 		errText := string(errBytes)
+		metrics := cfg.logMetrics(timing.firstByte, timing.duration, errText)
 		lastRelayErr = relayErrorForUpstreamStatus(resp.StatusCode)
 		haveLastRelayErr = true
 
-		if cfg.sched.HandleUnauthorized(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier) {
+		if cfg.sched.HandleUnauthorized(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, metrics) {
 			graceCredentialID = ""
 			log.Warn().
 				Int("status", resp.StatusCode).
@@ -133,7 +141,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 		}
 
 		if !shouldRetryUpstreamStatus(resp.StatusCode) {
-			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, 0)
+			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, 0, metrics)
 			writeRelayError(c, lastRelayErr)
 			return
 		}
@@ -150,7 +158,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 					if graceRetriedCredentialID == credID {
 						graceCredentialID = ""
 						graceRetriedCredentialID = ""
-						cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, retryAfter)
+						cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, retryAfter, metrics)
 						log.Warn().
 							Int("status", resp.StatusCode).
 							Str("credential", credID).
@@ -161,7 +169,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 					}
 					graceCredentialID = credID
 					graceRetriedCredentialID = credID
-					cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, 0)
+					cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, 0, metrics)
 					if !sleepWithContext(cfg.ctx, delay) {
 						return
 					}
@@ -177,11 +185,11 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			}
 			graceCredentialID = ""
 			graceRetriedCredentialID = ""
-			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, retryAfter)
+			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, retryAfter, metrics)
 		} else {
 			graceCredentialID = ""
 			graceRetriedCredentialID = ""
-			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), errText, cfg.modelTier, 0)
+			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, 0, metrics)
 		}
 
 		log.Warn().
@@ -196,4 +204,15 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 		lastRelayErr = errUpstreamRequestFailed
 	}
 	writeRelayError(c, lastRelayErr)
+}
+
+func (cfg relayConfig) logMetrics(firstByte time.Duration, duration time.Duration, errorBody string) db.LogRequestMetrics {
+	return db.LogRequestMetrics{
+		Model:     cfg.modelAlias,
+		APIType:   string(cfg.apiType),
+		Stream:    cfg.streamRequest,
+		FirstByte: logSeconds(firstByte),
+		Duration:  logSeconds(duration),
+		Error:     errorBody,
+	}
 }

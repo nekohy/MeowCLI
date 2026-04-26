@@ -100,6 +100,7 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 		streamRequest:  req.Stream,
 		modelAlias:     alias,
 		modelTier:      modelTier,
+		apiType:        apiType,
 		backend:        backend,
 		needReplace:    needReplace,
 		responseAlias:  alias,
@@ -168,7 +169,10 @@ func sleepWithContext(ctx context.Context, delay time.Duration) bool {
 	}
 }
 
-func (h *Handler) writeResponse(c *gin.Context, resp *http.Response, backend api.Backend, alias string, needReplace bool) error {
+func (h *Handler) writeResponse(c *gin.Context, resp *http.Response, backend api.Backend, alias string, needReplace bool, started time.Time) (responseTiming, error) {
+	timedBody := newTimedReadCloser(resp.Body, started)
+	resp.Body = timedBody
+
 	responseAlias := ""
 	if needReplace {
 		responseAlias = alias
@@ -177,7 +181,8 @@ func (h *Handler) writeResponse(c *gin.Context, resp *http.Response, backend api
 
 	contentType := resp.Header.Get("Content-Type")
 	if strings.HasPrefix(contentType, "text/event-stream") {
-		return h.streamSSE(c, resp, backend, responseAlias)
+		err := h.streamSSE(c, resp, backend, responseAlias)
+		return timedBody.timing(), err
 	}
 
 	if responseAlias == "" && !normalizeGemini {
@@ -190,16 +195,16 @@ func (h *Handler) writeResponse(c *gin.Context, resp *http.Response, backend api
 		}
 		c.Status(resp.StatusCode)
 		_, err := io.CopyBuffer(c.Writer, resp.Body, make([]byte, 32*1024))
-		return err
+		return timedBody.timing(), err
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	if err != nil {
-		return err
+		return timedBody.timing(), err
 	}
 
 	bodyBytes = backend.ReplaceModel(bodyBytes, responseAlias)
 	c.Data(resp.StatusCode, contentType, bodyBytes)
-	return nil
+	return timedBody.timing(), nil
 }

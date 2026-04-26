@@ -149,7 +149,7 @@ func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableGemini
 	cancel()
 	if err != nil {
 		if statusCode, body, ok := geminiapi.ParseAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
-			s.HandleUnauthorized(ctx, row.ID, int32(statusCode), body, "")
+			s.HandleUnauthorized(ctx, row.ID, int32(statusCode), "", db.LogRequestMetrics{Error: body})
 			return
 		}
 		log.Error().Err(err).Str("credential", row.ID).Msg("gemini quota-sync: fetch quota")
@@ -492,22 +492,22 @@ func ErrorRateSince(resetAt time.Time, windowSeconds int64) time.Time {
 }
 
 // RecordSuccess records a successful request and resets the backoff state.
-func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, statusCode int32, modelTier string) {
+func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) {
 	s.mu.Lock()
 	delete(s.throttle, credentialID)
 	s.mu.Unlock()
 
-	if err := s.recordResponse(context.Background(), credentialID, statusCode, "", modelTier); err != nil {
+	if err := s.recordResponse(context.Background(), credentialID, statusCode, modelTier, metrics); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: insert success log")
 	}
 }
 
 // RecordFailure records the response for error-rate weighting.
 // Throttling is reserved for explicit 429 retry windows or repeated consecutive failures.
-func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, statusCode int32, text string, modelTier string, retryAfter time.Duration) {
+func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, statusCode int32, modelTier string, retryAfter time.Duration, metrics db.LogRequestMetrics) {
 	bgCtx := context.Background()
 
-	if err := s.recordResponse(bgCtx, credentialID, statusCode, text, modelTier); err != nil {
+	if err := s.recordResponse(bgCtx, credentialID, statusCode, modelTier, metrics); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: insert failure log")
 	}
 
@@ -555,9 +555,9 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 }
 
 // HandleUnauthorized handles auth/account terminal statuses outside the error-rate backoff path.
-func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) bool {
+func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) bool {
 	if isDirectDisableStatus(int(statusCode)) {
-		s.recordAuthRejection(context.Background(), credentialID, statusCode, text, modelTier)
+		s.recordAuthRejection(context.Background(), credentialID, statusCode, modelTier, metrics)
 		s.mu.Lock()
 		delete(s.throttle, credentialID)
 		delete(s.checking, credentialID)
@@ -596,14 +596,14 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 		return true
 	}
 	if s.manager == nil {
-		s.recordAuthRejection(context.Background(), credentialID, statusCode, text, modelTier)
+		s.recordAuthRejection(context.Background(), credentialID, statusCode, modelTier, metrics)
 		log.Warn().
 			Str("credential", credentialID).
 			Int32("status", statusCode).
 			Msg("gemini credential verification skipped because manager is unavailable")
 		return true
 	}
-	go s.verifyCredentialAfterUnauthorized(credentialID, statusCode, text, modelTier)
+	go s.verifyCredentialAfterUnauthorized(credentialID, statusCode, modelTier, metrics)
 	return true
 }
 
@@ -699,7 +699,7 @@ func (s *Scheduler) finishChecking(credentialID string) {
 	s.mu.Unlock()
 }
 
-func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string, statusCode int32, text string, modelTier string) {
+func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.settingsSnapshot().UnauthorizedCheckTimeout())
 	defer cancel()
 	defer s.finishChecking(credentialID)
@@ -710,7 +710,7 @@ func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string, statu
 		log.Info().Str("credential", credentialID).Msg("gemini credential refresh verification succeeded after auth rejection response")
 	default:
 		if statusCode == http.StatusUnauthorized {
-			s.recordAuthRejection(ctx, credentialID, statusCode, text, modelTier)
+			s.recordAuthRejection(ctx, credentialID, statusCode, modelTier, metrics)
 		}
 		log.Warn().Err(err).Str("credential", credentialID).Msg("gemini credential refresh verification finished with error after auth rejection response")
 	}
@@ -743,7 +743,7 @@ func (s *Scheduler) validateCredentialUsageAfterRefresh(ctx context.Context, cre
 				Handler:      string(utils.HandlerGemini),
 				CredentialID: credentialID,
 				StatusCode:   int32(statusCode),
-				Text:         body,
+				Error:        body,
 			}); err != nil {
 				log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: insert usage verification failure log")
 			}
@@ -778,7 +778,7 @@ func (s *Scheduler) validateImportedCredential(ctx context.Context, credentialID
 				Handler:      string(utils.HandlerGemini),
 				CredentialID: credentialID,
 				StatusCode:   int32(statusCode),
-				Text:         body,
+				Error:        body,
 			}); logErr != nil {
 				log.Error().Err(logErr).Str("credential", credentialID).Msg("gemini scheduler: insert import validation failure log")
 			}
@@ -871,18 +871,12 @@ func (s *Scheduler) insertLog(ctx context.Context, arg db.InsertLogParams) error
 	return s.logStore.InsertLog(ctx, arg)
 }
 
-func (s *Scheduler) recordResponse(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) error {
-	return s.insertLog(ctx, db.InsertLogParams{
-		Handler:      string(utils.HandlerGemini),
-		CredentialID: credentialID,
-		StatusCode:   statusCode,
-		Text:         text,
-		ModelTier:    modelTier,
-	})
+func (s *Scheduler) recordResponse(ctx context.Context, credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) error {
+	return s.insertLog(ctx, db.NewInsertLogParams(string(utils.HandlerGemini), credentialID, statusCode, modelTier, metrics))
 }
 
-func (s *Scheduler) recordAuthRejection(ctx context.Context, credentialID string, statusCode int32, text string, modelTier string) {
-	if err := s.recordResponse(ctx, credentialID, statusCode, text, modelTier); err != nil {
+func (s *Scheduler) recordAuthRejection(ctx context.Context, credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) {
+	if err := s.recordResponse(ctx, credentialID, statusCode, modelTier, metrics); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: insert auth rejection log")
 	}
 }

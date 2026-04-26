@@ -95,6 +95,7 @@ func (h *Handler) handleGemini(c *gin.Context) {
 		streamRequest:  streamRequest,
 		modelAlias:     alias,
 		modelTier:      modelTier,
+		apiType:        utils.APIGemini,
 		backend:        backend,
 		needReplace:    needReplace,
 		responseAlias:  alias,

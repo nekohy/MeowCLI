@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -53,8 +54,45 @@ type InsertLogParams struct {
 	Handler      string
 	CredentialID string
 	StatusCode   int32
-	Text         string
 	ModelTier    string
+	Model        string
+	APIType      string
+	Stream       bool
+	FirstByte    float64
+	Duration     float64
+	Error        string
+}
+
+func LogJSONError(body string) string {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" || !json.Valid([]byte(trimmed)) {
+		return ""
+	}
+	return body
+}
+
+type LogRequestMetrics struct {
+	Model     string
+	APIType   string
+	Stream    bool
+	FirstByte float64
+	Duration  float64
+	Error     string
+}
+
+func NewInsertLogParams(handler string, credentialID string, statusCode int32, modelTier string, metrics LogRequestMetrics) InsertLogParams {
+	return InsertLogParams{
+		Handler:      handler,
+		CredentialID: credentialID,
+		StatusCode:   statusCode,
+		ModelTier:    modelTier,
+		Model:        metrics.Model,
+		APIType:      metrics.APIType,
+		Stream:       metrics.Stream,
+		FirstByte:    metrics.FirstByte,
+		Duration:     metrics.Duration,
+		Error:        metrics.Error,
+	}
 }
 
 type ErrorRateSince struct {
@@ -214,8 +252,13 @@ type LogRow struct {
 	Handler      string    `json:"handler"`
 	CredentialID string    `json:"credential_id"`
 	StatusCode   int32     `json:"status_code"`
-	Text         string    `json:"text"`
 	ModelTier    string    `json:"model_tier"`
+	Model        string    `json:"model"`
+	APIType      string    `json:"api_type"`
+	Stream       bool      `json:"stream"`
+	FirstByte    float64   `json:"first_byte"`
+	Duration     float64   `json:"duration"`
+	Error        string    `json:"error"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
