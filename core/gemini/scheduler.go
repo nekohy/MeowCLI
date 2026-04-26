@@ -816,6 +816,7 @@ func (s *Scheduler) validateCredentialAfterAuthFailure(credentialID string, stat
 		if statusCode == http.StatusUnauthorized {
 			s.recordAuthRejection(ctx, credentialID, statusCode, modelTier, metrics)
 		}
+		s.DisableCredential(ctx, credentialID, fmt.Sprintf("refresh verification failed after auth rejection (%d)", statusCode))
 		log.Warn().Err(err).Str("credential", credentialID).Msg("gemini credential refresh verification finished with error after auth rejection response")
 	}
 	if err == nil {
