@@ -58,9 +58,10 @@ func DecideFailureThrottle(statusCode int32, retryAfter time.Duration, consecuti
 	if consecutive < ConsecutiveFailureThrottleThreshold {
 		return FailureThrottleDecision{}
 	}
+	backoffAttempt := consecutive - ConsecutiveFailureThrottleThreshold + 1
 	return FailureThrottleDecision{
 		Throttle: true,
-		Backoff:  calcBackoff(consecutive, base, max),
+		Backoff:  calcBackoff(backoffAttempt, base, max),
 		Reason:   "consecutive failure threshold",
 	}
 }
