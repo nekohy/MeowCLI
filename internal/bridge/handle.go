@@ -169,7 +169,7 @@ func sleepWithContext(ctx context.Context, delay time.Duration) bool {
 	}
 }
 
-func (h *Handler) writeResponse(c *gin.Context, resp *http.Response, backend api.Backend, alias string, needReplace bool, started time.Time) (responseTiming, error) {
+func (h *Handler) writeResponse(c *gin.Context, resp *http.Response, backend api.Backend, alias string, needReplace bool, streamRequest bool, started time.Time) (responseTiming, error) {
 	timedBody := newTimedReadCloser(resp.Body, started)
 	resp.Body = timedBody
 
@@ -179,8 +179,7 @@ func (h *Handler) writeResponse(c *gin.Context, resp *http.Response, backend api
 	}
 	normalizeGemini := backend.HandlerType() == utils.HandlerGemini
 
-	contentType := resp.Header.Get("Content-Type")
-	if strings.HasPrefix(contentType, "text/event-stream") {
+	if streamRequest {
 		err := h.streamSSE(c, resp, backend, responseAlias)
 		return timedBody.timing(), err
 	}
@@ -190,9 +189,7 @@ func (h *Handler) writeResponse(c *gin.Context, resp *http.Response, backend api
 			_ = resp.Body.Close()
 		}()
 
-		if contentType != "" {
-			c.Header("Content-Type", contentType)
-		}
+		c.Header("Content-Type", "application/json")
 		c.Status(resp.StatusCode)
 		_, err := io.CopyBuffer(c.Writer, resp.Body, make([]byte, 32*1024))
 		return timedBody.timing(), err
@@ -205,6 +202,6 @@ func (h *Handler) writeResponse(c *gin.Context, resp *http.Response, backend api
 	}
 
 	bodyBytes = backend.ReplaceModel(bodyBytes, responseAlias)
-	c.Data(resp.StatusCode, contentType, bodyBytes)
+	c.Data(resp.StatusCode, "application/json", bodyBytes)
 	return timedBody.timing(), nil
 }

@@ -111,12 +111,10 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	if strings.TrimSpace(httpReq.Header.Get("Content-Type")) == "" {
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
-	if strings.TrimSpace(httpReq.Header.Get("Accept")) == "" {
-		if action == "streamGenerateContent" {
-			httpReq.Header.Set("Accept", "text/event-stream")
-		} else {
-			httpReq.Header.Set("Accept", "application/json")
-		}
+	if action == "streamGenerateContent" {
+		httpReq.Header.Set("Accept", "text/event-stream")
+	} else {
+		httpReq.Header.Set("Accept", "application/json")
 	}
 	httpReq.Header.Set("User-Agent", geminiCLIUserAgent(modelName))
 	httpReq.Header.Set("X-Goog-Api-Client", geminiCLIApiClientHeader)
@@ -157,7 +155,8 @@ func transformCodeAssistQuery(action, rawQuery string) string {
 
 func copyHeaders(dst, src http.Header) {
 	for key, values := range src {
-		if http.CanonicalHeaderKey(key) == "Accept-Encoding" {
+		switch http.CanonicalHeaderKey(key) {
+		case "Accept", "Accept-Encoding":
 			continue
 		}
 		if len(values) == 0 {

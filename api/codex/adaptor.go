@@ -119,6 +119,9 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 		SetBody(body)
 
 	for k, vs := range headers {
+		if http.CanonicalHeaderKey(k) == "Accept" {
+			continue
+		}
 		if len(vs) > 0 {
 			r.SetHeader(k, vs[0])
 		}

@@ -75,6 +75,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 		}
 
 		headers := cfg.requestHeaders.Clone()
+		headers.Del("Accept")
 		headers.Del(utils.HeaderPlanTypePreference)
 		scrubLocalAuthHeaders(headers)
 		for k, vs := range authHeaders {
@@ -96,7 +97,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			continue
 		}
 		if isSuccessfulUpstreamStatus(resp.StatusCode) {
-			timing, err := h.writeResponse(c, resp, cfg.backend, cfg.responseAlias, cfg.needReplace, upstreamStarted)
+			timing, err := h.writeResponse(c, resp, cfg.backend, cfg.responseAlias, cfg.needReplace, cfg.streamRequest, upstreamStarted)
 			metrics := cfg.logMetrics(timing.firstByte, timing.duration, "")
 			if err != nil {
 				cancel()
