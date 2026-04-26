@@ -77,6 +77,7 @@ http://127.0.0.1:3000/admin
 | `LISTEN_ADDR` | 服务监听地址 | `:3000` |
 | `DATABASE_URL` | 数据库地址；为空时使用 SQLite 文件 | `meowcli.db` |
 | `DB_TYPE` | 数据库类型，支持 `sqlite` / `postgres` | `sqlite` |
+| `DEBUG` | 设为 `TRUE` 启用 pprof 调试服务（监听 `:6060`） | (空) |
 
 
 ## todo

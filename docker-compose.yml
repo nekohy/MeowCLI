@@ -11,7 +11,9 @@ services:
       DB_TYPE: sqlite
       DATABASE_URL: /data/meowcli.db
       TZ: Asia/Shanghai
+      # DEBUG: "TRUE"   # uncomment to enable pprof on :6060
     ports:
       - "3000:3000"
+      # - "6060:6060"   # pprof port (enable with DEBUG=TRUE)
     volumes:
       - ./meowcli/data:/data

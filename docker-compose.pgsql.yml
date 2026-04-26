@@ -11,8 +11,10 @@ services:
       DB_TYPE: postgres
       DATABASE_URL: postgres://meowcli:meowcli@postgres:5432/meowcli?sslmode=disable
       TZ: Asia/Shanghai
+      # DEBUG: "TRUE"   # uncomment to enable pprof on :6060
     ports:
       - "3000:3000"
+      # - "6060:6060"   # pprof port (enable with DEBUG=TRUE)
     depends_on:
       postgres:
         condition: service_healthy
