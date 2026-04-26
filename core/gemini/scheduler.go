@@ -20,6 +20,8 @@ import (
 
 var ErrNoAvailableCredential = fmt.Errorf("no available gemini credential")
 
+const quotaRefreshFailureBackoff = time.Minute
+
 // SchedulerStore describes the SQL operations the scheduler depends on.
 type SchedulerStore interface {
 	ListAvailableGeminiCLI(ctx context.Context) ([]db.ListAvailableGeminiCLIRow, error)
@@ -62,6 +64,7 @@ type Scheduler struct {
 	mu               sync.Mutex
 	throttle         map[string]*throttleState
 	checking         map[string]struct{}
+	quotaRefreshing  map[string]struct{}
 	verifyCredential func(string)
 	importSyncMu     sync.Mutex
 	available        atomic.Pointer[[]availableRow]
@@ -71,11 +74,12 @@ type Scheduler struct {
 // NewScheduler creates a scheduler connected to the given store and token manager.
 func NewScheduler(store SchedulerStore, manager *Manager) *Scheduler {
 	return &Scheduler{
-		store:     store,
-		manager:   manager,
-		throttle:  make(map[string]*throttleState),
-		checking:  make(map[string]struct{}),
-		planTypes: newPlanTypeCodec(),
+		store:           store,
+		manager:         manager,
+		throttle:        make(map[string]*throttleState),
+		checking:        make(map[string]struct{}),
+		quotaRefreshing: make(map[string]struct{}),
+		planTypes:       newPlanTypeCodec(),
 	}
 }
 
@@ -201,24 +205,16 @@ func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, all
 		case ModelTierFlashLite:
 			return scheduling.AdjustedScore(row.ScoreFlashLite, row.WeightFlashlite)
 		default:
-			return 0
+			return -1
 		}
 	}
 	bestMatch := func(match func(availableRow) bool) (availableRow, bool) {
-		var best availableRow
-		bestScore := -1.0
-		for _, row := range rows {
+		return scheduling.PickWeightedTopK(rows, scheduling.DefaultWeightedTopK, func(row availableRow) float64 {
 			if !match(row) {
-				continue
+				return -1
 			}
-			score := scoreForTier(row)
-			if score < 0 || score <= bestScore {
-				continue
-			}
-			best = row
-			bestScore = score
-		}
-		return best, bestScore >= 0
+			return scoreForTier(row)
+		})
 	}
 
 	if preferredCredentialID != "" {
@@ -426,6 +422,45 @@ func (s *Scheduler) markTierUnavailable(id string, modelTier string) {
 	s.available.Store(&updated)
 }
 
+func (s *Scheduler) beginQuotaRefresh(id string, modelTier string) bool {
+	if s == nil || id == "" {
+		return false
+	}
+	key := quotaRefreshKey(id, modelTier)
+
+	s.mu.Lock()
+	if s.quotaRefreshing == nil {
+		s.quotaRefreshing = make(map[string]struct{})
+	}
+	if _, ok := s.quotaRefreshing[key]; ok {
+		s.mu.Unlock()
+		return false
+	}
+	s.quotaRefreshing[key] = struct{}{}
+	s.mu.Unlock()
+
+	if modelTier != "" {
+		s.markTierUnavailable(id, modelTier)
+	} else {
+		s.removeFromAvailable(id)
+	}
+	return true
+}
+
+func (s *Scheduler) finishQuotaRefresh(id string, modelTier string) {
+	if s == nil || id == "" {
+		return
+	}
+	key := quotaRefreshKey(id, modelTier)
+	s.mu.Lock()
+	delete(s.quotaRefreshing, key)
+	s.mu.Unlock()
+}
+
+func quotaRefreshKey(id string, modelTier string) string {
+	return id + "\x00" + modelTier
+}
+
 func (s *Scheduler) AuthHeaders(ctx context.Context, credentialID string) (http.Header, error) {
 	return s.manager.AuthHeaders(ctx, credentialID, scheduling.UseCached)
 }
@@ -465,23 +500,23 @@ func headerPlanTypeCodes(headers http.Header, enabled bool, codec *planTypeCodec
 // Only the relevant tier's quota is checked; other tiers are ignored.
 // If the requested tier's quota is exhausted (0%), returns -1 (unusable for that tier).
 func CalcScore(quotaPro, quotaFlash, quotaFlashlite float64, resetPro, resetFlash, resetFlashlite time.Time, modelTier string, windowSeconds int64) float64 {
-	now := time.Now().Unix()
+	now := time.Now()
 	switch modelTier {
 	case ModelTierPro:
 		if quotaPro == 0 {
 			return -1
 		}
-		return scheduling.UrgencyFactor(resetPro.Unix(), now, windowSeconds)*100 + quotaPro
+		return scheduling.QuotaPressureScore(quotaPro, resetPro, now, windowSeconds)
 	case ModelTierFlash:
 		if quotaFlash == 0 {
 			return -1
 		}
-		return scheduling.UrgencyFactor(resetFlash.Unix(), now, windowSeconds)*100 + quotaFlash
+		return scheduling.QuotaPressureScore(quotaFlash, resetFlash, now, windowSeconds)
 	case ModelTierFlashLite:
 		if quotaFlashlite == 0 {
 			return -1
 		}
-		return scheduling.UrgencyFactor(resetFlashlite.Unix(), now, windowSeconds)*100 + quotaFlashlite
+		return scheduling.QuotaPressureScore(quotaFlashlite, resetFlashlite, now, windowSeconds)
 	default:
 		return -1
 	}
@@ -624,6 +659,52 @@ func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *gem
 	}); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: upsert quota")
 	}
+}
+
+// RefreshQuota temporarily removes the credential tier from the in-memory
+// scheduling pool and refreshes quota in the background without writing DB state.
+func (s *Scheduler) RefreshQuota(_ context.Context, credentialID string, modelTier string) {
+	if s == nil || credentialID == "" || s.manager == nil || s.fetcher == nil {
+		return
+	}
+	if !s.beginQuotaRefresh(credentialID, modelTier) {
+		return
+	}
+
+	go func() {
+		defer s.finishQuotaRefresh(credentialID, modelTier)
+
+		refreshCtx, cancel := context.WithTimeout(context.Background(), s.settingsSnapshot().ImportedCheckTimeout())
+		defer cancel()
+
+		token, err := s.manager.AccessToken(refreshCtx, credentialID, scheduling.UseCached)
+		if err != nil {
+			s.setThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", modelTier).Msg("gemini scheduler: quota refresh get token")
+			return
+		}
+
+		projectID, err := s.manager.GetProjectID(refreshCtx, credentialID)
+		if err != nil {
+			s.setThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", modelTier).Msg("gemini scheduler: quota refresh get project")
+			return
+		}
+
+		q, err := s.fetcher.FetchQuota(refreshCtx, credentialID, token, projectID)
+		if err != nil {
+			s.setThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", modelTier).Msg("gemini scheduler: quota refresh fetch")
+			return
+		}
+		if q == nil {
+			s.setThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Msg("gemini scheduler: quota refresh returned empty quota")
+			return
+		}
+
+		s.updateAvailableQuota(credentialID, q)
+	}()
 }
 
 // SyncCredentials asynchronously performs an initial quota check for newly imported credentials.

@@ -24,6 +24,8 @@ var (
 	ErrNoAvailableCredential = errors.New("no available codex credential")
 )
 
+const quotaRefreshFailureBackoff = time.Minute
+
 // SchedulerStore 描述调度器所依赖的 SQL 操作
 type SchedulerStore interface {
 	ListAvailableCodex(ctx context.Context) ([]db.ListAvailableCodexRow, error)
@@ -79,6 +81,7 @@ type Scheduler struct {
 	mu               sync.Mutex
 	throttle         map[string]*throttleState
 	checking         map[string]struct{}
+	quotaRefreshing  map[string]struct{}
 	verifyCredential func(string)
 	importSyncMu     sync.Mutex
 	available        atomic.Pointer[availableSnapshot]
@@ -92,12 +95,13 @@ func NewScheduler(store SchedulerStore, manager *Manager) *Scheduler {
 		fetcher = manager.codexAPI
 	}
 	return &Scheduler{
-		store:     store,
-		manager:   manager,
-		fetcher:   fetcher,
-		throttle:  make(map[string]*throttleState),
-		checking:  make(map[string]struct{}),
-		planTypes: newPlanTypeCodec(),
+		store:           store,
+		manager:         manager,
+		fetcher:         fetcher,
+		throttle:        make(map[string]*throttleState),
+		checking:        make(map[string]struct{}),
+		quotaRefreshing: make(map[string]struct{}),
+		planTypes:       newPlanTypeCodec(),
 	}
 }
 
@@ -180,8 +184,8 @@ func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableCodexR
 	s.StoreQuota(ctx, row.ID, q)
 }
 
-// Pick 根据优先级评分选择最佳可用凭证。
-// 调用方可传入一个偏好的 credentialID；若不可用则返回无可用凭证，不再回退到其他凭证。
+// Pick 根据优先级评分选择最佳可用凭证
+// 调用方可传入一个偏好的 credentialID；若不可用则返回无可用凭证，不再回退到其他凭证
 func (s *Scheduler) Pick(ctx context.Context, headers http.Header, preferredCredentialID string, allowedPlanTypes []string) (string, error) {
 	codec := s.planTypeCodec()
 	return s.pickPreferred(ctx, s.preferredPlanTypeCodes(headers), codec.codesFor(allowedPlanTypes), preferredCredentialID, "")
@@ -212,27 +216,29 @@ func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, all
 		if !scheduling.PlanTypeAllowed(code, allowed) {
 			continue
 		}
-		for _, row := range snap.rows {
-			if row.PlanTypeCode != code {
-				continue
-			}
-			if s.rowScoreForTier(row, modelTier) >= 0 {
-				return row.ID, nil
-			}
+		if row, ok := s.pickWeightedRow(snap.rows, modelTier, func(row availableRow) bool {
+			return row.PlanTypeCode == code
+		}); ok {
+			return row.ID, nil
 		}
 	}
 
-	for _, r := range snap.rows {
-		if s.rowScoreForTier(r, modelTier) < 0 {
-			continue
-		}
-		if !scheduling.PlanTypeAllowed(r.PlanTypeCode, allowed) {
-			continue
-		}
-		return r.ID, nil
+	if row, ok := s.pickWeightedRow(snap.rows, modelTier, func(row availableRow) bool {
+		return scheduling.PlanTypeAllowed(row.PlanTypeCode, allowed)
+	}); ok {
+		return row.ID, nil
 	}
 
 	return "", ErrNoAvailableCredential
+}
+
+func (s *Scheduler) pickWeightedRow(rows []availableRow, modelTier string, match func(availableRow) bool) (availableRow, bool) {
+	return scheduling.PickWeightedTopK(rows, scheduling.DefaultWeightedTopK, func(row availableRow) float64 {
+		if !match(row) {
+			return -1
+		}
+		return s.rowScoreForTier(row, modelTier)
+	})
 }
 
 // rowScoreForTier returns the score for a row considering the requested model tier.
@@ -477,6 +483,45 @@ func (s *Scheduler) markTierUnavailable(id string, modelTier string) {
 	s.available.Store(buildAvailableSnapshot(updated))
 }
 
+func (s *Scheduler) beginQuotaRefresh(id string, modelTier string) bool {
+	if s == nil || id == "" {
+		return false
+	}
+	key := quotaRefreshKey(id, modelTier)
+
+	s.mu.Lock()
+	if s.quotaRefreshing == nil {
+		s.quotaRefreshing = make(map[string]struct{})
+	}
+	if _, ok := s.quotaRefreshing[key]; ok {
+		s.mu.Unlock()
+		return false
+	}
+	s.quotaRefreshing[key] = struct{}{}
+	s.mu.Unlock()
+
+	if modelTier != "" {
+		s.markTierUnavailable(id, modelTier)
+	} else {
+		s.removeFromAvailable(id)
+	}
+	return true
+}
+
+func (s *Scheduler) finishQuotaRefresh(id string, modelTier string) {
+	if s == nil || id == "" {
+		return
+	}
+	key := quotaRefreshKey(id, modelTier)
+	s.mu.Lock()
+	delete(s.quotaRefreshing, key)
+	s.mu.Unlock()
+}
+
+func quotaRefreshKey(id string, modelTier string) string {
+	return id + "\x00" + modelTier
+}
+
 func buildAvailableSnapshot(rows []availableRow) *availableSnapshot {
 	bestByPlanType := make(map[int]int, len(rows))
 	for i, row := range rows {
@@ -524,26 +569,14 @@ func (s *Scheduler) planTypeCodec() *planTypeCodec {
 	return s.planTypes
 }
 
-// CalcScore 根据配额比率和重置时间计算综合优先级评分
-// 分数越高越优先使用采用分层加权：
-//
-//  1. 7d 重置紧迫度（权重 1000）— 优先使用即将重置的凭证
-//  2. 7d 剩余配额  （权重 100） — 同等紧迫度下优先配额充沛的
-//  3. 5h 重置紧迫度（权重 10）  — 优先使用即将重置的凭证
-//  4. 5h 剩余配额  （权重 1）   — 最终决胜因子
+// CalcScore computes quota pressure with a 7d cap on the 5h window.
+// Higher scores mean the credential has more quota at risk of expiring soon.
 func CalcScore(quota5h, quota7d float64, reset5h, reset7d time.Time, window5hSeconds, window7dSeconds int64) float64 {
-	// 任一窗口的配额完全耗尽（0%）则不可用，避免浪费请求触发 429
-	// 注意：无此窗口时 quota 默认 1.0（满配额），不会触发此条件
 	if quota5h == 0 || quota7d == 0 {
 		return -1
 	}
 
-	now := time.Now().Unix()
-
-	u7d := scheduling.UrgencyFactor(reset7d.Unix(), now, window7dSeconds)
-	u5h := scheduling.UrgencyFactor(reset5h.Unix(), now, window5hSeconds)
-
-	return u7d*1000 + quota7d*100 + u5h*10 + quota5h
+	return scheduling.MultiWindowQuotaPressureScore(quota5h, quota7d, reset5h, reset7d, window5hSeconds, window7dSeconds)
 }
 
 // CalcScoreSpark computes a priority score for the spark model tier.
@@ -556,10 +589,7 @@ func CalcScoreSpark(quotaSpark5h, quotaSpark7d float64, resetSpark5h, resetSpark
 	if quotaSpark5h == 0 || quotaSpark7d == 0 {
 		return -1
 	}
-	now := time.Now().Unix()
-	u7d := scheduling.UrgencyFactor(resetSpark7d.Unix(), now, window7dSeconds)
-	u5h := scheduling.UrgencyFactor(resetSpark5h.Unix(), now, window5hSeconds)
-	return u7d*1000 + quotaSpark7d*100 + u5h*10 + quotaSpark5h
+	return scheduling.MultiWindowQuotaPressureScore(quotaSpark5h, quotaSpark7d, resetSpark5h, resetSpark7d, window5hSeconds, window7dSeconds)
 }
 
 func ErrorRateSince(reset5h, reset7d time.Time, window5hSeconds, window7dSeconds int64) time.Time {
@@ -714,6 +744,60 @@ func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *cod
 	merged := s.mergeQuotaUpdate(credentialID, q)
 	q = &merged
 	s.updateAvailableQuota(credentialID, q)
+}
+
+// RefreshQuota temporarily removes the credential tier from the in-memory
+// scheduling pool and refreshes quota in the background without writing DB state.
+func (s *Scheduler) RefreshQuota(_ context.Context, credentialID string, modelTier string) {
+	if s == nil || credentialID == "" || s.manager == nil || s.fetcher == nil {
+		return
+	}
+	if !s.beginQuotaRefresh(credentialID, modelTier) {
+		return
+	}
+
+	go func() {
+		defer s.finishQuotaRefresh(credentialID, modelTier)
+
+		refreshCtx, cancel := context.WithTimeout(context.Background(), s.settingsSnapshot().ImportedCheckTimeout())
+		defer cancel()
+
+		token, err := s.manager.AccessToken(refreshCtx, credentialID, scheduling.UseCached)
+		if err != nil {
+			s.setThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", modelTier).Msg("scheduler: quota refresh get token")
+			return
+		}
+
+		q, err := s.fetcher.FetchQuota(refreshCtx, credentialID, token)
+		if err != nil {
+			s.setThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", modelTier).Msg("scheduler: quota refresh fetch")
+			return
+		}
+		if q == nil {
+			s.setThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Msg("scheduler: quota refresh returned empty quota")
+			return
+		}
+		if !quotaRefreshHasTier(q, modelTier) {
+			s.setThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Msg("scheduler: quota refresh missing requested tier")
+			return
+		}
+
+		s.UpdateQuota(context.Background(), credentialID, q)
+	}()
+}
+
+func quotaRefreshHasTier(q *codexAPI.Quota, modelTier string) bool {
+	if q == nil {
+		return false
+	}
+	if modelTier == ModelTierSpark {
+		return q.HasSparkQuota
+	}
+	return q.HasDefaultQuota
 }
 
 // StoreQuota updates the in-memory scheduling cache and persists the quota.

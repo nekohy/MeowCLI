@@ -8,6 +8,7 @@ require (
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/maypok86/otter/v2 v2.3.0
+	github.com/mroth/weightedrand/v3 v3.0.0
 	github.com/rs/zerolog v1.35.1
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/sjson v1.2.5
@@ -52,7 +53,6 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.5.1 // indirect
 	golang.org/x/arch v0.26.0 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
-	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect

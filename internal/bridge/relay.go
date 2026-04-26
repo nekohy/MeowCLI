@@ -159,6 +159,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 					if graceRetriedCredentialID == credID {
 						graceCredentialID = ""
 						graceRetriedCredentialID = ""
+						refreshQuotaAfterRateLimit(cfg.ctx, cfg.sched, credID, cfg.modelTier)
 						cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, retryAfter, metrics)
 						log.Warn().
 							Int("status", resp.StatusCode).
@@ -186,6 +187,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 			}
 			graceCredentialID = ""
 			graceRetriedCredentialID = ""
+			refreshQuotaAfterRateLimit(cfg.ctx, cfg.sched, credID, cfg.modelTier)
 			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, retryAfter, metrics)
 		} else {
 			graceCredentialID = ""
@@ -216,4 +218,12 @@ func (cfg relayConfig) logMetrics(firstByte time.Duration, duration time.Duratio
 		Duration:  logSeconds(duration),
 		Error:     errorBody,
 	}
+}
+
+func refreshQuotaAfterRateLimit(ctx context.Context, sched CredentialScheduler, credentialID string, modelTier string) {
+	refresher, ok := sched.(QuotaRefresher)
+	if !ok {
+		return
+	}
+	refresher.RefreshQuota(ctx, credentialID, modelTier)
 }

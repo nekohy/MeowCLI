@@ -316,7 +316,7 @@ func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.Codex) (db.Cod
 		return db.Codex{}, fmt.Errorf("parse token expiry: %w", err)
 	}
 
-	// 提取 planType。
+	// 提取 planType
 	planType := latest.PlanType
 	claims, err := utils.ParseJWT(tokenData.IDToken)
 	if err != nil {

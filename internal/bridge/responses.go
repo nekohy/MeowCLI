@@ -57,6 +57,10 @@ type GraceRetryDecider interface {
 	GraceRetry(statusCode int32, text string, retryAfter time.Duration) (time.Duration, bool)
 }
 
+type QuotaRefresher interface {
+	RefreshQuota(ctx context.Context, credentialID string, modelTier string)
+}
+
 // ModelTierPicker is an optional extension of CredentialScheduler that supports
 // model-tier-aware credential selection. When a scheduler implements this interface,
 // the relay layer will call PickWithTier instead of Pick, passing the model tier
