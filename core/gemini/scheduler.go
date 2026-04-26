@@ -128,6 +128,9 @@ func (s *Scheduler) quotaSyncer() scheduling.QuotaSyncer[db.ListAvailableGeminiC
 		Sync:     s.syncQuotaRow,
 		RowID:    func(row db.ListAvailableGeminiCLIRow) string { return row.ID },
 		SyncedAt: func(row db.ListAvailableGeminiCLIRow) time.Time { return row.SyncedAt },
+		ResetAt: func(row db.ListAvailableGeminiCLIRow) time.Time {
+			return scheduling.EarliestTime(row.ResetPro, row.ResetFlash, row.ResetFlashlite)
+		},
 		WithSyncedAt: func(row db.ListAvailableGeminiCLIRow, syncedAt time.Time) db.ListAvailableGeminiCLIRow {
 			row.SyncedAt = syncedAt
 			return row

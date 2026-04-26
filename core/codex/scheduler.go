@@ -141,6 +141,9 @@ func (s *Scheduler) quotaSyncer() scheduling.QuotaSyncer[db.ListAvailableCodexRo
 		Sync:     s.syncQuotaRow,
 		RowID:    func(row db.ListAvailableCodexRow) string { return row.ID },
 		SyncedAt: func(row db.ListAvailableCodexRow) time.Time { return row.SyncedAt },
+		ResetAt: func(row db.ListAvailableCodexRow) time.Time {
+			return scheduling.EarliestTime(row.Reset5h, row.Reset7d, row.ResetSpark5h, row.ResetSpark7d)
+		},
 		WithSyncedAt: func(row db.ListAvailableCodexRow, syncedAt time.Time) db.ListAvailableCodexRow {
 			row.SyncedAt = syncedAt
 			return row
