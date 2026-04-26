@@ -16,6 +16,7 @@ import (
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/bytedance/sonic"
+	"github.com/bytedance/sonic/ast"
 	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -161,22 +162,39 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	return raw, nil
 }
 
-// 必要的注入头
+// 必要的请求体注入
 func prepareCodexResponsesRequestBody(body []byte) ([]byte, bool) {
-	clientStream := gjson.GetBytes(body, "stream").Bool()
-	out := body
-	if modified, err := sjson.SetBytes(out, "stream", true); err == nil {
-		out = modified
+	values := gjson.GetManyBytes(body, "stream", "store", "instructions")
+	stream, store, instructions := values[0], values[1], values[2]
+	clientStream := stream.Bool()
+	if stream.Type == gjson.True && store.Type == gjson.False && instructions.Exists() {
+		return body, clientStream
 	}
-	if modified, err := sjson.SetBytes(out, "store", false); err == nil {
-		out = modified
-	}
-	if !gjson.GetBytes(out, "instructions").Exists() {
-		if modified, err := sjson.SetBytes(out, "instructions", ""); err == nil {
-			out = modified
-		}
+
+	out, err := patchCodexResponsesRequestBody(body, instructions.Exists())
+	if err != nil {
+		return []byte{}, false
 	}
 	return out, clientStream
+}
+
+func patchCodexResponsesRequestBody(body []byte, hasInstructions bool) ([]byte, error) {
+	var root ast.Node
+	if err := root.UnmarshalJSON(body); err != nil {
+		return nil, err
+	}
+	if _, err := root.Set("stream", ast.NewBool(true)); err != nil {
+		return nil, err
+	}
+	if _, err := root.Set("store", ast.NewBool(false)); err != nil {
+		return nil, err
+	}
+	if !hasInstructions {
+		if _, err := root.Set("instructions", ast.NewString("")); err != nil {
+			return nil, err
+		}
+	}
+	return root.MarshalJSON()
 }
 
 func resolveQuotaTierFromBody(body []byte) string {

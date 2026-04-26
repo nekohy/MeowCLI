@@ -5,17 +5,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/bytedance/sonic"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/bytedance/sonic"
+	"github.com/tidwall/sjson"
+
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	"github.com/nekohy/MeowCLI/utils"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 const (
@@ -126,21 +127,24 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func wrapCodeAssistBody(body []byte, modelName, projectID string) []byte {
-	requestBody := body
-	if gjson.GetBytes(body, "request").Exists() {
-		requestBody = []byte(gjson.GetBytes(body, "request").Raw)
-	}
+type WrappedCodeAssistRequest struct {
+	Model   string                 `json:"model"`
+	Project string                 `json:"project"`
+	Request sonic.NoCopyRawMessage `json:"request"`
+}
 
-	wrapped := []byte(`{"model":"","project":"","request":{}}`)
-	if updated, err := sjson.SetBytes(wrapped, "model", modelName); err == nil {
-		wrapped = updated
+func wrapCodeAssistBody(body []byte, modelName, projectID string) []byte {
+	request := gjson.GetBytes(body, "request")
+	if request.Exists() {
+		body = sonic.NoCopyRawMessage(request.Raw)
 	}
-	if updated, err := sjson.SetBytes(wrapped, "project", projectID); err == nil {
-		wrapped = updated
-	}
-	if updated, err := sjson.SetRawBytes(wrapped, "request", requestBody); err == nil {
-		wrapped = updated
+	wrapped, err := sonic.Marshal(WrappedCodeAssistRequest{
+		Model:   modelName,
+		Project: projectID,
+		Request: body,
+	})
+	if err != nil {
+		return body
 	}
 	return wrapped
 }

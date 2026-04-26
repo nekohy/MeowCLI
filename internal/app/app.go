@@ -32,6 +32,7 @@ import (
 const (
 	serverReadHeaderTimeout = 5 * time.Second
 	serverReadTimeout       = 30 * time.Second
+	serverWriteTimeout      = 10 * time.Minute
 	serverIdleTimeout       = 2 * time.Minute
 	serverMaxHeaderBytes    = 1 << 20
 )
@@ -141,6 +142,7 @@ func Run(ctx context.Context, cfg Config) error {
 		Handler:           r,
 		ReadHeaderTimeout: serverReadHeaderTimeout,
 		ReadTimeout:       serverReadTimeout,
+		WriteTimeout:      serverWriteTimeout,
 		IdleTimeout:       serverIdleTimeout,
 		MaxHeaderBytes:    serverMaxHeaderBytes,
 	}
