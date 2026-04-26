@@ -47,7 +47,7 @@ func (h *Handler) handle(c *gin.Context, apiType utils.APIType) {
 		return
 	}
 
-	alias := strings.TrimSpace(req.Model)
+	alias := strings.Clone(strings.TrimSpace(req.Model))
 	if alias == "" {
 		writeRelayError(c, errModelRequired)
 		return

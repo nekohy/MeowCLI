@@ -46,16 +46,16 @@ func (s *Store) InsertLog(ctx context.Context, arg db.InsertLogParams) error {
 	now := time.Now()
 	s.pruneLocked(now)
 	s.rows = append(s.rows, db.LogRow{
-		Handler:      arg.Handler,
-		CredentialID: arg.CredentialID,
+		Handler:      strings.Clone(arg.Handler),
+		CredentialID: strings.Clone(arg.CredentialID),
 		StatusCode:   arg.StatusCode,
-		ModelTier:    arg.ModelTier,
-		Model:        arg.Model,
-		APIType:      arg.APIType,
+		ModelTier:    strings.Clone(arg.ModelTier),
+		Model:        strings.Clone(arg.Model),
+		APIType:      strings.Clone(arg.APIType),
 		Stream:       arg.Stream,
 		FirstByte:    arg.FirstByte,
 		Duration:     arg.Duration,
-		Error:        db.LogJSONError(arg.Error),
+		Error:        strings.Clone(db.LogJSONError(arg.Error)),
 		CreatedAt:    now,
 	})
 	s.compactLocked()
