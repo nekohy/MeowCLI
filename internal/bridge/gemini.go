@@ -1,21 +1,15 @@
 package bridge
 
 import (
-	"context"
 	"errors"
-	"github.com/bytedance/sonic"
-	"io"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 
-	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/api/gemini"
-	coreGemini "github.com/nekohy/MeowCLI/core/gemini"
-	storedb "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
 
+	"github.com/bytedance/sonic"
 	"github.com/gin-gonic/gin"
 )
 
@@ -34,15 +28,9 @@ func (h *Handler) RouteGeminiModels() gin.HandlerFunc {
 func (h *Handler) handleGemini(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	bodyReader := http.MaxBytesReader(c.Writer, c.Request.Body, maxBridgeRequestBodyBytes)
-	body, err := io.ReadAll(bodyReader)
-	if err != nil {
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
-			writeRelayError(c, errRequestBodyTooLarge)
-			return
-		}
-		writeRelayError(c, errReadRequestBody)
+	body, relayErr, ok := readBridgeBody(c)
+	if !ok {
+		writeRelayError(c, relayErr)
 		return
 	}
 
@@ -52,71 +40,34 @@ func (h *Handler) handleGemini(c *gin.Context) {
 		return
 	}
 
-	info, err := h.resolveModel(ctx, alias)
-	if err != nil {
-		switch {
-		case errors.Is(err, storedb.ErrNotFound):
-			writeRelayError(c, errModelNotConfigured)
-		default:
-			writeRelayError(c, errModelResolutionFailed)
-		}
+	target, relayErr, ok := h.resolveRelayTarget(ctx, alias, utils.APIGemini)
+	if !ok {
+		writeRelayError(c, relayErr)
 		return
 	}
-	if info.Handler != utils.HandlerGemini {
+	if target.info.Handler != utils.HandlerGemini {
 		writeRelayError(c, errUnsupportedAPIType)
 		return
 	}
 
-	backend, ok := h.backends[info.Handler]
-	if !ok {
-		writeRelayError(c, errBackendUnavailable)
-		return
-	}
-	if !slices.Contains(backend.APIType(), utils.APIGemini) {
-		writeRelayError(c, errUnsupportedAPIType)
-		return
-	}
-
-	sched, ok := h.schedulers[info.Handler]
-	if !ok {
-		writeRelayError(c, errSchedulerUnavailable)
-		return
-	}
-
-	streamRequest := action == "streamGenerateContent"
-	needReplace := alias != info.Origin
-	modelTier := coreGemini.ResolveModelTier(info.Origin)
-
-	h.relayWithRetry(c, relayConfig{
-		ctx:            ctx,
-		sched:          sched,
-		requestHeaders: c.Request.Header,
-		allowedPlans:   info.AllowedPlanTypes,
-		streamRequest:  streamRequest,
-		modelAlias:     alias,
-		modelTier:      modelTier,
-		apiType:        utils.APIGemini,
-		backend:        backend,
-		needReplace:    needReplace,
-		responseAlias:  alias,
-		resolvePreferred: func(graceCredID string) string {
-			return graceCredID
+	h.relayUpstream(c, upstreamRelay{
+		ctx:                  ctx,
+		scheduler:            target.sched,
+		requestHeaders:       c.Request.Header,
+		allowedPlans:         target.info.AllowedPlanTypes,
+		streamRequest:        action == "streamGenerateContent",
+		modelAlias:           alias,
+		modelTier:            modelTier(target.info),
+		apiType:              utils.APIGemini,
+		backend:              target.backend,
+		replaceResponseModel: alias != target.info.Origin,
+		responseModel:        alias,
+		requestBody:          body,
+		backendOptions: &gemini.Options{
+			ModelName: target.info.Origin,
+			Action:    action,
+			RawQuery:  c.Request.URL.RawQuery,
 		},
-		doRequest: func(attemptCtx context.Context, credID string, headers http.Header) (*http.Response, error) {
-			return backend.Chat(&api.Request{
-				Ctx:     attemptCtx,
-				CredID:  credID,
-				Body:    body,
-				Headers: headers,
-				Opts: &gemini.Options{
-					ModelName: info.Origin,
-					Action:    action,
-					RawQuery:  c.Request.URL.RawQuery,
-					ProjectID: headers.Get("X-Meow-Gemini-Project"),
-				},
-			})
-		},
-		onSuccess: nil,
 	})
 }
 

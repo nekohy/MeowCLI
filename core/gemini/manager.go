@@ -135,7 +135,6 @@ func (m *Manager) AuthHeaders(ctx context.Context, credentialID string, mode sch
 
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer "+row.AccessToken)
-	headers.Set("X-Meow-Gemini-Project", strings.TrimSpace(row.ProjectID))
 	return headers, nil
 }
 

@@ -20,14 +20,14 @@ func newSessionAffinityCache() *otter.Cache[string, string] {
 	return cache
 }
 
-func (h *Handler) readSessionRoute(key string) (string, bool) {
+func (h *Handler) sessionCredential(key string) (string, bool) {
 	if h == nil || h.sessions == nil || key == "" {
 		return "", false
 	}
 	return h.sessions.GetIfPresent(key)
 }
 
-func (h *Handler) writeSessionRoute(key string, credentialID string) {
+func (h *Handler) bindSessionCredential(key string, credentialID string) {
 	if h == nil || h.sessions == nil || key == "" || credentialID == "" {
 		return
 	}

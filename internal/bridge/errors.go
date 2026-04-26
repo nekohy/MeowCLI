@@ -96,3 +96,19 @@ func isSuccessfulUpstreamStatus(status int) bool {
 		return false
 	}
 }
+
+func retryableUpstreamStatus(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout,
+		http.StatusMisdirectedRequest,
+		http.StatusTooEarly,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}

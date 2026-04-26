@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nekohy/MeowCLI/api"
+	apiGemini "github.com/nekohy/MeowCLI/api/gemini"
 	"github.com/nekohy/MeowCLI/core/scheduling"
 	db "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
@@ -15,196 +16,270 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// relayConfig encapsulates the parameters that differ between relay handlers.
-type relayConfig struct {
-	ctx            context.Context
-	sched          CredentialScheduler
-	requestHeaders http.Header
-	allowedPlans   []string
-	streamRequest  bool
-	modelAlias     string
-	modelTier      string
-	apiType        utils.APIType
-	backend        api.Backend
-	needReplace    bool
-	responseAlias  string
-
-	// resolvePreferred returns the preferred credential ID for this attempt.
-	// graceCredID is the credential to retry from the previous grace retry.
-	resolvePreferred func(graceCredID string) string
-	// doRequest sends the upstream request with the given context, credential and headers.
-	doRequest func(ctx context.Context, credID string, headers http.Header) (*http.Response, error)
-	// onSuccess is called after a successful relay (e.g., to write session affinity).
-	onSuccess func(credID string)
+type upstreamRelay struct {
+	ctx                  context.Context
+	scheduler            CredentialScheduler
+	requestHeaders       http.Header
+	allowedPlans         []string
+	streamRequest        bool
+	modelAlias           string
+	modelTier            string
+	apiType              utils.APIType
+	backend              api.Backend
+	replaceResponseModel bool
+	responseModel        string
+	requestBody          []byte
+	backendOptions       api.BackendOpts
+	sessionKey           string
 }
 
-// relayWithRetry executes the common retry loop shared by all relay handlers.
-// It writes the response or an error to c and returns.
-func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
-	var lastRelayErr relayError
-	var haveLastRelayErr bool
-	graceCredentialID := ""
-	graceRetriedCredentialID := ""
+type retryTracker struct {
+	lastErr                  relayError
+	hasLastErr               bool
+	graceCredentialID        string
+	graceRetriedCredentialID string
+}
 
-	for attempt := 0; attempt < h.maxAttempts(); attempt++ {
-		preferredCredentialID := cfg.resolvePreferred(graceCredentialID)
-		credID, err := cfg.sched.SelectCredential(cfg.ctx, scheduling.CredentialSelection{
+// relayUpstream executes the common retry loop shared by all relay handlers.
+// It writes the response or an error to c and returns.
+func (h *Handler) relayUpstream(c *gin.Context, cfg upstreamRelay) {
+	state := retryTracker{}
+	for attempt := 1; attempt <= h.maxAttempts(); attempt++ {
+		credID, err := cfg.scheduler.SelectCredential(cfg.ctx, scheduling.CredentialSelection{
 			Headers:               cfg.requestHeaders,
-			PreferredCredentialID: preferredCredentialID,
+			PreferredCredentialID: h.preferredCredential(cfg.sessionKey, state.graceCredentialID),
 			AllowedPlanTypes:      cfg.allowedPlans,
 			ModelTier:             cfg.modelTier,
 		})
 		if err != nil {
-			if haveLastRelayErr {
+			if state.hasLastErr {
 				break
 			}
 			writeRelayError(c, errNoAvailableCredential)
 			return
 		}
 
-		authHeaders, err := cfg.sched.AuthHeaders(cfg.ctx, credID)
+		authHeaders, err := cfg.scheduler.AuthHeaders(cfg.ctx, credID)
 		if err != nil {
-			if cfg.ctx.Err() != nil {
+			if h.handleAuthFailure(cfg, credID, err, &state) {
 				return
 			}
-			cfg.sched.RecordFailure(cfg.ctx, credID, 0, cfg.modelTier, 0, cfg.logMetrics(0, 0, ""))
-			lastRelayErr = errUpstreamAuthFailed
-			haveLastRelayErr = true
-			log.Warn().Err(err).Str("credential", credID).Msg("get auth headers failed, retrying")
 			continue
 		}
 
-		headers := cfg.requestHeaders.Clone()
-		headers.Del("Accept")
-		headers.Del(utils.HeaderPlanTypePreference)
-		scrubLocalAuthHeaders(headers)
-		for k, vs := range authHeaders {
-			headers[k] = vs
-		}
-
+		headers := cfg.upstreamHeaders(authHeaders)
 		upstreamStarted := time.Now()
-		attemptCtx, cancel := relayAttemptContext(cfg.ctx, cfg.streamRequest)
-		resp, err := cfg.doRequest(attemptCtx, credID, headers)
+		resp, err := cfg.send(credID, headers)
 		if err != nil {
-			cancel()
-			if cfg.ctx.Err() != nil {
+			if h.handleSendFailure(cfg, credID, err, upstreamStarted, attempt, &state) {
 				return
 			}
-			cfg.sched.RecordFailure(cfg.ctx, credID, 0, cfg.modelTier, 0, cfg.logMetrics(0, time.Since(upstreamStarted), ""))
-			lastRelayErr = errUpstreamRequestFailed
-			haveLastRelayErr = true
-			log.Warn().Err(err).Str("credential", credID).Int("attempt", attempt+1).Msg("upstream request failed, retrying")
 			continue
 		}
+
 		if isSuccessfulUpstreamStatus(resp.StatusCode) {
-			timing, err := h.writeResponse(c, resp, cfg.backend, cfg.responseAlias, cfg.needReplace, cfg.streamRequest, upstreamStarted)
-			metrics := cfg.logMetrics(timing.firstByte, timing.duration, "")
-			if err != nil {
-				cancel()
-				if cfg.ctx.Err() != nil {
-					return
-				}
-				cfg.sched.RecordFailure(cfg.ctx, credID, 0, cfg.modelTier, 0, metrics)
-				log.Warn().Err(err).Str("credential", credID).Int("status", resp.StatusCode).Msg("relay response write failed")
-				if !c.Writer.Written() {
-					writeRelayError(c, errRelayResponseFailed)
-				}
-				return
-			}
-			cancel()
-			graceCredentialID = ""
-			if cfg.onSuccess != nil {
-				cfg.onSuccess(credID)
-			}
-			cfg.sched.RecordSuccess(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, metrics)
+			h.handleSuccessfulResponse(c, cfg, credID, resp, upstreamStarted)
 			return
 		}
 
-		// 上游返回错误
-		timedBody := newTimedReadCloser(resp.Body, upstreamStarted)
-		errBytes, _ := io.ReadAll(io.LimitReader(timedBody, 4096))
-		_, _ = io.Copy(io.Discard, timedBody)
-		_ = timedBody.Close()
-		timing := timedBody.timing()
-		cancel()
-		errText := string(errBytes)
-		metrics := cfg.logMetrics(timing.firstByte, timing.duration, errText)
-		lastRelayErr = relayErrorForUpstreamStatus(resp.StatusCode)
-		haveLastRelayErr = true
-
-		if cfg.sched.HandleUnauthorized(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, metrics) {
-			graceCredentialID = ""
-			log.Warn().
-				Int("status", resp.StatusCode).
-				Str("credential", credID).
-				Int("attempt", attempt+1).
-				Msg("upstream returned unauthorized, retrying with next credential")
-			continue
-		}
-
-		if !shouldRetryUpstreamStatus(resp.StatusCode) {
-			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, 0, metrics)
-			writeRelayError(c, lastRelayErr)
+		stop := h.handleUpstreamError(c, cfg, credID, resp, upstreamStarted, attempt, &state)
+		if stop {
 			return
 		}
+	}
 
-		if resp.StatusCode == http.StatusTooManyRequests {
-			decision := cfg.sched.RetryDecision(int32(resp.StatusCode), errText, resp.Header)
-			retryAfter := decision.Delay
-			if decision.SameCredential {
-				if graceRetriedCredentialID == credID {
-					graceCredentialID = ""
-					graceRetriedCredentialID = ""
-					cfg.sched.QueueQuotaRefresh(cfg.ctx, credID, cfg.modelTier)
-					cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, retryAfter, metrics)
-					log.Warn().
-						Int("status", resp.StatusCode).
-						Str("credential", credID).
-						Str("model", cfg.modelAlias).
-						Int("attempt", attempt+1).
-						Msg("upstream rate limited after grace retry, retrying with next credential")
-					continue
-				}
-				graceCredentialID = credID
-				graceRetriedCredentialID = credID
-				cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, 0, metrics)
-				if !sleepWithContext(cfg.ctx, decision.Delay) {
-					return
-				}
-				log.Warn().
-					Int("status", resp.StatusCode).
-					Str("credential", credID).
-					Str("model", cfg.modelAlias).
-					Dur("delay", decision.Delay).
-					Int("attempt", attempt+1).
-					Msg("upstream rate limited, grace retrying same credential")
-				continue
-			}
-			graceCredentialID = ""
-			graceRetriedCredentialID = ""
-			cfg.sched.QueueQuotaRefresh(cfg.ctx, credID, cfg.modelTier)
-			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, retryAfter, metrics)
-		} else {
-			graceCredentialID = ""
-			graceRetriedCredentialID = ""
-			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, 0, metrics)
+	if !state.hasLastErr {
+		state.lastErr = errUpstreamRequestFailed
+	}
+	writeRelayError(c, state.lastErr)
+}
+
+func (h *Handler) handleAuthFailure(cfg upstreamRelay, credID string, err error, state *retryTracker) bool {
+	if cfg.ctx.Err() != nil {
+		return true
+	}
+	cfg.scheduler.RecordFailure(cfg.ctx, credID, 0, cfg.modelTier, 0, cfg.logMetrics(0, 0, ""))
+	state.remember(errUpstreamAuthFailed)
+	log.Warn().Err(err).Str("credential", credID).Msg("get auth headers failed, retrying")
+	return false
+}
+
+func (h *Handler) handleSendFailure(cfg upstreamRelay, credID string, err error, started time.Time, attempt int, state *retryTracker) bool {
+	if cfg.ctx.Err() != nil {
+		return true
+	}
+	cfg.scheduler.RecordFailure(cfg.ctx, credID, 0, cfg.modelTier, 0, cfg.logMetrics(0, time.Since(started), ""))
+	state.remember(errUpstreamRequestFailed)
+	log.Warn().Err(err).Str("credential", credID).Int("attempt", attempt).Msg("upstream request failed, retrying")
+	return false
+}
+
+func (h *Handler) handleSuccessfulResponse(c *gin.Context, cfg upstreamRelay, credID string, resp *http.Response, started time.Time) {
+	timing, err := h.writeUpstreamResponse(c, resp, cfg.backend, cfg.responseModel, cfg.replaceResponseModel, cfg.streamRequest, started)
+	metrics := cfg.logMetrics(timing.firstByte, timing.duration, "")
+	if err != nil {
+		if cfg.ctx.Err() != nil {
+			return
 		}
+		cfg.scheduler.RecordFailure(cfg.ctx, credID, 0, cfg.modelTier, 0, metrics)
+		log.Warn().Err(err).Str("credential", credID).Int("status", resp.StatusCode).Msg("relay response write failed")
+		if !c.Writer.Written() {
+			writeRelayError(c, errRelayResponseFailed)
+		}
+		return
+	}
+	h.bindSessionCredential(cfg.sessionKey, credID)
+	cfg.scheduler.RecordSuccess(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, metrics)
+}
 
+func (h *Handler) handleUpstreamError(c *gin.Context, cfg upstreamRelay, credID string, resp *http.Response, started time.Time, attempt int, state *retryTracker) bool {
+	errText, timing := readUpstreamError(resp.Body, started)
+	metrics := cfg.logMetrics(timing.firstByte, timing.duration, errText)
+	state.remember(relayErrorForUpstreamStatus(resp.StatusCode))
+
+	if cfg.scheduler.HandleUnauthorized(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, metrics) {
+		state.clearGrace()
+		log.Warn().
+			Int("status", resp.StatusCode).
+			Str("credential", credID).
+			Int("attempt", attempt).
+			Msg("upstream returned unauthorized, retrying with next credential")
+		return false
+	}
+
+	if !retryableUpstreamStatus(resp.StatusCode) {
+		cfg.scheduler.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, 0, metrics)
+		writeRelayError(c, state.lastErr)
+		return true
+	}
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return h.handleRateLimit(cfg, credID, resp, errText, metrics, attempt, state)
+	}
+
+	state.clearGrace()
+	cfg.scheduler.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, 0, metrics)
+	logRetryingUpstreamError(resp.StatusCode, credID, cfg.modelAlias, attempt)
+	return false
+}
+
+func readUpstreamError(body io.ReadCloser, started time.Time) (string, responseTiming) {
+	timedBody := newTimedReadCloser(body, started)
+	errBytes, _ := io.ReadAll(io.LimitReader(timedBody, 4096))
+	_, _ = io.Copy(io.Discard, timedBody)
+	_ = timedBody.Close()
+	return string(errBytes), timedBody.timing()
+}
+
+func (h *Handler) handleRateLimit(cfg upstreamRelay, credID string, resp *http.Response, errText string, metrics db.LogRequestMetrics, attempt int, state *retryTracker) bool {
+	decision := cfg.scheduler.RetryDecision(int32(resp.StatusCode), errText, resp.Header)
+	if !decision.SameCredential {
+		state.clearGrace()
+		cfg.scheduler.QueueQuotaRefresh(cfg.ctx, credID, cfg.modelTier)
+		cfg.scheduler.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, decision.Delay, metrics)
+		logRetryingUpstreamError(resp.StatusCode, credID, cfg.modelAlias, attempt)
+		return false
+	}
+
+	if state.graceRetriedCredentialID == credID {
+		state.clearGrace()
+		cfg.scheduler.QueueQuotaRefresh(cfg.ctx, credID, cfg.modelTier)
+		cfg.scheduler.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, decision.Delay, metrics)
 		log.Warn().
 			Int("status", resp.StatusCode).
 			Str("credential", credID).
 			Str("model", cfg.modelAlias).
-			Int("attempt", attempt+1).
-			Msg("upstream error, retrying")
+			Int("attempt", attempt).
+			Msg("upstream rate limited after grace retry, retrying with next credential")
+		return false
 	}
 
-	if !haveLastRelayErr {
-		lastRelayErr = errUpstreamRequestFailed
+	state.graceCredentialID = credID
+	state.graceRetriedCredentialID = credID
+	cfg.scheduler.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, 0, metrics)
+	if !waitForRetry(cfg.ctx, decision.Delay) {
+		return true
 	}
-	writeRelayError(c, lastRelayErr)
+	log.Warn().
+		Int("status", resp.StatusCode).
+		Str("credential", credID).
+		Str("model", cfg.modelAlias).
+		Dur("delay", decision.Delay).
+		Int("attempt", attempt).
+		Msg("upstream rate limited, grace retrying same credential")
+	return false
 }
 
-func (cfg relayConfig) logMetrics(firstByte time.Duration, duration time.Duration, errorBody string) db.LogRequestMetrics {
+func (h *Handler) preferredCredential(sessionKey string, graceCredentialID string) string {
+	if graceCredentialID != "" {
+		return graceCredentialID
+	}
+	preferred, _ := h.sessionCredential(sessionKey)
+	return preferred
+}
+
+func (cfg upstreamRelay) upstreamHeaders(authHeaders http.Header) http.Header {
+	headers := cfg.requestHeaders.Clone()
+	headers.Del("Accept")
+	headers.Del(utils.HeaderPlanTypePreference)
+	scrubLocalAuthHeaders(headers)
+	for k, vs := range authHeaders {
+		headers[k] = vs
+	}
+	return headers
+}
+
+func (cfg upstreamRelay) send(credentialID string, headers http.Header) (*http.Response, error) {
+	opts := cfg.backendOptions
+	if geminiOpts, ok := opts.(*apiGemini.Options); ok {
+		cloned := *geminiOpts
+		cloned.ProjectID = headers.Get("X-Meow-Gemini-Project")
+		opts = &cloned
+	}
+	return cfg.backend.Chat(&api.Request{
+		Ctx:     cfg.ctx,
+		CredID:  credentialID,
+		Body:    cfg.requestBody,
+		Headers: headers,
+		APIType: cfg.apiType,
+		Opts:    opts,
+	})
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) bool {
+	if delay <= 0 {
+		return true
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func (s *retryTracker) remember(err relayError) {
+	s.lastErr = err
+	s.hasLastErr = true
+}
+
+func (s *retryTracker) clearGrace() {
+	s.graceCredentialID = ""
+	s.graceRetriedCredentialID = ""
+}
+
+func logRetryingUpstreamError(status int, credentialID string, model string, attempt int) {
+	log.Warn().
+		Int("status", status).
+		Str("credential", credentialID).
+		Str("model", model).
+		Int("attempt", attempt).
+		Msg("upstream error, retrying")
+}
+
+func (cfg upstreamRelay) logMetrics(firstByte time.Duration, duration time.Duration, errorBody string) db.LogRequestMetrics {
 	return db.LogRequestMetrics{
 		Model:     cfg.modelAlias,
 		APIType:   string(cfg.apiType),
