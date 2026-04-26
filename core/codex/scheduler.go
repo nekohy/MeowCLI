@@ -621,6 +621,8 @@ func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, status
 
 	if err := s.recordResponse(context.Background(), credentialID, statusCode, modelTier, metrics); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert success log")
+	} else {
+		s.refreshCredentialWeight(context.Background(), credentialID, modelTier)
 	}
 }
 
@@ -633,6 +635,8 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 
 	if err := s.recordResponse(bgCtx, credentialID, statusCode, modelTier, metrics); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert failure log")
+	} else {
+		s.refreshCredentialWeight(bgCtx, credentialID, modelTier)
 	}
 
 	now := time.Now()
@@ -1101,6 +1105,96 @@ func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) 
 		}
 		if rate, ok := ratesSpark[rows[i].ID]; ok && rate > 0 {
 			rows[i].WeightSpark = scheduling.CalcWeight(rate)
+		}
+	}
+}
+
+func (s *Scheduler) refreshCredentialWeight(ctx context.Context, credentialID string, modelTier string) {
+	if s == nil || s.logStore == nil || credentialID == "" {
+		return
+	}
+
+	snap := s.available.Load()
+	if snap == nil {
+		return
+	}
+
+	row, ok := availableRowByCredentialID(snap, credentialID)
+	if !ok {
+		return
+	}
+
+	since, ok := s.errorRateSinceForTier(row, modelTier)
+	if !ok {
+		return
+	}
+
+	weight := 1.0
+	if !since.IsZero() {
+		rates, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerCodex), modelTier, []db.ErrorRateSince{{
+			CredentialID: credentialID,
+			Since:        since,
+		}}, scheduling.MinErrorRateSamples)
+		if err != nil {
+			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", modelTier).Msg("scheduler: refresh credential weight")
+			return
+		}
+		if rate, ok := rates[credentialID]; ok && rate > 0 {
+			weight = scheduling.CalcWeight(rate)
+		}
+	}
+
+	s.applyCredentialWeight(credentialID, modelTier, weight)
+}
+
+func (s *Scheduler) errorRateSinceForTier(row availableRow, modelTier string) (time.Time, bool) {
+	config := s.settingsSnapshot()
+	switch modelTier {
+	case ModelTierSpark:
+		return ErrorRateSince(row.ResetSpark5h, row.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()), true
+	case ModelTierDefault:
+		return ErrorRateSince(row.Reset5h, row.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()), true
+	default:
+		return time.Time{}, false
+	}
+}
+
+func (s *Scheduler) applyCredentialWeight(credentialID string, modelTier string, weight float64) {
+	for {
+		snap := s.available.Load()
+		if snap == nil {
+			return
+		}
+
+		updated := make([]availableRow, len(snap.rows))
+		copy(updated, snap.rows)
+
+		found := false
+		for i := range updated {
+			if updated[i].ID != credentialID {
+				continue
+			}
+			switch modelTier {
+			case ModelTierSpark:
+				updated[i].WeightSpark = weight
+			case ModelTierDefault:
+				updated[i].Weight = weight
+			default:
+				return
+			}
+			found = true
+			break
+		}
+		if !found {
+			return
+		}
+
+		sort.Slice(updated, func(i, j int) bool {
+			return scheduling.AdjustedScore(updated[i].Score, updated[i].Weight) > scheduling.AdjustedScore(updated[j].Score, updated[j].Weight)
+		})
+
+		if s.available.CompareAndSwap(snap, buildAvailableSnapshot(updated)) {
+			return
 		}
 	}
 }

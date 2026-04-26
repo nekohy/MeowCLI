@@ -549,6 +549,8 @@ func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, status
 
 	if err := s.recordResponse(context.Background(), credentialID, statusCode, modelTier, metrics); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: insert success log")
+	} else {
+		s.refreshCredentialWeight(context.Background(), credentialID, modelTier)
 	}
 }
 
@@ -559,6 +561,8 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 
 	if err := s.recordResponse(bgCtx, credentialID, statusCode, modelTier, metrics); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: insert failure log")
+	} else {
+		s.refreshCredentialWeight(bgCtx, credentialID, modelTier)
 	}
 
 	now := time.Now()
@@ -1042,4 +1046,107 @@ func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) 
 			rows[i].WeightFlashlite = scheduling.CalcWeight(rate)
 		}
 	}
+}
+
+func (s *Scheduler) refreshCredentialWeight(ctx context.Context, credentialID string, modelTier string) {
+	if s == nil || s.logStore == nil || credentialID == "" {
+		return
+	}
+
+	snap := s.available.Load()
+	if snap == nil {
+		return
+	}
+
+	row, ok := availableRowByCredentialID(snap, credentialID)
+	if !ok {
+		return
+	}
+
+	since, ok := s.errorRateSinceForTier(row, modelTier)
+	if !ok {
+		return
+	}
+
+	weight := 1.0
+	if !since.IsZero() {
+		rates, err := s.logStore.ErrorRatesForCredentials(ctx, string(utils.HandlerGemini), modelTier, []db.ErrorRateSince{{
+			CredentialID: credentialID,
+			Since:        since,
+		}}, scheduling.MinErrorRateSamples)
+		if err != nil {
+			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", modelTier).Msg("gemini scheduler: refresh credential weight")
+			return
+		}
+		if rate, ok := rates[credentialID]; ok && rate > 0 {
+			weight = scheduling.CalcWeight(rate)
+		}
+	}
+
+	s.applyCredentialWeight(credentialID, modelTier, weight)
+}
+
+func (s *Scheduler) errorRateSinceForTier(row availableRow, modelTier string) (time.Time, bool) {
+	windowSeconds := s.settingsSnapshot().QuotaWindowGeminiSeconds()
+	switch modelTier {
+	case ModelTierPro:
+		return ErrorRateSince(row.ResetPro, windowSeconds), true
+	case ModelTierFlash:
+		return ErrorRateSince(row.ResetFlash, windowSeconds), true
+	case ModelTierFlashLite:
+		return ErrorRateSince(row.ResetFlashLite, windowSeconds), true
+	default:
+		return time.Time{}, false
+	}
+}
+
+func (s *Scheduler) applyCredentialWeight(credentialID string, modelTier string, weight float64) {
+	for {
+		snap := s.available.Load()
+		if snap == nil {
+			return
+		}
+
+		updated := make([]availableRow, len(*snap))
+		copy(updated, *snap)
+
+		found := false
+		for i := range updated {
+			if updated[i].ID != credentialID {
+				continue
+			}
+			switch modelTier {
+			case ModelTierPro:
+				updated[i].WeightPro = weight
+			case ModelTierFlash:
+				updated[i].WeightFlash = weight
+			case ModelTierFlashLite:
+				updated[i].WeightFlashlite = weight
+			default:
+				return
+			}
+			found = true
+			break
+		}
+		if !found {
+			return
+		}
+
+		next := updated
+		if s.available.CompareAndSwap(snap, &next) {
+			return
+		}
+	}
+}
+
+func availableRowByCredentialID(rows *[]availableRow, credentialID string) (availableRow, bool) {
+	if rows == nil {
+		return availableRow{}, false
+	}
+	for _, row := range *rows {
+		if row.ID == credentialID {
+			return row, true
+		}
+	}
+	return availableRow{}, false
 }
