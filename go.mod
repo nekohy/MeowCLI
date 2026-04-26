@@ -8,10 +8,10 @@ require (
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/maypok86/otter/v2 v2.3.0
-	github.com/mroth/weightedrand/v3 v3.0.0
 	github.com/rs/zerolog v1.35.1
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/sjson v1.2.5
+	golang.org/x/sync v0.20.0
 	modernc.org/sqlite v1.49.1
 )
 
@@ -54,7 +54,6 @@ require (
 	golang.org/x/arch v0.26.0 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect

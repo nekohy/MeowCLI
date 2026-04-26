@@ -11,28 +11,35 @@ type LogFilterParams = db.LogFilterParams
 type ListLogsParams = db.ListLogsParams
 
 type LogStore interface {
-	CountLogs(ctx context.Context, filter db.LogFilterParams) (db.LogStats, error)
-	ListLogs(ctx context.Context, params db.ListLogsParams) ([]db.LogRow, error)
+	QueryLogs(ctx context.Context, params db.ListLogsParams) (db.LogQueryResult, error)
 	ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, since []db.ErrorRateSince, minSamples int) (map[string]float64, error)
 }
 
-func (a *AdminHandler) countLogs(ctx context.Context, filter LogFilterParams) (db.LogStats, error) {
+func (a *AdminHandler) queryLogs(ctx context.Context, params ListLogsParams) (db.LogQueryResult, error) {
+	emptyStats := db.LogStats{StatusCodes: []db.LogStatusCount{}}
 	if a == nil || a.logStore == nil {
-		return db.LogStats{StatusCodes: []db.LogStatusCount{}}, nil
+		return db.LogQueryResult{
+			Rows:          []LogRow{},
+			FilteredStats: emptyStats,
+			TotalStats:    emptyStats,
+			StatusStats:   emptyStats,
+		}, nil
 	}
-	return a.logStore.CountLogs(ctx, filter)
-}
-
-func (a *AdminHandler) listLogs(ctx context.Context, params ListLogsParams) ([]LogRow, error) {
-	if a == nil || a.logStore == nil {
-		return []LogRow{}, nil
-	}
-	rows, err := a.logStore.ListLogs(ctx, params)
+	result, err := a.logStore.QueryLogs(ctx, params)
 	if err != nil {
-		return nil, err
+		return db.LogQueryResult{}, err
 	}
-	if rows == nil {
-		return []LogRow{}, nil
+	if result.Rows == nil {
+		result.Rows = []LogRow{}
 	}
-	return rows, nil
+	if result.FilteredStats.StatusCodes == nil {
+		result.FilteredStats.StatusCodes = []db.LogStatusCount{}
+	}
+	if result.TotalStats.StatusCodes == nil {
+		result.TotalStats.StatusCodes = []db.LogStatusCount{}
+	}
+	if result.StatusStats.StatusCodes == nil {
+		result.StatusStats.StatusCodes = []db.LogStatusCount{}
+	}
+	return result, nil
 }

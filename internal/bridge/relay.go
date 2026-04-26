@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nekohy/MeowCLI/api"
+	"github.com/nekohy/MeowCLI/core/scheduling"
 	db "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
 
@@ -47,13 +48,12 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 
 	for attempt := 0; attempt < h.maxAttempts(); attempt++ {
 		preferredCredentialID := cfg.resolvePreferred(graceCredentialID)
-		var credID string
-		var err error
-		if tierPicker, ok := cfg.sched.(ModelTierPicker); ok && cfg.modelTier != "" {
-			credID, err = tierPicker.PickWithTier(cfg.ctx, cfg.requestHeaders, preferredCredentialID, cfg.allowedPlans, cfg.modelTier)
-		} else {
-			credID, err = cfg.sched.Pick(cfg.ctx, cfg.requestHeaders, preferredCredentialID, cfg.allowedPlans)
-		}
+		credID, err := cfg.sched.SelectCredential(cfg.ctx, scheduling.CredentialSelection{
+			Headers:               cfg.requestHeaders,
+			PreferredCredentialID: preferredCredentialID,
+			AllowedPlanTypes:      cfg.allowedPlans,
+			ModelTier:             cfg.modelTier,
+		})
 		if err != nil {
 			if haveLastRelayErr {
 				break
@@ -149,46 +149,40 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests {
-			retryAfter := utils.ParseRetryAfterHeader(resp.Header)
-			if retryAfter <= 0 {
-				if parser, ok := cfg.sched.(RetryDelayParser); ok {
-					retryAfter = parser.RetryDelay(int32(resp.StatusCode), errText, resp.Header)
-				}
-			}
-			if decider, ok := cfg.sched.(GraceRetryDecider); ok {
-				if delay, shouldRetrySameCredential := decider.GraceRetry(int32(resp.StatusCode), errText, retryAfter); shouldRetrySameCredential {
-					if graceRetriedCredentialID == credID {
-						graceCredentialID = ""
-						graceRetriedCredentialID = ""
-						refreshQuotaAfterRateLimit(cfg.ctx, cfg.sched, credID, cfg.modelTier)
-						cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, retryAfter, metrics)
-						log.Warn().
-							Int("status", resp.StatusCode).
-							Str("credential", credID).
-							Str("model", cfg.modelAlias).
-							Int("attempt", attempt+1).
-							Msg("upstream rate limited after grace retry, retrying with next credential")
-						continue
-					}
-					graceCredentialID = credID
-					graceRetriedCredentialID = credID
-					cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, 0, metrics)
-					if !sleepWithContext(cfg.ctx, delay) {
-						return
-					}
+			decision := cfg.sched.RetryDecision(int32(resp.StatusCode), errText, resp.Header)
+			retryAfter := decision.Delay
+			if decision.SameCredential {
+				if graceRetriedCredentialID == credID {
+					graceCredentialID = ""
+					graceRetriedCredentialID = ""
+					cfg.sched.QueueQuotaRefresh(cfg.ctx, credID, cfg.modelTier)
+					cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, retryAfter, metrics)
 					log.Warn().
 						Int("status", resp.StatusCode).
 						Str("credential", credID).
 						Str("model", cfg.modelAlias).
-						Dur("delay", delay).
 						Int("attempt", attempt+1).
-						Msg("upstream rate limited, grace retrying same credential")
+						Msg("upstream rate limited after grace retry, retrying with next credential")
 					continue
 				}
+				graceCredentialID = credID
+				graceRetriedCredentialID = credID
+				cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, 0, metrics)
+				if !sleepWithContext(cfg.ctx, decision.Delay) {
+					return
+				}
+				log.Warn().
+					Int("status", resp.StatusCode).
+					Str("credential", credID).
+					Str("model", cfg.modelAlias).
+					Dur("delay", decision.Delay).
+					Int("attempt", attempt+1).
+					Msg("upstream rate limited, grace retrying same credential")
+				continue
 			}
 			graceCredentialID = ""
 			graceRetriedCredentialID = ""
-			refreshQuotaAfterRateLimit(cfg.ctx, cfg.sched, credID, cfg.modelTier)
+			cfg.sched.QueueQuotaRefresh(cfg.ctx, credID, cfg.modelTier)
 			cfg.sched.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, retryAfter, metrics)
 		} else {
 			graceCredentialID = ""
@@ -219,12 +213,4 @@ func (cfg relayConfig) logMetrics(firstByte time.Duration, duration time.Duratio
 		Duration:  logSeconds(duration),
 		Error:     errorBody,
 	}
-}
-
-func refreshQuotaAfterRateLimit(ctx context.Context, sched CredentialScheduler, credentialID string, modelTier string) {
-	refresher, ok := sched.(QuotaRefresher)
-	if !ok {
-		return
-	}
-	refresher.RefreshQuota(ctx, credentialID, modelTier)
 }

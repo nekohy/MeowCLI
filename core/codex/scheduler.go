@@ -16,6 +16,7 @@ import (
 	"github.com/nekohy/MeowCLI/internal/settings"
 	db "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/rs/zerolog/log"
 )
@@ -87,6 +88,7 @@ type Scheduler struct {
 	available        atomic.Pointer[availableSnapshot]
 	planTypes        *planTypeCodec
 	quotaRefreshSem  chan struct{}
+	refreshGroup     singleflight.Group
 }
 
 // NewScheduler 创建一个连接到指定存储和令牌管理器的调度器
@@ -129,11 +131,11 @@ func (s *Scheduler) StartQuotaSyncer(ctx context.Context) {
 
 func (s *Scheduler) quotaSyncer() scheduling.QuotaSyncer[db.ListAvailableCodexRow] {
 	return scheduling.QuotaSyncer[db.ListAvailableCodexRow]{
-		Interval: func() time.Duration {
+		SyncInterval: func() time.Duration {
 			return s.settingsSnapshot().QuotaSyncInterval()
 		},
 		List: s.store.ListAvailableCodex,
-		Refresh: func(ctx context.Context, rows []db.ListAvailableCodexRow) {
+		CacheRows: func(ctx context.Context, rows []db.ListAvailableCodexRow) {
 			s.refreshAvailableFromRows(ctx, rows)
 		},
 		Sync:     s.syncQuotaRow,
@@ -143,7 +145,7 @@ func (s *Scheduler) quotaSyncer() scheduling.QuotaSyncer[db.ListAvailableCodexRo
 			row.SyncedAt = syncedAt
 			return row
 		},
-		LogError: func(err error, message string) {
+		ReportError: func(err error, message string) {
 			log.Error().Err(err).Msg(message)
 		},
 		WarmErrorMessage:    "codex quota-sync: warm available cache",
@@ -186,21 +188,15 @@ func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableCodexR
 	s.StoreQuota(ctx, row.ID, q)
 }
 
-// Pick 根据优先级评分选择最佳可用凭证
-// 调用方可传入一个偏好的 credentialID；若不可用则返回无可用凭证，不再回退到其他凭证
-func (s *Scheduler) Pick(ctx context.Context, headers http.Header, preferredCredentialID string, allowedPlanTypes []string) (string, error) {
+// SelectCredential selects the best available credential for a request.
+// The caller can pass a preferred credential ID; if unavailable, no other
+// credential is selected.
+func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.CredentialSelection) (string, error) {
 	codec := s.planTypeCodec()
-	return s.pickPreferred(ctx, s.preferredPlanTypeCodes(headers), codec.codesFor(allowedPlanTypes), preferredCredentialID, "")
+	return s.selectCredential(ctx, s.preferredPlanTypeCodes(selection.Headers), codec.codesFor(selection.AllowedPlanTypes), selection.PreferredCredentialID, selection.ModelTier)
 }
 
-// PickWithTier selects the best available credential for a specific model tier.
-// When modelTier is "spark", scoring only considers spark quota.
-func (s *Scheduler) PickWithTier(ctx context.Context, headers http.Header, preferredCredentialID string, allowedPlanTypes []string, modelTier string) (string, error) {
-	codec := s.planTypeCodec()
-	return s.pickPreferred(ctx, s.preferredPlanTypeCodes(headers), codec.codesFor(allowedPlanTypes), preferredCredentialID, modelTier)
-}
-
-func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, allowedCodes []int, preferredCredentialID string, modelTier string) (string, error) {
+func (s *Scheduler) selectCredential(ctx context.Context, preferredCodes []int, allowedCodes []int, preferredCredentialID string, modelTier string) (string, error) {
 	snap, err := s.listAvailable(ctx)
 	if err != nil {
 		return "", err
@@ -208,7 +204,7 @@ func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, all
 
 	allowed := scheduling.PlanTypeCodeSet(allowedCodes)
 	if preferredCredentialID != "" {
-		if row, ok := availableRowByCredentialID(snap, preferredCredentialID); ok && s.rowScoreForTier(row, modelTier) >= 0 && scheduling.PlanTypeAllowed(row.PlanTypeCode, allowed) {
+		if row, ok := availableRowByCredentialID(snap, preferredCredentialID); ok && s.weightedTierScore(row, modelTier) >= 0 && scheduling.PlanTypeAllowed(row.PlanTypeCode, allowed) {
 			return preferredCredentialID, nil
 		}
 		return "", ErrNoAvailableCredential
@@ -218,14 +214,14 @@ func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, all
 		if !scheduling.PlanTypeAllowed(code, allowed) {
 			continue
 		}
-		if row, ok := s.pickWeightedRow(snap.rows, modelTier, func(row availableRow) bool {
+		if row, ok := s.selectWeightedCredential(snap.rows, modelTier, func(row availableRow) bool {
 			return row.PlanTypeCode == code
 		}); ok {
 			return row.ID, nil
 		}
 	}
 
-	if row, ok := s.pickWeightedRow(snap.rows, modelTier, func(row availableRow) bool {
+	if row, ok := s.selectWeightedCredential(snap.rows, modelTier, func(row availableRow) bool {
 		return scheduling.PlanTypeAllowed(row.PlanTypeCode, allowed)
 	}); ok {
 		return row.ID, nil
@@ -234,17 +230,16 @@ func (s *Scheduler) pickPreferred(ctx context.Context, preferredCodes []int, all
 	return "", ErrNoAvailableCredential
 }
 
-func (s *Scheduler) pickWeightedRow(rows []availableRow, modelTier string, match func(availableRow) bool) (availableRow, bool) {
-	return scheduling.PickWeightedTopK(rows, scheduling.DefaultWeightedTopK, func(row availableRow) float64 {
+func (s *Scheduler) selectWeightedCredential(rows []availableRow, modelTier string, match func(availableRow) bool) (availableRow, bool) {
+	return scheduling.PickWeightedFromBest(rows, scheduling.DefaultWeightedBestCount, func(row availableRow) float64 {
 		if !match(row) {
 			return -1
 		}
-		return s.rowScoreForTier(row, modelTier)
+		return s.weightedTierScore(row, modelTier)
 	})
 }
 
-// rowScoreForTier returns the score for a row considering the requested model tier.
-func (s *Scheduler) rowScoreForTier(row availableRow, modelTier string) float64 {
+func (s *Scheduler) weightedTierScore(row availableRow, modelTier string) float64 {
 	if modelTier == ModelTierSpark {
 		return scheduling.AdjustedScore(row.ScoreSpark, row.WeightSpark)
 	}
@@ -252,11 +247,11 @@ func (s *Scheduler) rowScoreForTier(row availableRow, modelTier string) float64 
 }
 
 // listAvailable 返回内存缓存中的可用凭证列表
-// 缓存由 RefreshAvailable 初始化，由 UpdateQuota / removeFromAvailable 等事件驱动更新，
+// 缓存由 RefreshAvailable 初始化，由 UpdateQuota / evictCredential 等事件驱动更新，
 // 不再使用 TTL 过期机制
 func (s *Scheduler) listAvailable(ctx context.Context) (*availableSnapshot, error) {
 	if snap := s.available.Load(); snap != nil {
-		if s.hasExpiredThrottle(time.Now()) {
+		if s.hasExpiredThrottleWindow(time.Now()) {
 			if _, err := s.RefreshAvailable(ctx); err == nil {
 				if refreshed := s.available.Load(); refreshed != nil {
 					return refreshed, nil
@@ -281,12 +276,19 @@ func (s *Scheduler) listAvailable(ctx context.Context) (*availableSnapshot, erro
 // RefreshAvailable 从 DB 重新加载所有可用凭证并刷新内存缓存
 // 在启动时由 StartQuotaSyncer 调用，也可在需要完整重建缓存时手动调用
 func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error) {
-	dbRows, err := s.store.ListAvailableCodex(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list available codex: %w", err)
-	}
+	value, err, _ := s.refreshGroup.Do("available", func() (any, error) {
+		dbRows, err := s.store.ListAvailableCodex(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list available codex: %w", err)
+		}
 
-	return s.refreshAvailableFromRows(ctx, dbRows), nil
+		return s.refreshAvailableFromRows(ctx, dbRows), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := value.([]availableRow)
+	return rows, nil
 }
 
 func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.ListAvailableCodexRow) []availableRow {
@@ -298,7 +300,7 @@ func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.Li
 		if r.SyncedAt.IsZero() {
 			continue
 		}
-		if s.isChecking(r.ID) {
+		if s.isCredentialUnderValidation(r.ID) {
 			continue
 		}
 		row := availableRow{
@@ -333,29 +335,30 @@ func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.Li
 	})
 
 	s.available.Store(buildAvailableSnapshot(rows))
-	s.pruneExpiredThrottles(time.Now())
+	s.clearExpiredThrottles(time.Now())
 	s.manager.PruneStaleEntries()
 	return rows
 }
 
-// updateAvailableQuota 更新缓存中指定凭证的评分并重新排序
-func (s *Scheduler) updateAvailableQuota(id string, q *codexAPI.Quota) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	snap := s.available.Load()
-	if snap == nil {
-		return
-	}
-
+func (s *Scheduler) applyQuotaToAvailable(id string, q *codexAPI.Quota) {
 	config := s.settingsSnapshot()
-	updated := make([]availableRow, len(snap.rows))
-	copy(updated, snap.rows)
+	newScore := CalcScore(q.Quota5h, q.Quota7d, q.Reset5h, q.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
+	newScoreSpark := CalcScoreSpark(q.QuotaSpark5h, q.QuotaSpark7d, q.ResetSpark5h, q.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
 
-	for i := range updated {
-		if updated[i].ID == id {
-			newScore := CalcScore(q.Quota5h, q.Quota7d, q.Reset5h, q.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
-			newScoreSpark := CalcScoreSpark(q.QuotaSpark5h, q.QuotaSpark7d, q.ResetSpark5h, q.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
+	for {
+		snap := s.available.Load()
+		if snap == nil {
+			return
+		}
+
+		updated := make([]availableRow, len(snap.rows))
+		copy(updated, snap.rows)
+
+		found := false
+		for i := range updated {
+			if updated[i].ID != id {
+				continue
+			}
 			if updated[i].Score < 0 && newScore >= 0 {
 				updated[i].Weight = 1.0
 			}
@@ -372,15 +375,21 @@ func (s *Scheduler) updateAvailableQuota(id string, q *codexAPI.Quota) {
 			updated[i].ResetSpark7d = q.ResetSpark7d
 			updated[i].Score = newScore
 			updated[i].ScoreSpark = newScoreSpark
+			found = true
 			break
 		}
+		if !found {
+			return
+		}
+
+		sort.Slice(updated, func(i, j int) bool {
+			return scheduling.AdjustedScore(updated[i].Score, updated[i].Weight) > scheduling.AdjustedScore(updated[j].Score, updated[j].Weight)
+		})
+
+		if s.available.CompareAndSwap(snap, buildAvailableSnapshot(updated)) {
+			return
+		}
 	}
-
-	sort.Slice(updated, func(i, j int) bool {
-		return scheduling.AdjustedScore(updated[i].Score, updated[i].Weight) > scheduling.AdjustedScore(updated[j].Score, updated[j].Weight)
-	})
-
-	s.available.Store(buildAvailableSnapshot(updated))
 }
 
 func (s *Scheduler) mergeQuotaUpdate(credentialID string, q *codexAPI.Quota) codexAPI.Quota {
@@ -437,8 +446,7 @@ func (s *Scheduler) availableQuota(credentialID string) (codexAPI.Quota, bool) {
 	return codexAPI.Quota{}, false
 }
 
-// removeFromAvailable 从缓存中移除指定凭证（被节流时调用）
-func (s *Scheduler) removeFromAvailable(id string) {
+func (s *Scheduler) evictCredential(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -457,7 +465,7 @@ func (s *Scheduler) removeFromAvailable(id string) {
 	s.available.Store(buildAvailableSnapshot(filtered))
 }
 
-func (s *Scheduler) markTierUnavailable(id string, modelTier string) {
+func (s *Scheduler) suspendCredentialTier(id string, modelTier string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -486,7 +494,7 @@ func (s *Scheduler) markTierUnavailable(id string, modelTier string) {
 	s.available.Store(buildAvailableSnapshot(updated))
 }
 
-func (s *Scheduler) beginQuotaRefresh(id string, modelTier string) bool {
+func (s *Scheduler) startQuotaRefresh(id string, modelTier string) bool {
 	if s == nil || id == "" {
 		return false
 	}
@@ -504,14 +512,14 @@ func (s *Scheduler) beginQuotaRefresh(id string, modelTier string) bool {
 	s.mu.Unlock()
 
 	if modelTier != "" {
-		s.markTierUnavailable(id, modelTier)
+		s.suspendCredentialTier(id, modelTier)
 	} else {
-		s.removeFromAvailable(id)
+		s.evictCredential(id)
 	}
 	return true
 }
 
-func (s *Scheduler) finishQuotaRefresh(id string, modelTier string) {
+func (s *Scheduler) completeQuotaRefresh(id string, modelTier string) {
 	if s == nil || id == "" {
 		return
 	}
@@ -654,16 +662,16 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 	if err := s.store.SetQuotaThrottled(bgCtx, credentialID, throttleTier, throttledUntil); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: set throttled")
 	}
-	s.setThrottleUntil(credentialID, throttledUntil)
+	s.rememberThrottleUntil(credentialID, throttledUntil)
 
 	if decision.ExplicitRetryAfter && modelTier != "" {
-		s.markTierUnavailable(credentialID, modelTier)
+		s.suspendCredentialTier(credentialID, modelTier)
 		log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Msg("credential tier throttled")
 		return
 	}
 
 	// 凭证被节流，从缓存中移除
-	s.removeFromAvailable(credentialID)
+	s.evictCredential(credentialID)
 
 	log.Warn().Str("credential", credentialID).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Int("consecutive_failures", consecutive).Msg("credential throttled")
 }
@@ -676,7 +684,7 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 		delete(s.throttle, credentialID)
 		delete(s.checking, credentialID)
 		s.mu.Unlock()
-		s.removeFromAvailable(credentialID)
+		s.evictCredential(credentialID)
 		if s.manager == nil {
 			log.Warn().
 				Str("credential", credentialID).
@@ -699,7 +707,7 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 	}
 	s.mu.Unlock()
 
-	s.removeFromAvailable(credentialID)
+	s.evictCredential(credentialID)
 	if alreadyChecking {
 		log.Warn().
 			Str("credential", credentialID).
@@ -725,7 +733,7 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 			Msg("credential verification skipped because manager is unavailable")
 		return true
 	}
-	go s.verifyCredentialAfterUnauthorized(credentialID, statusCode, modelTier, metrics)
+	go s.validateCredentialAfterAuthFailure(credentialID, statusCode, modelTier, metrics)
 	return true
 }
 
@@ -746,54 +754,53 @@ func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *cod
 	}
 	merged := s.mergeQuotaUpdate(credentialID, q)
 	q = &merged
-	s.updateAvailableQuota(credentialID, q)
+	s.applyQuotaToAvailable(credentialID, q)
 }
 
-// RefreshQuota temporarily removes the credential tier from the in-memory
+// QueueQuotaRefresh temporarily removes the credential tier from the in-memory
 // scheduling pool and refreshes quota in the background without writing DB state.
-func (s *Scheduler) RefreshQuota(_ context.Context, credentialID string, modelTier string) {
+func (s *Scheduler) QueueQuotaRefresh(_ context.Context, credentialID string, modelTier string) {
 	if s == nil || credentialID == "" || s.manager == nil || s.fetcher == nil {
 		return
 	}
-	if !s.beginQuotaRefresh(credentialID, modelTier) {
-		return
-	}
-
 	select {
 	case s.quotaRefreshSem <- struct{}{}:
 	default:
-		s.finishQuotaRefresh(credentialID, modelTier)
 		log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Msg("scheduler: quota refresh skipped: concurrent limit reached")
+		return
+	}
+	if !s.startQuotaRefresh(credentialID, modelTier) {
+		<-s.quotaRefreshSem
 		return
 	}
 
 	go func() {
 		defer func() { <-s.quotaRefreshSem }()
-		defer s.finishQuotaRefresh(credentialID, modelTier)
+		defer s.completeQuotaRefresh(credentialID, modelTier)
 
 		refreshCtx, cancel := context.WithTimeout(context.Background(), s.settingsSnapshot().ImportedCheckTimeout())
 		defer cancel()
 
 		token, err := s.manager.AccessToken(refreshCtx, credentialID, scheduling.UseCached)
 		if err != nil {
-			s.setThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			s.rememberThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
 			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", modelTier).Msg("scheduler: quota refresh get token")
 			return
 		}
 
 		q, err := s.fetcher.FetchQuota(refreshCtx, credentialID, token)
 		if err != nil {
-			s.setThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			s.rememberThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
 			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", modelTier).Msg("scheduler: quota refresh fetch")
 			return
 		}
 		if q == nil {
-			s.setThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			s.rememberThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
 			log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Msg("scheduler: quota refresh returned empty quota")
 			return
 		}
 		if !quotaRefreshHasTier(q, modelTier) {
-			s.setThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			s.rememberThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
 			log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Msg("scheduler: quota refresh missing requested tier")
 			return
 		}
@@ -821,7 +828,7 @@ func (s *Scheduler) StoreQuota(ctx context.Context, credentialID string, q *code
 	if !q.HasDefaultQuota && !q.HasSparkQuota {
 		return
 	}
-	s.updateAvailableQuota(credentialID, q)
+	s.applyQuotaToAvailable(credentialID, q)
 	if err := s.store.UpsertQuota(ctx, db.UpsertQuotaParams{
 		CredentialID: credentialID,
 		Quota5h:      q.Quota5h,
@@ -850,7 +857,7 @@ func (s *Scheduler) SyncCredentials(_ context.Context, ids []string) {
 
 		for _, id := range ids {
 			validationCtx, cancel := context.WithTimeout(context.Background(), s.settingsSnapshot().ImportedCheckTimeout())
-			s.validateImportedCredential(validationCtx, id)
+			s.syncImportedCredential(validationCtx, id)
 			cancel()
 		}
 
@@ -860,7 +867,7 @@ func (s *Scheduler) SyncCredentials(_ context.Context, ids []string) {
 	}(ids)
 }
 
-func (s *Scheduler) hasExpiredThrottle(now time.Time) bool {
+func (s *Scheduler) hasExpiredThrottleWindow(now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -872,7 +879,7 @@ func (s *Scheduler) hasExpiredThrottle(now time.Time) bool {
 	return false
 }
 
-func (s *Scheduler) pruneExpiredThrottles(now time.Time) {
+func (s *Scheduler) clearExpiredThrottles(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -884,7 +891,7 @@ func (s *Scheduler) pruneExpiredThrottles(now time.Time) {
 	}
 }
 
-func (s *Scheduler) setThrottleUntil(credentialID string, throttledUntil time.Time) {
+func (s *Scheduler) rememberThrottleUntil(credentialID string, throttledUntil time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -896,7 +903,7 @@ func (s *Scheduler) setThrottleUntil(credentialID string, throttledUntil time.Ti
 	state.until = throttledUntil
 }
 
-func (s *Scheduler) isChecking(credentialID string) bool {
+func (s *Scheduler) isCredentialUnderValidation(credentialID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -904,16 +911,16 @@ func (s *Scheduler) isChecking(credentialID string) bool {
 	return ok
 }
 
-func (s *Scheduler) finishChecking(credentialID string) {
+func (s *Scheduler) finishCredentialValidation(credentialID string) {
 	s.mu.Lock()
 	delete(s.checking, credentialID)
 	s.mu.Unlock()
 }
 
-func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) {
+func (s *Scheduler) validateCredentialAfterAuthFailure(credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.settingsSnapshot().UnauthorizedCheckTimeout())
 	defer cancel()
-	defer s.finishChecking(credentialID)
+	defer s.finishCredentialValidation(credentialID)
 
 	err := s.manager.RefreshCredential(ctx, credentialID)
 	switch {
@@ -931,7 +938,7 @@ func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string, statu
 		log.Warn().Err(err).Str("credential", credentialID).Msg("credential refresh verification finished with error after auth rejection response")
 	}
 	if err == nil {
-		s.validateCredentialUsageAfterRefresh(ctx, credentialID)
+		s.verifyCredentialUsable(ctx, credentialID)
 	}
 
 	if _, refreshErr := s.RefreshAvailable(context.Background()); refreshErr != nil {
@@ -939,7 +946,7 @@ func (s *Scheduler) verifyCredentialAfterUnauthorized(credentialID string, statu
 	}
 }
 
-func (s *Scheduler) validateCredentialUsageAfterRefresh(ctx context.Context, credentialID string) {
+func (s *Scheduler) verifyCredentialUsable(ctx context.Context, credentialID string) {
 	if s.manager == nil || s.fetcher == nil {
 		return
 	}
@@ -976,7 +983,7 @@ func (s *Scheduler) validateCredentialUsageAfterRefresh(ctx context.Context, cre
 	log.Info().Str("credential", credentialID).Msg("credential usage verification succeeded after refresh")
 }
 
-func (s *Scheduler) validateImportedCredential(ctx context.Context, credentialID string) {
+func (s *Scheduler) syncImportedCredential(ctx context.Context, credentialID string) {
 	token, err := s.manager.AccessToken(ctx, credentialID, scheduling.UseCached)
 	if err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("sync-credentials: get token")
@@ -994,7 +1001,7 @@ func (s *Scheduler) validateImportedCredential(ctx context.Context, credentialID
 			}); logErr != nil {
 				log.Error().Err(logErr).Str("credential", credentialID).Msg("scheduler: insert import validation failure log")
 			}
-			s.removeFromAvailable(credentialID)
+			s.evictCredential(credentialID)
 			s.manager.DisableCredential(ctx, credentialID, fmt.Sprintf("initial quota validation rejected (%d)", statusCode))
 			log.Warn().
 				Str("credential", credentialID).
@@ -1024,6 +1031,13 @@ func isCredentialRefreshStatus(statusCode int) bool {
 
 func isCredentialDirectDisableStatus(statusCode int) bool {
 	return statusCode == http.StatusPaymentRequired
+}
+
+func (s *Scheduler) RetryDecision(statusCode int32, _ string, headers http.Header) scheduling.RetryDecision {
+	if statusCode != http.StatusTooManyRequests {
+		return scheduling.RetryDecision{}
+	}
+	return scheduling.RetryDecision{Delay: utils.ParseRetryAfterHeader(headers)}
 }
 
 func (s *Scheduler) settingsSnapshot() settings.Snapshot {

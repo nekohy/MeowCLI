@@ -2,19 +2,20 @@ package scheduling
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
 // QuotaSyncer 对具有独立 synced_at 时间戳的行执行配额同步，负责定时器调度和到期行过滤；调用方在 Sync 中维护处理器特定的令牌、配额获取和持久化逻辑
 type QuotaSyncer[T any] struct {
-	Interval     func() time.Duration
+	SyncInterval func() time.Duration
 	List         func(context.Context) ([]T, error)
-	Refresh      func(context.Context, []T)
+	CacheRows    func(context.Context, []T)
 	Sync         func(context.Context, T)
 	RowID        func(T) string
 	SyncedAt     func(T) time.Time
 	WithSyncedAt func(T, time.Time) T
-	LogError     func(error, string)
+	ReportError  func(error, string)
 
 	WarmErrorMessage    string
 	ListErrorMessage    string
@@ -23,23 +24,23 @@ type QuotaSyncer[T any] struct {
 
 func (q QuotaSyncer[T]) Start(ctx context.Context) {
 	go func() {
-		rows := q.refresh(ctx, q.WarmErrorMessage)
+		rows := q.loadAndCacheRows(ctx, q.WarmErrorMessage)
 
 		for {
-			timer := time.NewTimer(q.NextDelay(rows, time.Now()))
+			timer := time.NewTimer(q.nextDelay(rows, time.Now()))
 			select {
 			case <-ctx.Done():
 				timer.Stop()
 				return
 			case <-timer.C:
-				rows = q.SyncDue(ctx)
+				rows = q.syncDueRows(ctx)
 			}
 		}
 	}()
 }
 
-func (q QuotaSyncer[T]) NextDelay(rows []T, now time.Time) time.Duration {
-	interval := q.interval()
+func (q QuotaSyncer[T]) nextDelay(rows []T, now time.Time) time.Duration {
+	interval := q.syncInterval()
 	if len(rows) == 0 {
 		return interval
 	}
@@ -61,32 +62,46 @@ func (q QuotaSyncer[T]) NextDelay(rows []T, now time.Time) time.Duration {
 	return next
 }
 
-func (q QuotaSyncer[T]) SyncDue(ctx context.Context) []T {
+func (q QuotaSyncer[T]) syncDueRows(ctx context.Context) []T {
 	rows, err := q.List(ctx)
 	if err != nil {
-		q.logError(err, q.ListErrorMessage)
+		q.reportError(err, q.ListErrorMessage)
 		return nil
 	}
 
 	now := time.Now()
-	interval := q.interval()
+	interval := q.syncInterval()
 	attempted := make(map[string]time.Time)
+	sem := make(chan struct{}, DefaultQuotaSyncConcurrency)
+	var wg sync.WaitGroup
+syncLoop:
 	for _, row := range rows {
-		if !QuotaSyncDue(q.SyncedAt(row), now, interval) {
+		if !quotaSyncDue(q.SyncedAt(row), now, interval) {
 			continue
 		}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			break syncLoop
+		}
 		attempted[q.RowID(row)] = now
-		q.Sync(ctx, row)
+		wg.Add(1)
+		go func(row T) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			q.Sync(ctx, row)
+		}(row)
 	}
+	wg.Wait()
 
-	refreshed := q.refresh(ctx, q.RefreshErrorMessage)
+	refreshed := q.loadAndCacheRows(ctx, q.RefreshErrorMessage)
 	if refreshed == nil {
 		refreshed = rows
 	}
-	return q.ApplyAttemptTimes(refreshed, attempted)
+	return q.withAttemptedSyncTimes(refreshed, attempted)
 }
 
-func (q QuotaSyncer[T]) ApplyAttemptTimes(rows []T, attempted map[string]time.Time) []T {
+func (q QuotaSyncer[T]) withAttemptedSyncTimes(rows []T, attempted map[string]time.Time) []T {
 	if len(rows) == 0 || len(attempted) == 0 {
 		return rows
 	}
@@ -100,29 +115,29 @@ func (q QuotaSyncer[T]) ApplyAttemptTimes(rows []T, attempted map[string]time.Ti
 	return next
 }
 
-func QuotaSyncDue(syncedAt time.Time, now time.Time, interval time.Duration) bool {
+func quotaSyncDue(syncedAt time.Time, now time.Time, interval time.Duration) bool {
 	return syncedAt.IsZero() || !syncedAt.Add(interval).After(now)
 }
 
-func (q QuotaSyncer[T]) refresh(ctx context.Context, failureMsg string) []T {
+func (q QuotaSyncer[T]) loadAndCacheRows(ctx context.Context, failureMsg string) []T {
 	rows, err := q.List(ctx)
 	if err != nil {
-		q.logError(err, failureMsg)
+		q.reportError(err, failureMsg)
 		return nil
 	}
-	q.Refresh(ctx, rows)
+	q.CacheRows(ctx, rows)
 	return rows
 }
 
-func (q QuotaSyncer[T]) interval() time.Duration {
-	if q.Interval == nil {
+func (q QuotaSyncer[T]) syncInterval() time.Duration {
+	if q.SyncInterval == nil {
 		return 0
 	}
-	return q.Interval()
+	return q.SyncInterval()
 }
 
-func (q QuotaSyncer[T]) logError(err error, message string) {
-	if q.LogError != nil {
-		q.LogError(err, message)
+func (q QuotaSyncer[T]) reportError(err error, message string) {
+	if q.ReportError != nil {
+		q.ReportError(err, message)
 	}
 }

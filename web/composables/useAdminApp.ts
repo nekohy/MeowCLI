@@ -129,7 +129,7 @@ export function useAdminApp() {
     booting.value = true
     try {
       const status = await adminApi.status()
-      buildInfo.value = status.build_info || DEFAULT_BUILD_INFO
+      buildInfo.value = status.build_info
       if (status.need_setup) {
         needSetup.value = true
         authReady.value = false
@@ -138,8 +138,12 @@ export function useAdminApp() {
         booting.value = false
         return
       }
-    } catch {
-      // Ignore status failures and fall back to auth flow.
+    } catch (error) {
+      authReady.value = false
+      needSetup.value = false
+      loginError.value = error instanceof Error ? error.message : '管理台状态检查失败'
+      booting.value = false
+      return
     }
 
     if (!token.value) {

@@ -33,8 +33,8 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	d.SetMaxOpenConns(1)
-	d.SetMaxIdleConns(1)
+	d.SetMaxOpenConns(4)
+	d.SetMaxIdleConns(2)
 
 	registerHookOnce.Do(func() {
 		moderncsqlite.RegisterConnectionHook(func(conn moderncsqlite.ExecQuerierContext, _ string) error {

@@ -16,6 +16,13 @@ import (
 
 	"github.com/maypok86/otter/v2"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/singleflight"
+)
+
+const (
+	defaultCacheExpiration = 24 * time.Hour
+	defaultLoadTimeout     = 20 * time.Second
+	pruneEntryIdleAfter    = 5 * time.Minute
 )
 
 var _ scheduling.CredentialManager = (*Manager)(nil)
@@ -36,6 +43,7 @@ type Manager struct {
 	settings   settings.Provider
 	cache      *otter.Cache[string, GeminiCache]
 	entries    sync.Map
+	loadGroup  singleflight.Group
 	refreshSem chan struct{}
 }
 
@@ -58,6 +66,7 @@ type GeminiEntry struct {
 	mu         sync.Mutex
 	done       chan struct{}
 	lastErr    error
+	lastUsed   atomic.Int64
 }
 
 func NewManager(cfg ManagerConfig) (*Manager, error) {
@@ -78,19 +87,12 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if cache == nil {
 		var err error
 		cache, err = otter.New[string, GeminiCache](&otter.Options[string, GeminiCache]{
+			ExpiryCalculator: otter.ExpiryWriting[string, GeminiCache](defaultCacheExpiration),
 			OnDeletion: func(e otter.DeletionEvent[string, GeminiCache]) {
 				if e.Cause != otter.CauseExpiration {
 					return
 				}
-				select {
-				case m.refreshSem <- struct{}{}:
-					go func() {
-						defer func() { <-m.refreshSem }()
-						m.proactiveRefresh(e.Key)
-					}()
-				default:
-					log.Warn().Str("credential", e.Key).Msg("gemini proactive refresh skipped: concurrent limit reached")
-				}
+				m.enqueueProactiveRefresh(e.Key)
 			},
 		})
 		if err != nil {
@@ -153,7 +155,7 @@ func (m *Manager) cachedCredential(ctx context.Context, credentialID string) (db
 		return m.waitForCachedCredential(ctx, entry, credentialID)
 	}
 
-	row, err := m.store.GetGeminiCLI(ctx, credentialID)
+	row, err := m.loadGemini(ctx, credentialID)
 	if err != nil {
 		return db.GeminiCredential{}, err
 	}
@@ -204,7 +206,7 @@ func (m *Manager) forceRefreshCredential(ctx context.Context, credentialID strin
 	}()
 	m.invalidateCache(credentialID)
 
-	row, err := m.store.GetGeminiCLI(ctx, credentialID)
+	row, err := m.loadGemini(ctx, credentialID)
 	if err != nil {
 		refreshErr = err
 		return db.GeminiCredential{}, err
@@ -278,11 +280,14 @@ func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.GeminiCredenti
 }
 
 func (m *Manager) waitForCredential(ctx context.Context, entry *GeminiEntry, credentialID string) (db.GeminiCredential, error) {
-	ticker := time.NewTicker(m.settingsSnapshot().PollInterval())
-	defer ticker.Stop()
-
 	for {
 		done, _ := entry.refreshState()
+		if done == nil {
+			if err := sleepUntilRefreshStarts(ctx); err != nil {
+				return db.GeminiCredential{}, fmt.Errorf("waiting for gemini token refresh: %w", err)
+			}
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return db.GeminiCredential{}, fmt.Errorf("waiting for gemini token refresh: %w", ctx.Err())
@@ -295,48 +300,19 @@ func (m *Manager) waitForCredential(ctx context.Context, entry *GeminiEntry, cre
 				return db.GeminiCredential{}, fmt.Errorf("waiting for gemini token refresh: %w", refreshErr)
 			}
 			return db.GeminiCredential{}, fmt.Errorf("waiting for gemini token refresh: refresh finished without cached credential")
-		case <-ticker.C:
-			if snapshot, ok := m.readCache(credentialID); ok {
-				return m.credentialFromCache(snapshot), nil
-			}
-
-			row, err := m.store.GetGeminiCLI(ctx, credentialID)
-			if err != nil {
-				return db.GeminiCredential{}, err
-			}
-			if strings.TrimSpace(row.ProjectID) == "" {
-				row.ProjectID = CredentialProjectID(row.ID)
-			}
-			if strings.TrimSpace(row.AccessToken) != "" && !m.shouldRefresh(row.Expired) && strings.TrimSpace(row.ProjectID) != "" {
-				m.writeCache(row)
-				if snapshot, ok := m.readCache(credentialID); ok {
-					return m.credentialFromCache(snapshot), nil
-				}
-				return row, nil
-			}
-			if entry.refreshing.CompareAndSwap(false, true) {
-				entry.beginRefresh()
-				var refreshErr error
-				defer func() {
-					entry.finishRefresh(refreshErr)
-					entry.refreshing.Store(false)
-				}()
-				refreshed, err := m.refreshAndWriteBack(ctx, row)
-				if err != nil {
-					refreshErr = err
-				}
-				return refreshed, err
-			}
 		}
 	}
 }
 
 func (m *Manager) waitForCachedCredential(ctx context.Context, entry *GeminiEntry, credentialID string) (db.GeminiCredential, error) {
-	ticker := time.NewTicker(m.settingsSnapshot().PollInterval())
-	defer ticker.Stop()
-
 	for {
 		done, _ := entry.refreshState()
+		if done == nil {
+			if err := sleepUntilRefreshStarts(ctx); err != nil {
+				return db.GeminiCredential{}, fmt.Errorf("waiting for forced gemini token refresh: %w", err)
+			}
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return db.GeminiCredential{}, fmt.Errorf("waiting for forced gemini token refresh: %w", ctx.Err())
@@ -349,10 +325,6 @@ func (m *Manager) waitForCachedCredential(ctx context.Context, entry *GeminiEntr
 				return db.GeminiCredential{}, fmt.Errorf("waiting for forced gemini token refresh: %w", refreshErr)
 			}
 			return db.GeminiCredential{}, fmt.Errorf("waiting for forced gemini token refresh: refresh finished without cached credential")
-		case <-ticker.C:
-			if snapshot, ok := m.readCache(credentialID); ok {
-				return m.credentialFromCache(snapshot), nil
-			}
 		}
 	}
 }
@@ -401,14 +373,20 @@ func (m *Manager) credentialFromCache(snapshot GeminiCache) db.GeminiCredential 
 
 func (m *Manager) entry(id string) *GeminiEntry {
 	if actual, ok := m.entries.Load(id); ok {
-		return actual.(*GeminiEntry)
+		entry := actual.(*GeminiEntry)
+		entry.touch()
+		return entry
 	}
 	created := &GeminiEntry{}
+	created.touch()
 	actual, _ := m.entries.LoadOrStore(id, created)
-	return actual.(*GeminiEntry)
+	entry := actual.(*GeminiEntry)
+	entry.touch()
+	return entry
 }
 
 func (e *GeminiEntry) beginRefresh() {
+	e.touch()
 	e.mu.Lock()
 	e.done = make(chan struct{})
 	e.lastErr = nil
@@ -416,6 +394,7 @@ func (e *GeminiEntry) beginRefresh() {
 }
 
 func (e *GeminiEntry) finishRefresh(err error) {
+	e.touch()
 	e.mu.Lock()
 	if e.done != nil {
 		e.lastErr = err
@@ -428,6 +407,10 @@ func (e *GeminiEntry) refreshState() (<-chan struct{}, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.done, e.lastErr
+}
+
+func (e *GeminiEntry) touch() {
+	e.lastUsed.Store(time.Now().UnixNano())
 }
 
 func (m *Manager) InvalidateCredential(id string) {
@@ -447,7 +430,8 @@ func (m *Manager) PruneStaleEntries() {
 		id := key.(string)
 		if _, ok := m.cache.GetIfPresent(id); !ok {
 			entry := value.(*GeminiEntry)
-			if !entry.refreshing.Load() {
+			lastUsed := time.Unix(0, entry.lastUsed.Load())
+			if !entry.refreshing.Load() && time.Since(lastUsed) > pruneEntryIdleAfter {
 				m.entries.Delete(id)
 			}
 		}
@@ -464,6 +448,43 @@ func (m *Manager) invalidateCache(id string) {
 	}
 }
 
+func (m *Manager) loadGemini(ctx context.Context, id string) (db.GeminiCredential, error) {
+	result := m.loadGroup.DoChan(id, func() (any, error) {
+		loadCtx, cancel := context.WithTimeout(context.Background(), defaultLoadTimeout)
+		defer cancel()
+		return m.store.GetGeminiCLI(loadCtx, id)
+	})
+
+	select {
+	case <-ctx.Done():
+		return db.GeminiCredential{}, ctx.Err()
+	case res := <-result:
+		if res.Err != nil {
+			return db.GeminiCredential{}, res.Err
+		}
+		return res.Val.(db.GeminiCredential), nil
+	}
+}
+
+func sleepUntilRefreshStarts(ctx context.Context) error {
+	timer := time.NewTimer(time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (m *Manager) enqueueProactiveRefresh(id string) {
+	go func() {
+		m.refreshSem <- struct{}{}
+		defer func() { <-m.refreshSem }()
+		m.proactiveRefresh(id)
+	}()
+}
+
 func (m *Manager) proactiveRefresh(id string) {
 	entry := m.entry(id)
 	if !entry.refreshing.CompareAndSwap(false, true) {
@@ -476,7 +497,7 @@ func (m *Manager) proactiveRefresh(id string) {
 		entry.refreshing.Store(false)
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultLoadTimeout)
 	defer cancel()
 
 	row, err := m.store.GetGeminiCLI(ctx, id)

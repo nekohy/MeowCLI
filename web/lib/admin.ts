@@ -316,23 +316,23 @@ export function joinPlanTypeInput(planTypes: string[]) {
   return splitPlanTypeInput(planTypes.join(',')).join(',')
 }
 
-export function settingsToForm(data?: Partial<SettingsSnapshot>): SettingsForm {
+export function settingsToForm(data: SettingsSnapshot): SettingsForm {
   return {
-    allow_user_plan_type_header: Boolean(data?.allow_user_plan_type_header),
-    global_proxy: data?.global_proxy || '',
-    codex_proxy: data?.codex_proxy || '',
-    gemini_proxy: data?.gemini_proxy || '',
-    codex_allow_user_plan_type_header: Boolean(data?.codex_allow_user_plan_type_header),
-    codex_preferred_plan_types: data?.codex_preferred_plan_types?.trim() || '',
-    gemini_allow_user_plan_type_header: Boolean(data?.gemini_allow_user_plan_type_header),
-    gemini_preferred_plan_types: data?.gemini_preferred_plan_types?.trim() || '',
-    refresh_before_seconds: String(data?.refresh_before_seconds ?? DEFAULT_SETTINGS_FORM.refresh_before_seconds),
-    poll_interval_milliseconds: String(data?.poll_interval_milliseconds ?? DEFAULT_SETTINGS_FORM.poll_interval_milliseconds),
-    quota_sync_interval_seconds: String(data?.quota_sync_interval_seconds ?? DEFAULT_SETTINGS_FORM.quota_sync_interval_seconds),
-    throttle_base_seconds: String(data?.throttle_base_seconds ?? DEFAULT_SETTINGS_FORM.throttle_base_seconds),
-    throttle_max_seconds: String(data?.throttle_max_seconds ?? DEFAULT_SETTINGS_FORM.throttle_max_seconds),
-    logs_retention_seconds: String(data?.logs_retention_seconds ?? DEFAULT_SETTINGS_FORM.logs_retention_seconds),
-    relay_max_retries: String(data?.relay_max_retries ?? DEFAULT_SETTINGS_FORM.relay_max_retries),
+    allow_user_plan_type_header: Boolean(data.allow_user_plan_type_header),
+    global_proxy: data.global_proxy,
+    codex_proxy: data.codex_proxy,
+    gemini_proxy: data.gemini_proxy,
+    codex_allow_user_plan_type_header: Boolean(data.codex_allow_user_plan_type_header),
+    codex_preferred_plan_types: data.codex_preferred_plan_types.trim(),
+    gemini_allow_user_plan_type_header: Boolean(data.gemini_allow_user_plan_type_header),
+    gemini_preferred_plan_types: data.gemini_preferred_plan_types.trim(),
+    refresh_before_seconds: String(data.refresh_before_seconds),
+    poll_interval_milliseconds: String(data.poll_interval_milliseconds),
+    quota_sync_interval_seconds: String(data.quota_sync_interval_seconds),
+    throttle_base_seconds: String(data.throttle_base_seconds),
+    throttle_max_seconds: String(data.throttle_max_seconds),
+    logs_retention_seconds: String(data.logs_retention_seconds),
+    relay_max_retries: String(data.relay_max_retries),
   }
 }
 

@@ -48,7 +48,7 @@ const summaryTiles = computed(() => [
   },
 ])
 
-const maxPage = computed(() => Math.max(1, Math.ceil((total.value || 0) / (pageSize.value || 25))))
+const maxPage = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const pageSizeOptions = PAGE_SIZE_OPTIONS
 const statusCodeOptions = computed(() => [
   { value: 'all', label: '全部状态码' },
@@ -62,10 +62,11 @@ let latestLoadToken = 0
 
 function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.value) {
   const statusCode = Number(statusCodeFilter.value)
+  const search = searchQuery.value.trim()
   return {
     page: nextPage,
     pageSize: nextPageSize,
-    search: searchQuery.value.trim(),
+    search: search || undefined,
     handler: handlerFilter.value !== 'all' ? handlerFilter.value : undefined,
     statusCode: Number.isFinite(statusCode) ? statusCode : undefined,
   }
@@ -75,18 +76,15 @@ async function loadLogs(nextPage = page.value, nextPageSize = pageSize.value) {
   const requestToken = ++latestLoadToken
   loading.value = true
   try {
-    const data = await adminApi.listLogs(admin.token.value, currentQueryOptions(nextPage, nextPageSize))
+    const data = await adminApi.queryLogs(admin.token.value, currentQueryOptions(nextPage, nextPageSize))
     if (requestToken !== latestLoadToken) {
       return
     }
-    items.value = data.data || []
-    total.value = data.total || 0
-    summary.value = {
-      total: data.summary?.total || 0,
-      status_codes: data.summary?.status_codes || [],
-    }
-    page.value = data.page || nextPage
-    pageSize.value = data.page_size || nextPageSize
+    items.value = data.data
+    total.value = data.total
+    summary.value = data.summary
+    page.value = data.page
+    pageSize.value = data.page_size
   } catch (error) {
     if (requestToken === latestLoadToken) {
       items.value = []

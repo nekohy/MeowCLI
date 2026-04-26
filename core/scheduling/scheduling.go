@@ -3,10 +3,9 @@ package scheduling
 import (
 	"context"
 	"math"
+	"math/rand"
 	"net/http"
 	"time"
-
-	weightedrand "github.com/mroth/weightedrand/v3"
 )
 
 const (
@@ -14,8 +13,10 @@ const (
 	MinErrorRateSamples = 1
 	// ConsecutiveFailureThrottleThreshold 连续失败达到该次数后进入退避节流
 	ConsecutiveFailureThrottleThreshold = 3
-	// DefaultWeightedTopK 高并发调度时进入加权随机池的最高分候选数量
-	DefaultWeightedTopK = 10
+	// DefaultWeightedBestCount 高并发调度时进入加权随机池的最高分候选数量
+	DefaultWeightedBestCount = 10
+	// DefaultQuotaSyncConcurrency limits quota sync fan-out so one slow row does not block every due row.
+	DefaultQuotaSyncConcurrency = 4
 	// MaxQuotaPressure 限制临近刷新时的压力分数上限，避免单个账号垄断流量
 	MaxQuotaPressure = 10.0
 	// quotaPressureEpsilon 防止剩余窗口时间为 0 时除零
@@ -34,6 +35,18 @@ type FailureThrottleDecision struct {
 	Backoff            time.Duration
 	ExplicitRetryAfter bool
 	Reason             string
+}
+
+type CredentialSelection struct {
+	Headers               http.Header
+	PreferredCredentialID string
+	AllowedPlanTypes      []string
+	ModelTier             string
+}
+
+type RetryDecision struct {
+	Delay          time.Duration
+	SameCredential bool
 }
 
 type RefreshMode int
@@ -105,50 +118,57 @@ func MultiWindowQuotaPressureScore(shortQuota, longQuota float64, shortReset, lo
 	return multiWindowShortWeight*shortEffective + multiWindowLongWeight*longPressure
 }
 
-// PickWeightedTopK 从分数最高的前 K 个可用候选中按分数权重随机选择一个
-func PickWeightedTopK[T any](items []T, topK int, score func(T) float64) (T, bool) {
+// PickWeightedFromBest 从分数最高的候选池中按分数权重随机选择一个
+func PickWeightedFromBest[T any](items []T, bestCount int, score func(T) float64) (T, bool) {
 	var zero T
-	if len(items) == 0 || topK <= 0 {
+	if len(items) == 0 || bestCount <= 0 {
 		return zero, false
 	}
 
-	candidates := make([]weightedCandidate[T], 0, min(topK, len(items)))
+	var stack [DefaultWeightedBestCount]weightedCandidate[T]
+	candidates := stack[:0]
+	if bestCount > DefaultWeightedBestCount {
+		candidates = make([]weightedCandidate[T], 0, min(bestCount, len(items)))
+	}
 	for _, item := range items {
 		s := score(item)
 		if s <= 0 {
 			continue
 		}
-		candidates = insertTopKCandidate(candidates, topK, weightedCandidate[T]{
+		candidates = insertBestCandidate(candidates, bestCount, weightedCandidate[T]{
 			item:  item,
 			score: s,
-			// weightedrand uses integer weights; keep any positive score pickable.
-			weight: max(uint64(math.Ceil(s*1_000_000)), 1),
+			// Keep tiny positive scores pickable after floating-point weighting.
+			weight: max(s, math.SmallestNonzeroFloat64),
 		})
 	}
 	if len(candidates) == 0 {
 		return zero, false
 	}
 
-	choices := make([]weightedrand.Choice[T, uint64], 0, len(candidates))
+	var total float64
 	for _, candidate := range candidates {
-		choices = append(choices, weightedrand.NewChoice(candidate.item, candidate.weight))
-	}
-	chooser, err := weightedrand.NewChooser(choices...)
-	if err != nil {
-		return zero, false
+		total += candidate.weight
 	}
 
-	return chooser.Pick(), true
+	pick := rand.Float64() * total
+	for _, candidate := range candidates {
+		pick -= candidate.weight
+		if pick <= 0 {
+			return candidate.item, true
+		}
+	}
+	return candidates[len(candidates)-1].item, true
 }
 
 type weightedCandidate[T any] struct {
 	item   T
 	score  float64
-	weight uint64
+	weight float64
 }
 
-func insertTopKCandidate[T any](candidates []weightedCandidate[T], topK int, candidate weightedCandidate[T]) []weightedCandidate[T] {
-	if len(candidates) < topK {
+func insertBestCandidate[T any](candidates []weightedCandidate[T], bestCount int, candidate weightedCandidate[T]) []weightedCandidate[T] {
+	if len(candidates) < bestCount {
 		candidates = append(candidates, candidate)
 	} else if candidate.score <= candidates[len(candidates)-1].score {
 		return candidates

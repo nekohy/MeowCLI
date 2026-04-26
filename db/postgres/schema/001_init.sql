@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS codex (
 );
 
 CREATE INDEX IF NOT EXISTS idx_codex_status_expired ON codex(status, expired);
+CREATE INDEX IF NOT EXISTS idx_codex_available_cover ON codex(status, expired, id, plan_type);
 
 CREATE TABLE IF NOT EXISTS gemini (
     id TEXT PRIMARY KEY,
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS gemini (
 );
 
 CREATE INDEX IF NOT EXISTS idx_gemini_status_expired ON gemini(status, expired);
+CREATE INDEX IF NOT EXISTS idx_gemini_available_cover ON gemini(status, expired, id, email, project_id, plan_type);
 
 CREATE TABLE IF NOT EXISTS codex_quota (
     credential_id TEXT PRIMARY KEY REFERENCES codex(id) ON DELETE CASCADE,
@@ -51,6 +53,7 @@ CREATE TABLE IF NOT EXISTS codex_quota (
 );
 
 CREATE INDEX IF NOT EXISTS idx_codex_quota_remaining ON codex_quota(quota_5h DESC, quota_7d DESC);
+CREATE INDEX IF NOT EXISTS idx_codex_quota_available_order ON codex_quota(quota_5h DESC, quota_7d DESC, credential_id);
 
 CREATE TABLE IF NOT EXISTS auth_keys (
     key  TEXT PRIMARY KEY,

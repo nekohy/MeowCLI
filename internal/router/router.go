@@ -65,7 +65,7 @@ func Setup(r *gin.Engine, deps Deps) {
 			apiGroup.PUT("/models/:alias", deps.Admin.UpdateModel)
 			apiGroup.DELETE("/models/:alias", deps.Admin.DeleteModel)
 
-			apiGroup.GET("/logs", deps.Admin.ListLogs)
+			apiGroup.GET("/logs", deps.Admin.QueryLogs)
 
 			apiGroup.GET("/auth-keys", deps.Admin.ListAuthKeys)
 			apiGroup.POST("/auth-keys", deps.Admin.CreateAuthKey)

@@ -17,6 +17,7 @@ import (
 
 	"github.com/maypok86/otter/v2"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/singleflight"
 )
 
 var _ scheduling.CredentialManager = (*Manager)(nil)
@@ -27,7 +28,11 @@ var (
 	ErrRefreshTokenMissing = errors.New("refresh_token is empty")
 )
 
-const defaultManagerRefreshTimeout = 20 * time.Second
+const (
+	defaultManagerRefreshTimeout = 20 * time.Second
+	defaultCacheExpiration       = 24 * time.Hour
+	pruneEntryIdleAfter          = 5 * time.Minute
+)
 
 // CodexStore 描述令牌管理器所依赖的 SQL 操作
 type CodexStore interface {
@@ -60,6 +65,7 @@ type Manager struct {
 	codexAPI   Client
 	settings   settings.Provider
 	entries    sync.Map
+	loadGroup  singleflight.Group
 	refreshSem chan struct{}
 }
 
@@ -68,6 +74,7 @@ type CodexEntry struct {
 	mu         sync.Mutex
 	done       chan struct{}
 	lastErr    error
+	lastUsed   atomic.Int64
 }
 
 // CodexCache 缓存结构
@@ -97,19 +104,12 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if cache == nil {
 		var err error
 		cache, err = otter.New[string, CodexCache](&otter.Options[string, CodexCache]{
+			ExpiryCalculator: otter.ExpiryWriting[string, CodexCache](defaultCacheExpiration),
 			OnDeletion: func(e otter.DeletionEvent[string, CodexCache]) {
 				if e.Cause != otter.CauseExpiration {
 					return
 				}
-				select {
-				case m.refreshSem <- struct{}{}:
-					go func() {
-						defer func() { <-m.refreshSem }()
-						m.proactiveRefresh(e.Key)
-					}()
-				default:
-					log.Warn().Str("credential", e.Key).Msg("proactive refresh skipped: concurrent limit reached")
-				}
+				m.enqueueProactiveRefresh(e.Key)
 			},
 		})
 		if err != nil {
@@ -160,7 +160,7 @@ func (m *Manager) cachedAccessToken(ctx context.Context, id string) (string, err
 		return snapshot.AccessToken, nil
 	}
 
-	row, err := m.store.GetCodex(ctx, id)
+	row, err := m.loadCodex(ctx, id)
 	if err != nil {
 		return "", err
 	}
@@ -274,7 +274,7 @@ func (m *Manager) forceRefreshCredential(ctx context.Context, id string) (string
 	}()
 	m.invalidateCache(id)
 
-	row, err := m.store.GetCodex(ctx, id)
+	row, err := m.loadCodex(ctx, id)
 	if err != nil {
 		refreshErr = err
 		return "", err
@@ -359,13 +359,17 @@ func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.Codex) (db.Cod
 	return refreshed, nil
 }
 
-// waitForNewToken 轮询等待，直到另一个 goroutine 或另一个工作线程生成新Token
+// waitForNewToken waits for the in-process refresh owner. Cross-process refresh is handled by the caller's
+// singleflight-protected DB load/refresh path, not by every waiter polling the DB.
 func (m *Manager) waitForNewToken(ctx context.Context, entry *CodexEntry, id string) (CodexCache, error) {
-	ticker := time.NewTicker(m.settingsSnapshot().PollInterval())
-	defer ticker.Stop()
-
 	for {
 		done, _ := entry.refreshState()
+		if done == nil {
+			if err := sleepUntilRefreshStarts(ctx); err != nil {
+				return CodexCache{}, fmt.Errorf("waiting for codex token refresh: %w", err)
+			}
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return CodexCache{}, fmt.Errorf("waiting for codex token refresh: %w", ctx.Err())
@@ -378,50 +382,19 @@ func (m *Manager) waitForNewToken(ctx context.Context, entry *CodexEntry, id str
 				return CodexCache{}, fmt.Errorf("waiting for codex token refresh: %w", refreshErr)
 			}
 			return CodexCache{}, errors.New("waiting for codex token refresh: refresh finished without cached token")
-		case <-ticker.C:
-			if snapshot, ok := m.readCache(id); ok {
-				return snapshot, nil
-			}
-
-			row, err := m.store.GetCodex(ctx, id)
-			if err != nil {
-				return CodexCache{}, err
-			}
-
-			if err := ensureCredentialEnabled(row.Status); err != nil {
-				return CodexCache{}, err
-			}
-
-			m.writeCache(row)
-			if snapshot, ok := m.readCache(id); ok {
-				return snapshot, nil
-			}
-
-			if entry.refreshing.CompareAndSwap(false, true) {
-				entry.beginRefresh()
-				var refreshErr error
-				defer func() {
-					entry.finishRefresh(refreshErr)
-					entry.refreshing.Store(false)
-				}()
-				refreshed, err := m.refreshAndWriteBack(ctx, row)
-				if err != nil {
-					refreshErr = err
-					return CodexCache{}, err
-				}
-
-				return m.snapshotFromCodex(refreshed), nil
-			}
 		}
 	}
 }
 
 func (m *Manager) waitForCachedToken(ctx context.Context, entry *CodexEntry, id string) (CodexCache, error) {
-	ticker := time.NewTicker(m.settingsSnapshot().PollInterval())
-	defer ticker.Stop()
-
 	for {
 		done, _ := entry.refreshState()
+		if done == nil {
+			if err := sleepUntilRefreshStarts(ctx); err != nil {
+				return CodexCache{}, fmt.Errorf("waiting for forced codex token refresh: %w", err)
+			}
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return CodexCache{}, fmt.Errorf("waiting for forced codex token refresh: %w", ctx.Err())
@@ -434,10 +407,6 @@ func (m *Manager) waitForCachedToken(ctx context.Context, entry *CodexEntry, id 
 				return CodexCache{}, fmt.Errorf("waiting for forced codex token refresh: %w", refreshErr)
 			}
 			return CodexCache{}, errors.New("waiting for forced codex token refresh: refresh finished without cached token")
-		case <-ticker.C:
-			if snapshot, ok := m.readCache(id); ok {
-				return snapshot, nil
-			}
 		}
 	}
 }
@@ -454,15 +423,21 @@ func (m *Manager) snapshotFromCodex(row db.Codex) CodexCache {
 // entry 获取或创建刷新协调条目
 func (m *Manager) entry(id string) *CodexEntry {
 	if actual, ok := m.entries.Load(id); ok {
-		return actual.(*CodexEntry)
+		entry := actual.(*CodexEntry)
+		entry.touch()
+		return entry
 	}
 
 	created := &CodexEntry{}
+	created.touch()
 	actual, _ := m.entries.LoadOrStore(id, created)
-	return actual.(*CodexEntry)
+	entry := actual.(*CodexEntry)
+	entry.touch()
+	return entry
 }
 
 func (e *CodexEntry) beginRefresh() {
+	e.touch()
 	e.mu.Lock()
 	e.done = make(chan struct{})
 	e.lastErr = nil
@@ -470,6 +445,7 @@ func (e *CodexEntry) beginRefresh() {
 }
 
 func (e *CodexEntry) finishRefresh(err error) {
+	e.touch()
 	e.mu.Lock()
 	if e.done != nil {
 		e.lastErr = err
@@ -482,6 +458,10 @@ func (e *CodexEntry) refreshState() (<-chan struct{}, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.done, e.lastErr
+}
+
+func (e *CodexEntry) touch() {
+	e.lastUsed.Store(time.Now().UnixNano())
 }
 
 func (m *Manager) InvalidateCredential(id string) {
@@ -501,7 +481,8 @@ func (m *Manager) PruneStaleEntries() {
 		id := key.(string)
 		if _, ok := m.cache.GetIfPresent(id); !ok {
 			entry := value.(*CodexEntry)
-			if !entry.refreshing.Load() {
+			lastUsed := time.Unix(0, entry.lastUsed.Load())
+			if !entry.refreshing.Load() && time.Since(lastUsed) > pruneEntryIdleAfter {
 				m.entries.Delete(id)
 			}
 		}
@@ -516,6 +497,43 @@ func (m *Manager) invalidateCache(id string) {
 	if m.cache != nil {
 		m.cache.Invalidate(id)
 	}
+}
+
+func (m *Manager) loadCodex(ctx context.Context, id string) (db.Codex, error) {
+	result := m.loadGroup.DoChan(id, func() (any, error) {
+		loadCtx, cancel := context.WithTimeout(context.Background(), m.refreshTimeout())
+		defer cancel()
+		return m.store.GetCodex(loadCtx, id)
+	})
+
+	select {
+	case <-ctx.Done():
+		return db.Codex{}, ctx.Err()
+	case res := <-result:
+		if res.Err != nil {
+			return db.Codex{}, res.Err
+		}
+		return res.Val.(db.Codex), nil
+	}
+}
+
+func sleepUntilRefreshStarts(ctx context.Context) error {
+	timer := time.NewTimer(time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (m *Manager) enqueueProactiveRefresh(id string) {
+	go func() {
+		m.refreshSem <- struct{}{}
+		defer func() { <-m.refreshSem }()
+		m.proactiveRefresh(id)
+	}()
 }
 
 // proactiveRefresh 缓存过期时主动刷新令牌，保持缓存常热

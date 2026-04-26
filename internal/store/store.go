@@ -305,6 +305,13 @@ type LogStats struct {
 	StatusCodes []LogStatusCount `json:"status_codes"`
 }
 
+type LogQueryResult struct {
+	Rows          []LogRow
+	FilteredStats LogStats
+	TotalStats    LogStats
+	StatusStats   LogStats
+}
+
 type CreateAuthKeyParams struct {
 	Key  string
 	Role string
@@ -324,8 +331,7 @@ type UpsertSettingParams struct {
 
 type LogStore interface {
 	InsertLog(ctx context.Context, arg InsertLogParams) error
-	ListLogs(ctx context.Context, arg ListLogsParams) ([]LogRow, error)
-	CountLogs(ctx context.Context, filter LogFilterParams) (LogStats, error)
+	QueryLogs(ctx context.Context, arg ListLogsParams) (LogQueryResult, error)
 	ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, since []ErrorRateSince, minSamples int) (map[string]float64, error)
 }
 

@@ -40,13 +40,6 @@ interface RequestOptions {
 
 type QueryOptions = NonNullable<RequestOptions['query']>
 
-interface PaginationOptions {
-  page?: number
-  pageSize?: number
-}
-
-type ListOptions<TExtra extends QueryOptions = Record<never, never>> = PaginationOptions & TExtra
-
 function buildUrl(path: string, query?: RequestOptions['query']) {
   const url = new URL(`/admin/api${path}`, window.location.origin)
   if (query) {
@@ -121,7 +114,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return data as T
 }
 
-type CredentialListFilters = {
+type CredentialQuery = {
+  page: number
+  pageSize: number
   search?: string
   status?: 'enabled' | 'disabled'
   planType?: string
@@ -129,7 +124,9 @@ type CredentialListFilters = {
   sortOrder?: 'asc' | 'desc'
 }
 
-type LogListFilters = {
+type LogQuery = {
+  page: number
+  pageSize: number
   search?: string
   handler?: string
   statusCode?: number
@@ -160,15 +157,6 @@ function credentialsPath(endpoint: string) {
   return path
 }
 
-function buildPaginatedQuery<TExtra extends QueryOptions>(options: PaginationOptions, extraQuery?: TExtra): QueryOptions {
-  const { page = 1, pageSize = 25 } = options
-  return {
-    page,
-    page_size: pageSize,
-    ...(extraQuery || {}),
-  }
-}
-
 export const adminApi = {
   status() {
     return apiRequest<StatusResponse>('/status')
@@ -189,26 +177,21 @@ export const adminApi = {
       body: payload,
     })
   },
-  listCredentials(token: string, endpoint: string, options: ListOptions<CredentialListFilters> = {}) {
-    const {
-      search = '',
-      status,
-      planType,
-      sortBy,
-      sortOrder,
-    } = options
+  queryCredentials(token: string, endpoint: string, filters: CredentialQuery) {
     return apiRequest<PaginatedResponse<CredentialItem>>(credentialsPath(endpoint), {
       token,
-      query: buildPaginatedQuery(options, {
-        search,
-        status,
-        plan_type: planType,
-        sort_by: sortBy,
-        sort_order: sortOrder,
-      }),
+      query: {
+        page: filters.page,
+        page_size: filters.pageSize,
+        search: filters.search,
+        status: filters.status,
+        plan_type: filters.planType,
+        sort_by: filters.sortBy,
+        sort_order: filters.sortOrder,
+      },
     })
   },
-  createImportJob(token: string, endpoint: string, payload: { tokens: string[] }) {
+  importCredentials(token: string, endpoint: string, payload: { tokens: string[] }) {
     return apiRequest<ImportJobSnapshot>(credentialsPath(endpoint), {
       token,
       method: 'POST',
@@ -257,19 +240,16 @@ export const adminApi = {
       method: 'DELETE',
     })
   },
-  listLogs(token: string, options: ListOptions<LogListFilters> = {}) {
-    const {
-      search = '',
-      handler,
-      statusCode,
-    } = options
+  queryLogs(token: string, filters: LogQuery) {
     return apiRequest<LogListResponse>('/logs', {
       token,
-      query: buildPaginatedQuery(options, {
-        search,
-        handler,
-        status_code: statusCode,
-      }),
+      query: {
+        page: filters.page,
+        page_size: filters.pageSize,
+        search: filters.search,
+        handler: filters.handler,
+        status_code: filters.statusCode,
+      },
     })
   },
   listAuthKeys(token: string) {

@@ -9,15 +9,15 @@ type BuildInfo struct {
 
 func CurrentBuildInfo() BuildInfo {
 	return BuildInfo{
-		Version:   defaultIfBlank(Version, "dev"),
-		BuildTime: defaultIfBlank(BuildTime, "unknown"),
+		Version:   valueOrDefault(Version, "dev"),
+		BuildTime: valueOrDefault(BuildTime, "unknown"),
 	}
 }
 
-func defaultIfBlank(value, fallback string) string {
+func valueOrDefault(value, defaultValue string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return fallback
+		return defaultValue
 	}
 	return value
 }

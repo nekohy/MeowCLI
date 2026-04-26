@@ -130,8 +130,8 @@ function normalizeSettingsForm(source: SettingsForm): SettingsForm {
 
   for (const field of numericFields) {
     const parsed = Number.parseInt(String(source[field.key]).trim(), 10)
-    const fallback = Number.parseInt(DEFAULT_SETTINGS_FORM[field.key], 10)
-    next[field.key] = String(Number.isFinite(parsed) && parsed > 0 ? parsed : fallback)
+    const defaultValue = Number.parseInt(DEFAULT_SETTINGS_FORM[field.key], 10)
+    next[field.key] = String(Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue)
   }
 
   return next
@@ -159,7 +159,7 @@ async function saveSettings() {
     const normalized = normalizeSettingsForm(form.value)
     form.value = normalized
     const result = await adminApi.updateSettings(admin.token.value, settingsToPayload(normalized))
-    form.value = normalizeSettingsForm(settingsToForm(result.settings || {}))
+    form.value = normalizeSettingsForm(settingsToForm(result.settings))
     admin.notify('设置已保存', 'success')
     await admin.loadOverview(admin.token.value, true)
   } catch (error) {

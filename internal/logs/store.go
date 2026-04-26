@@ -20,6 +20,8 @@ type Store struct {
 	head int
 }
 
+const maxLogRows = 100000
+
 var _ db.LogStore = (*Store)(nil)
 
 func NewStore(provider settings.Provider) *Store {
@@ -58,57 +60,60 @@ func (s *Store) InsertLog(ctx context.Context, arg db.InsertLogParams) error {
 		Error:        strings.Clone(db.LogJSONError(arg.Error)),
 		CreatedAt:    now,
 	})
+	s.trimLocked()
 	s.compactLocked()
 	return nil
 }
 
-func (s *Store) ListLogs(ctx context.Context, arg db.ListLogsParams) ([]db.LogRow, error) {
+func (s *Store) QueryLogs(ctx context.Context, arg db.ListLogsParams) (db.LogQueryResult, error) {
 	if err := contextErr(ctx); err != nil {
-		return nil, err
+		return db.LogQueryResult{}, err
 	}
 	if s == nil || arg.Limit <= 0 {
-		return []db.LogRow{}, nil
+		return emptyLogQueryResult(), nil
 	}
 
-	now := time.Now()
-	if s.needsPrune(now) {
-		s.mu.Lock()
-		s.pruneLocked(now)
-		rows := s.listLocked(arg)
-		s.compactLocked()
-		s.mu.Unlock()
-		return rows, nil
+	rows := s.snapshotRows(time.Now())
+	page := make([]db.LogRow, 0, min(int(arg.Limit), len(rows)))
+	statusFilter := arg.LogFilterParams
+	statusFilter.HasStatusCode = false
+
+	totalCounts := make(map[int32]int64)
+	filteredCounts := make(map[int32]int64)
+	statusCounts := make(map[int32]int64)
+	var total, filteredTotal, statusTotal int64
+	skipped := int32(0)
+
+	for i := len(rows) - 1; i >= 0; i-- {
+		row := rows[i]
+		total++
+		totalCounts[row.StatusCode]++
+
+		if matchesLogFilter(row, statusFilter) {
+			statusTotal++
+			statusCounts[row.StatusCode]++
+		}
+		if !matchesLogFilter(row, arg.LogFilterParams) {
+			continue
+		}
+
+		filteredTotal++
+		filteredCounts[row.StatusCode]++
+		if skipped < arg.Offset {
+			skipped++
+			continue
+		}
+		if len(page) < int(arg.Limit) {
+			page = append(page, row)
+		}
 	}
 
-	s.mu.RLock()
-	rows := s.listLocked(arg)
-	s.mu.RUnlock()
-
-	return rows, nil
-}
-
-func (s *Store) CountLogs(ctx context.Context, filter db.LogFilterParams) (db.LogStats, error) {
-	if err := contextErr(ctx); err != nil {
-		return db.LogStats{}, err
-	}
-	if s == nil {
-		return emptyLogStats(), nil
-	}
-
-	now := time.Now()
-	if s.needsPrune(now) {
-		s.mu.Lock()
-		s.pruneLocked(now)
-		stats := s.countLocked(filter)
-		s.compactLocked()
-		s.mu.Unlock()
-		return stats, nil
-	}
-
-	s.mu.RLock()
-	stats := s.countLocked(filter)
-	s.mu.RUnlock()
-	return stats, nil
+	return db.LogQueryResult{
+		Rows:          page,
+		FilteredStats: db.LogStats{Total: filteredTotal, StatusCodes: logStatusCounts(filteredCounts)},
+		TotalStats:    db.LogStats{Total: total, StatusCodes: logStatusCounts(totalCounts)},
+		StatusStats:   db.LogStats{Total: statusTotal, StatusCodes: logStatusCounts(statusCounts)},
+	}, nil
 }
 
 func (s *Store) ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, since []db.ErrorRateSince, minSamples int) (map[string]float64, error) {
@@ -139,11 +144,11 @@ func (s *Store) ErrorRatesForCredentials(ctx context.Context, handler string, mo
 		return map[string]float64{}, nil
 	}
 
-	s.mu.RLock()
 	type counters struct{ total, errors int }
 	counts := make(map[string]*counters, len(sinceByID))
-	for i := len(s.rows) - 1; i >= s.head; i-- {
-		row := &s.rows[i]
+	rows := s.snapshotRows(time.Now())
+	for i := len(rows) - 1; i >= 0; i-- {
+		row := &rows[i]
 		if !oldestSince.IsZero() && !row.CreatedAt.After(oldestSince) {
 			break
 		}
@@ -177,7 +182,6 @@ func (s *Store) ErrorRatesForCredentials(ctx context.Context, handler string, mo
 			c.errors++
 		}
 	}
-	s.mu.RUnlock()
 
 	result := make(map[string]float64, len(counts))
 	for id, c := range counts {
@@ -232,52 +236,58 @@ func (s *Store) compactLocked() {
 	s.head = 0
 }
 
-func (s *Store) listLocked(arg db.ListLogsParams) []db.LogRow {
+func (s *Store) trimLocked() {
+	if s == nil {
+		return
+	}
 	visible := len(s.rows) - s.head
-	if visible <= 0 || arg.Offset < 0 {
-		return []db.LogRow{}
+	if visible <= maxLogRows {
+		return
 	}
-
-	limit := int(arg.Limit)
-	result := make([]db.LogRow, 0, min(limit, visible))
-	skipped := int32(0)
-	for i := len(s.rows) - 1; i >= s.head && len(result) < limit; i-- {
-		row := s.rows[i]
-		if !matchesLogFilter(row, arg.LogFilterParams) {
-			continue
-		}
-		if skipped < arg.Offset {
-			skipped++
-			continue
-		}
-		result = append(result, row)
-	}
-	return result
+	s.head += visible - maxLogRows
 }
 
-func (s *Store) countLocked(filter db.LogFilterParams) db.LogStats {
-	if s == nil || s.head >= len(s.rows) {
-		return emptyLogStats()
+func (s *Store) snapshotRows(now time.Time) []db.LogRow {
+	if s == nil {
+		return nil
+	}
+	if s.needsPrune(now) {
+		s.mu.Lock()
+		s.pruneLocked(now)
+		s.trimLocked()
+		s.compactLocked()
+		rows := cloneRows(s.rows[s.head:])
+		s.mu.Unlock()
+		return rows
 	}
 
-	counts := make(map[int32]int64)
-	var total int64
-	for i := len(s.rows) - 1; i >= s.head; i-- {
-		row := s.rows[i]
-		if matchesLogFilter(row, filter) {
-			total++
-			counts[row.StatusCode]++
-		}
-	}
+	s.mu.RLock()
+	rows := cloneRows(s.rows[s.head:])
+	s.mu.RUnlock()
+	return rows
+}
 
-	return db.LogStats{
-		Total:       total,
-		StatusCodes: logStatusCounts(counts),
+func cloneRows(rows []db.LogRow) []db.LogRow {
+	if len(rows) == 0 {
+		return []db.LogRow{}
 	}
+	cloned := make([]db.LogRow, len(rows))
+	copy(cloned, rows)
+	return cloned
 }
 
 func emptyLogStats() db.LogStats {
 	return db.LogStats{StatusCodes: []db.LogStatusCount{}}
+}
+
+func emptyLogQueryResult() db.LogQueryResult {
+	stats := emptyLogStats()
+	return db.LogQueryResult{
+		Rows:          []db.LogRow{},
+		FilteredStats: stats,
+		TotalStats:    stats,
+		StatusStats:   stats,
+	}
 }
 
 func logStatusCounts(counts map[int32]int64) []db.LogStatusCount {

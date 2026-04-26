@@ -79,12 +79,7 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 		return overviewResponse{}, err
 	}
 
-	logStats, err := a.countLogs(ctx, LogFilterParams{})
-	if err != nil {
-		return overviewResponse{}, err
-	}
-
-	recentLogs, err := a.listLogs(ctx, ListLogsParams{
+	logs, err := a.queryLogs(ctx, ListLogsParams{
 		Limit:  overviewRecentLogsLimit,
 		Offset: 0,
 	})
@@ -128,11 +123,11 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 			CredentialsEnabled: codexEnabled + geminiEnabled,
 			CredentialsTotal:   int(codexTotal + geminiTotal),
 			ModelsTotal:        int(modelsTotal),
-			LogsTotal:          logStats.Total,
+			LogsTotal:          logs.TotalStats.Total,
 			AuthKeysTotal:      authKeysTotal,
 		},
 		Handlers:   handlers,
-		RecentLogs: recentLogs,
+		RecentLogs: logs.Rows,
 	}, nil
 }
 

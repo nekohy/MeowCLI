@@ -13,3 +13,4 @@ CREATE TABLE IF NOT EXISTS gemini_quota (
 );
 
 CREATE INDEX IF NOT EXISTS idx_gemini_quota_remaining ON gemini_quota(quota_pro DESC, quota_flash DESC, quota_flashlite DESC);
+CREATE INDEX IF NOT EXISTS idx_gemini_quota_available_order ON gemini_quota(quota_pro DESC, quota_flash DESC, quota_flashlite DESC, credential_id);

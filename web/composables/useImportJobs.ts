@@ -55,7 +55,7 @@ export function useImportJobs() {
     loading.value = true
     try {
       const response = await adminApi.listJobs(token)
-      const nextJobs = (response.data || []).sort((a, b) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''))
+      const nextJobs = response.data.sort((a, b) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''))
       jobs.value = nextJobs
       await acknowledgeCompletedJobs(token, nextJobs.filter((job) => dismissed.value.includes(job.id)))
     } finally {

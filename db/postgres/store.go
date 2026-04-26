@@ -11,6 +11,7 @@ import (
 	db "github.com/nekohy/MeowCLI/internal/store"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
 )
 
 //go:embed schema/*.sql
@@ -24,7 +25,18 @@ type Store struct {
 var _ db.Store = (*Store)(nil)
 
 func Open(ctx context.Context, dsn string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse postgres config: %w", err)
+	}
+	log.Info().
+		Int32("max_conns", cfg.MaxConns).
+		Int32("min_conns", cfg.MinConns).
+		Dur("max_conn_lifetime", cfg.MaxConnLifetime).
+		Dur("max_conn_idle_time", cfg.MaxConnIdleTime).
+		Msg("postgres pool config")
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

@@ -8,7 +8,7 @@ export function hasLogError(error = '') {
     .some(Boolean)
 }
 
-export function logMetaItems(item: LogItem, credentialFallback = '未记录凭据') {
+export function logMetaItems(item: LogItem, missingCredentialLabel = '未记录凭据') {
   return [
     { label: '模型', value: item.model || '未记录模型' },
     { label: '接口', value: formatApiType(item.api_type) },
@@ -16,7 +16,7 @@ export function logMetaItems(item: LogItem, credentialFallback = '未记录凭�
     { label: '首字', value: formatLogSeconds(item.first_byte) },
     { label: '用时', value: formatLogSeconds(item.duration) },
     { label: '时间', value: formatTime(item.created_at) },
-    { label: '凭据', value: item.credential_id || credentialFallback, wide: true },
+    { label: '凭据', value: item.credential_id || missingCredentialLabel, wide: true },
   ]
 }
 

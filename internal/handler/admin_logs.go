@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (a *AdminHandler) ListLogs(c *gin.Context) {
+func (a *AdminHandler) QueryLogs(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
 	if page < 1 {
@@ -31,46 +31,24 @@ func (a *AdminHandler) ListLogs(c *gin.Context) {
 		}
 	}
 
-	totalAll, err := a.countLogs(c.Request.Context(), LogFilterParams{})
-	if err != nil {
-		writeInternalError(c, err)
-		return
-	}
-
-	filteredStats, err := a.countLogs(c.Request.Context(), filter)
-	if err != nil {
-		writeInternalError(c, err)
-		return
-	}
-
-	statusStats := filteredStats
-	if filter.HasStatusCode {
-		statusFilter := filter
-		statusFilter.HasStatusCode = false
-		statusStats, err = a.countLogs(c.Request.Context(), statusFilter)
-		if err != nil {
-			writeInternalError(c, err)
-			return
-		}
-	}
-
-	rows, err := a.listLogs(c.Request.Context(), ListLogsParams{
+	params := ListLogsParams{
 		Limit:           int32(pageSize),
 		Offset:          offset,
 		LogFilterParams: filter,
-	})
+	}
+	result, err := a.queryLogs(c.Request.Context(), params)
 	if err != nil {
 		writeInternalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"total":     filteredStats.Total,
+		"total":     result.FilteredStats.Total,
 		"page":      page,
 		"page_size": pageSize,
-		"data":      rows,
+		"data":      result.Rows,
 		"summary": gin.H{
-			"total":        totalAll.Total,
-			"status_codes": statusStats.StatusCodes,
+			"total":        result.TotalStats.Total,
+			"status_codes": result.StatusStats.StatusCodes,
 		},
 	})
 }

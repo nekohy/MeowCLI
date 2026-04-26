@@ -180,7 +180,7 @@ const selectedSet = computed(() => new Set(selectedIds.value))
 const allVisibleSelected = computed(() => (
   rows.value.length > 0 && rows.value.every((item) => selectedSet.value.has(item.id))
 ))
-const maxPage = computed(() => Math.max(1, Math.ceil((total.value || 0) / (pageSize.value || 6))))
+const maxPage = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const pageSizeOptions = CREDENTIAL_PAGE_SIZE_OPTIONS
 const importDescription = computed(() => (
   activeCredentialField.value?.help_text || '一行一个凭据，保存后会纳入当前处理器调度'
@@ -342,10 +342,11 @@ function scoreBadgeLabel(metric: { score: number; weight: number }) {
 }
 
 function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.value) {
+  const search = searchQuery.value.trim()
   return {
     page: nextPage,
     pageSize: nextPageSize,
-    search: searchQuery.value.trim(),
+    search: search || undefined,
     status: statusFilter.value === 'enabled' || statusFilter.value === 'disabled'
       ? statusFilter.value
       : undefined,
@@ -373,15 +374,15 @@ async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.va
 
   loading.value = true
   try {
-    const data = await adminApi.listCredentials(admin.token.value, endpoint, currentQueryOptions(nextPage, nextPageSize))
+    const data = await adminApi.queryCredentials(admin.token.value, endpoint, currentQueryOptions(nextPage, nextPageSize))
     if (requestToken !== latestLoadToken) {
       return
     }
-    rows.value = data.data || []
+    rows.value = data.data
     rowsHandlerKey.value = handlerKey
-    total.value = data.total || 0
-    page.value = data.page || nextPage
-    pageSize.value = data.page_size || nextPageSize
+    total.value = data.total
+    page.value = data.page
+    pageSize.value = data.page_size
     selectedIds.value = []
   } catch (error) {
     if (requestToken === latestLoadToken) {
@@ -408,7 +409,7 @@ async function createCredential() {
       return
     }
 
-    const job = await adminApi.createImportJob(admin.token.value, credentialEndpoint.value, {
+    const job = await adminApi.importCredentials(admin.token.value, credentialEndpoint.value, {
       tokens: importLines.value,
     })
 
@@ -438,8 +439,8 @@ function batchSetStatus(status: string) {
       actionBusy.value = true
       try {
         const result = await adminApi.updateCredentialStatus(admin.token.value, credentialEndpoint.value, { ids, status })
-        const updatedCount = result.updated?.length || 0
-        const errorCount = result.errors?.length || 0
+        const updatedCount = result.updated.length
+        const errorCount = result.errors.length
         admin.notify(
           errorCount > 0
             ? `处理完成：${updatedCount} 条成功，${errorCount} 条失败`
@@ -473,8 +474,8 @@ function batchDelete() {
       actionBusy.value = true
       try {
         const result = await adminApi.deleteCredentials(admin.token.value, credentialEndpoint.value, { ids })
-        const deletedCount = result.deleted?.length || 0
-        const errorCount = result.errors?.length || 0
+        const deletedCount = result.deleted.length
+        const errorCount = result.errors.length
         admin.notify(
           errorCount > 0
             ? `删除完成：${deletedCount} 条成功，${errorCount} 条失败`
