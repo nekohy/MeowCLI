@@ -226,7 +226,7 @@ func translateCodexStreamResponseToNonStream(resp *http.Response) (*http.Respons
 
 func readCodexCompletedResponse(r io.Reader) ([]byte, error) {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 52_428_800)
+	scanner.Buffer(make([]byte, 0, 64*1024), 20_971_520)
 
 	var outputItems []string
 	for scanner.Scan() {

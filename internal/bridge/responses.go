@@ -136,6 +136,7 @@ func (h *Handler) streamSSE(c *gin.Context, resp *http.Response, backend api.Bac
 	flusher, _ := c.Writer.(http.Flusher)
 
 	defer func(Body io.ReadCloser) {
+		_, _ = io.Copy(io.Discard, Body)
 		_ = Body.Close()
 	}(resp.Body)
 

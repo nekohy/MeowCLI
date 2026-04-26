@@ -69,6 +69,7 @@ type Scheduler struct {
 	importSyncMu     sync.Mutex
 	available        atomic.Pointer[[]availableRow]
 	planTypes        *planTypeCodec
+	quotaRefreshSem  chan struct{}
 }
 
 // NewScheduler creates a scheduler connected to the given store and token manager.
@@ -80,6 +81,7 @@ func NewScheduler(store SchedulerStore, manager *Manager) *Scheduler {
 		checking:        make(map[string]struct{}),
 		quotaRefreshing: make(map[string]struct{}),
 		planTypes:       newPlanTypeCodec(),
+		quotaRefreshSem: make(chan struct{}, 8),
 	}
 }
 
@@ -326,6 +328,7 @@ func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.Li
 
 	s.available.Store(&rows)
 	s.pruneExpiredThrottles(time.Now())
+	s.manager.PruneStaleEntries()
 	return rows
 }
 
@@ -671,7 +674,16 @@ func (s *Scheduler) RefreshQuota(_ context.Context, credentialID string, modelTi
 		return
 	}
 
+	select {
+	case s.quotaRefreshSem <- struct{}{}:
+	default:
+		s.finishQuotaRefresh(credentialID, modelTier)
+		log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Msg("gemini scheduler: quota refresh skipped: concurrent limit reached")
+		return
+	}
+
 	go func() {
+		defer func() { <-s.quotaRefreshSem }()
 		defer s.finishQuotaRefresh(credentialID, modelTier)
 
 		refreshCtx, cancel := context.WithTimeout(context.Background(), s.settingsSnapshot().ImportedCheckTimeout())

@@ -123,6 +123,7 @@ func (h *Handler) relayWithRetry(c *gin.Context, cfg relayConfig) {
 		// 上游返回错误
 		timedBody := newTimedReadCloser(resp.Body, upstreamStarted)
 		errBytes, _ := io.ReadAll(io.LimitReader(timedBody, 4096))
+		_, _ = io.Copy(io.Discard, timedBody)
 		_ = timedBody.Close()
 		timing := timedBody.timing()
 		cancel()

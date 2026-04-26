@@ -31,11 +31,12 @@ type Client interface {
 }
 
 type Manager struct {
-	store    Store
-	client   Client
-	settings settings.Provider
-	cache    *otter.Cache[string, GeminiCache]
-	entries  sync.Map
+	store      Store
+	client     Client
+	settings   settings.Provider
+	cache      *otter.Cache[string, GeminiCache]
+	entries    sync.Map
+	refreshSem chan struct{}
 }
 
 type ManagerConfig struct {
@@ -67,9 +68,10 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 		return nil, fmt.Errorf("gemini manager client is required")
 	}
 	m := &Manager{
-		store:    cfg.Store,
-		client:   cfg.Client,
-		settings: cfg.Settings,
+		store:      cfg.Store,
+		client:     cfg.Client,
+		settings:   cfg.Settings,
+		refreshSem: make(chan struct{}, 16),
 	}
 
 	cache := cfg.Cache
@@ -80,7 +82,15 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 				if e.Cause != otter.CauseExpiration {
 					return
 				}
-				go m.proactiveRefresh(e.Key)
+				select {
+				case m.refreshSem <- struct{}{}:
+					go func() {
+						defer func() { <-m.refreshSem }()
+						m.proactiveRefresh(e.Key)
+					}()
+				default:
+					log.Warn().Str("credential", e.Key).Msg("gemini proactive refresh skipped: concurrent limit reached")
+				}
 			},
 		})
 		if err != nil {
@@ -426,6 +436,23 @@ func (m *Manager) InvalidateCredential(id string) {
 	}
 	m.invalidateCache(id)
 	m.entries.Delete(id)
+}
+
+// PruneStaleEntries removes coordination entries whose credentials are no longer in the otter cache.
+func (m *Manager) PruneStaleEntries() {
+	if m == nil || m.cache == nil {
+		return
+	}
+	m.entries.Range(func(key, value any) bool {
+		id := key.(string)
+		if _, ok := m.cache.GetIfPresent(id); !ok {
+			entry := value.(*GeminiEntry)
+			if !entry.refreshing.Load() {
+				m.entries.Delete(id)
+			}
+		}
+		return true
+	})
 }
 
 func (m *Manager) invalidateCache(id string) {

@@ -55,11 +55,12 @@ type ManagerConfig struct {
 // 1. 进程本地 otter 缓存，
 // 2. 持久化令牌存储
 type Manager struct {
-	store    CodexStore
-	cache    *otter.Cache[string, CodexCache]
-	codexAPI Client
-	settings settings.Provider
-	entries  sync.Map
+	store      CodexStore
+	cache      *otter.Cache[string, CodexCache]
+	codexAPI   Client
+	settings   settings.Provider
+	entries    sync.Map
+	refreshSem chan struct{}
 }
 
 type CodexEntry struct {
@@ -86,9 +87,10 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	}
 
 	m := &Manager{
-		store:    cfg.Store,
-		codexAPI: cfg.CodexAPI,
-		settings: cfg.Settings,
+		store:      cfg.Store,
+		codexAPI:   cfg.CodexAPI,
+		settings:   cfg.Settings,
+		refreshSem: make(chan struct{}, 16),
 	}
 
 	cache := cfg.Cache
@@ -99,7 +101,15 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 				if e.Cause != otter.CauseExpiration {
 					return
 				}
-				go m.proactiveRefresh(e.Key)
+				select {
+				case m.refreshSem <- struct{}{}:
+					go func() {
+						defer func() { <-m.refreshSem }()
+						m.proactiveRefresh(e.Key)
+					}()
+				default:
+					log.Warn().Str("credential", e.Key).Msg("proactive refresh skipped: concurrent limit reached")
+				}
 			},
 		})
 		if err != nil {
@@ -480,6 +490,23 @@ func (m *Manager) InvalidateCredential(id string) {
 	}
 	m.invalidateCache(id)
 	m.entries.Delete(id)
+}
+
+// PruneStaleEntries removes coordination entries whose credentials are no longer in the otter cache.
+func (m *Manager) PruneStaleEntries() {
+	if m == nil || m.cache == nil {
+		return
+	}
+	m.entries.Range(func(key, value any) bool {
+		id := key.(string)
+		if _, ok := m.cache.GetIfPresent(id); !ok {
+			entry := value.(*CodexEntry)
+			if !entry.refreshing.Load() {
+				m.entries.Delete(id)
+			}
+		}
+		return true
+	})
 }
 
 func (m *Manager) invalidateCache(id string) {

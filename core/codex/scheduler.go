@@ -86,6 +86,7 @@ type Scheduler struct {
 	importSyncMu     sync.Mutex
 	available        atomic.Pointer[availableSnapshot]
 	planTypes        *planTypeCodec
+	quotaRefreshSem  chan struct{}
 }
 
 // NewScheduler 创建一个连接到指定存储和令牌管理器的调度器
@@ -102,6 +103,7 @@ func NewScheduler(store SchedulerStore, manager *Manager) *Scheduler {
 		checking:        make(map[string]struct{}),
 		quotaRefreshing: make(map[string]struct{}),
 		planTypes:       newPlanTypeCodec(),
+		quotaRefreshSem: make(chan struct{}, 8),
 	}
 }
 
@@ -332,6 +334,7 @@ func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.Li
 
 	s.available.Store(buildAvailableSnapshot(rows))
 	s.pruneExpiredThrottles(time.Now())
+	s.manager.PruneStaleEntries()
 	return rows
 }
 
@@ -756,7 +759,16 @@ func (s *Scheduler) RefreshQuota(_ context.Context, credentialID string, modelTi
 		return
 	}
 
+	select {
+	case s.quotaRefreshSem <- struct{}{}:
+	default:
+		s.finishQuotaRefresh(credentialID, modelTier)
+		log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Msg("scheduler: quota refresh skipped: concurrent limit reached")
+		return
+	}
+
 	go func() {
+		defer func() { <-s.quotaRefreshSem }()
 		defer s.finishQuotaRefresh(credentialID, modelTier)
 
 		refreshCtx, cancel := context.WithTimeout(context.Background(), s.settingsSnapshot().ImportedCheckTimeout())
