@@ -2,10 +2,11 @@ package gemini
 
 import (
 	"context"
-	"github.com/bytedance/sonic"
 	"strings"
 	"time"
 
+	"github.com/bytedance/sonic"
+	"github.com/nekohy/MeowCLI/utils"
 	"github.com/tidwall/gjson"
 )
 
@@ -162,13 +163,7 @@ func ParseQuotaFromBuckets(body []byte) *Quota {
 		if !ok {
 			continue
 		}
-		fraction := b.RemainingFraction
-		if fraction < 0 {
-			fraction = 0
-		}
-		if fraction > 1 {
-			fraction = 1
-		}
+		fraction := utils.TruncateQuotaRatio(b.RemainingFraction)
 		if !info.set || fraction < info.minFraction {
 			info.minFraction = fraction
 		}

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	commonutils "github.com/nekohy/MeowCLI/utils"
 )
 
 // Quota 包含从上游获取的配额使用情况和重置时间
@@ -89,7 +91,7 @@ func (rl *CodexRateLimit) ToQuotaForTier(modelTier string) Quota {
 		if w.limitWindowSeconds == 0 {
 			continue
 		}
-		remaining := float64(100-w.usedPercent) / 100
+		remaining := commonutils.TruncateQuotaRatio(float64(100-w.usedPercent) / 100)
 		switch w.limitWindowSeconds {
 		case int64((5 * time.Hour).Seconds()): // 18000
 			if updateSpark {

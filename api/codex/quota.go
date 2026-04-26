@@ -91,7 +91,7 @@ func applyUsageRateLimit(q *codexutils.Quota, rl usageRateLimit, spark bool) {
 		if w == nil {
 			continue
 		}
-		remaining := float64(100-w.UsedPercent) / 100
+		remaining := utils.TruncateQuotaRatio(float64(100-w.UsedPercent) / 100)
 		resetAt := time.Unix(w.ResetAt, 0)
 		switch w.LimitWindowSeconds {
 		case int64((5 * time.Hour).Seconds()): // 18000

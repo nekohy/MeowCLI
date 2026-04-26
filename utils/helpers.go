@@ -44,6 +44,18 @@ func CalcBackoff(consecutive int, base, max time.Duration) time.Duration {
 	return backoff
 }
 
+// TruncateQuotaRatio clamps a quota ratio to [0, 1] and keeps two decimal
+// places by truncation, not rounding.
+func TruncateQuotaRatio(value float64) float64 {
+	if math.IsNaN(value) || value <= 0 {
+		return 0
+	}
+	if value >= 1 {
+		return 1
+	}
+	return math.Trunc(value*100) / 100
+}
+
 // ParseDelimitedList splits a comma/semicolon/space-separated string,
 // normalizes each element with the provided function, and deduplicates.
 func ParseDelimitedList(raw string, normalize func(string) string) []string {
