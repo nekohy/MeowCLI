@@ -355,7 +355,7 @@ func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.Li
 	return rows
 }
 
-func (s *Scheduler) applyQuotaToAvailable(id string, q *codexAPI.Quota) {
+func (s *Scheduler) applyQuotaToAvailable(id string, q *codexAPI.Quota) bool {
 	config := s.settingsSnapshot()
 	newScore := CalcScore(q.Quota5h, q.Quota7d, q.Reset5h, q.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
 	newScoreSpark := CalcScoreSpark(q.QuotaSpark5h, q.QuotaSpark7d, q.ResetSpark5h, q.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
@@ -363,7 +363,7 @@ func (s *Scheduler) applyQuotaToAvailable(id string, q *codexAPI.Quota) {
 	for {
 		snap := s.available.Load()
 		if snap == nil {
-			return
+			return false
 		}
 
 		updated := make([]availableRow, len(snap.rows))
@@ -394,7 +394,7 @@ func (s *Scheduler) applyQuotaToAvailable(id string, q *codexAPI.Quota) {
 			break
 		}
 		if !found {
-			return
+			return false
 		}
 
 		sort.Slice(updated, func(i, j int) bool {
@@ -402,7 +402,7 @@ func (s *Scheduler) applyQuotaToAvailable(id string, q *codexAPI.Quota) {
 		})
 
 		if s.available.CompareAndSwap(snap, buildAvailableSnapshot(updated)) {
-			return
+			return true
 		}
 	}
 }
@@ -874,7 +874,7 @@ func (s *Scheduler) StoreQuota(ctx context.Context, credentialID string, q *code
 	if !q.HasDefaultQuota && !q.HasSparkQuota {
 		return
 	}
-	s.applyQuotaToAvailable(credentialID, q)
+	cacheUpdated := s.applyQuotaToAvailable(credentialID, q)
 	if err := s.store.UpsertQuota(ctx, db.UpsertQuotaParams{
 		CredentialID: credentialID,
 		Quota5h:      q.Quota5h,
@@ -887,6 +887,12 @@ func (s *Scheduler) StoreQuota(ctx context.Context, credentialID string, q *code
 		ResetSpark7d: q.ResetSpark7d,
 	}); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: upsert quota")
+		return
+	}
+	if !cacheUpdated {
+		if _, err := s.RefreshAvailable(ctx); err != nil {
+			log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: refresh available after quota insert")
+		}
 	}
 }
 

@@ -355,7 +355,7 @@ func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.Li
 	return rows
 }
 
-func (s *Scheduler) applyQuotaToAvailable(id string, q *geminiapi.Quota) {
+func (s *Scheduler) applyQuotaToAvailable(id string, q *geminiapi.Quota) bool {
 	config := s.settingsSnapshot()
 	ws := config.QuotaWindowGeminiSeconds()
 	newScorePro := CalcScore(q.QuotaPro, q.QuotaFlash, q.QuotaFlashlite, q.ResetPro, q.ResetFlash, q.ResetFlashlite, ModelTierPro, ws)
@@ -365,7 +365,7 @@ func (s *Scheduler) applyQuotaToAvailable(id string, q *geminiapi.Quota) {
 	for {
 		snap := s.available.Load()
 		if snap == nil {
-			return
+			return false
 		}
 
 		updated := make([]availableRow, len(*snap))
@@ -398,12 +398,12 @@ func (s *Scheduler) applyQuotaToAvailable(id string, q *geminiapi.Quota) {
 			break
 		}
 		if !found {
-			return
+			return false
 		}
 
 		next := updated
 		if s.available.CompareAndSwap(snap, &next) {
-			return
+			return true
 		}
 	}
 }
@@ -722,7 +722,7 @@ func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *gem
 	if q == nil {
 		return
 	}
-	s.applyQuotaToAvailable(credentialID, q)
+	cacheUpdated := s.applyQuotaToAvailable(credentialID, q)
 	if err := s.store.UpsertGeminiQuota(ctx, db.UpsertGeminiQuotaParams{
 		CredentialID:   credentialID,
 		QuotaPro:       q.QuotaPro,
@@ -733,6 +733,12 @@ func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *gem
 		ResetFlashlite: q.ResetFlashlite,
 	}); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: upsert quota")
+		return
+	}
+	if !cacheUpdated {
+		if _, err := s.RefreshAvailable(ctx); err != nil {
+			log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: refresh available after quota insert")
+		}
 	}
 }
 
