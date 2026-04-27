@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/nekohy/MeowCLI/api"
+	completionconvert "github.com/nekohy/MeowCLI/api/codex/convert/completion"
 	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	"github.com/nekohy/MeowCLI/utils"
@@ -82,6 +83,7 @@ func (c *Client) APIType() []utils.APIType {
 	return []utils.APIType{
 		utils.APIResponses,
 		utils.APIResponsesCompact,
+		utils.APICompletion,
 	}
 }
 
@@ -110,6 +112,14 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	body := req.Body
 	credentialID := req.CredID
 	headers := req.Headers
+	if req.APIType == utils.APICompletion {
+		model := gjson.GetBytes(body, "model").String()
+		converted, err := completionconvert.Convert(model, body, gjson.GetBytes(body, "stream").Bool())
+		if err != nil {
+			return nil, err
+		}
+		body = converted
+	}
 	// Codex upstream only supports stream processing reliably; preserve the
 	// client's requested mode locally and force the upstream request to stream.
 	body, clientStream := prepareCodexResponsesRequestBody(body)
@@ -142,13 +152,29 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 		raw.Header.Set("Content-Type", "text/event-stream")
 	}
 
-	if !clientStream && raw != nil && raw.StatusCode >= 200 && raw.StatusCode < 300 {
-		translated, translateErr := translateCodexStreamResponseToNonStream(raw)
-		if translateErr != nil {
-			_ = raw.Body.Close()
-			return nil, translateErr
+	if raw != nil && raw.StatusCode >= 200 && raw.StatusCode < 300 {
+		switch {
+		case req.APIType == utils.APICompletion:
+			if clientStream {
+				raw.Body = completionconvert.NewStreamReadCloser(ctx, raw.Body, gjson.GetBytes(body, "model").String())
+			} else {
+				translated, translateErr := completionconvert.TranslateNonStream(raw)
+				if translateErr != nil {
+					_ = raw.Body.Close()
+					return nil, translateErr
+				}
+				raw = translated
+			}
+		case req.APIType == utils.APIResponses:
+			if !clientStream {
+				translated, translateErr := translateCodexStreamResponseToNonStream(raw)
+				if translateErr != nil {
+					_ = raw.Body.Close()
+					return nil, translateErr
+				}
+				raw = translated
+			}
 		}
-		raw = translated
 	}
 
 	if c.OnQuota != nil {
@@ -162,41 +188,39 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	return raw, nil
 }
 
-// 必要的请求体注入
 func prepareCodexResponsesRequestBody(body []byte) ([]byte, bool) {
-	values := gjson.GetManyBytes(body, "stream", "store", "instructions")
-	stream, store, instructions := values[0], values[1], values[2]
-	clientStream := stream.Bool()
-	if stream.Type == gjson.True && store.Type == gjson.False && instructions.Exists() {
-		return body, clientStream
+	var root ast.Node
+	if err := root.UnmarshalJSON(body); err != nil {
+		return []byte{}, false
 	}
 
-	out, err := patchCodexResponsesRequestBody(body, instructions.Exists())
+	clientStream, err := root.Get("stream").Bool()
 	if err != nil {
 		return []byte{}, false
 	}
-	return out, clientStream
-}
 
-func patchCodexResponsesRequestBody(body []byte, hasInstructions bool) ([]byte, error) {
-	var root ast.Node
-	if err := root.UnmarshalJSON(body); err != nil {
-		return nil, err
-	}
 	if _, err := root.Set("stream", ast.NewBool(true)); err != nil {
-		return nil, err
+		return []byte{}, false
 	}
 	if _, err := root.Set("store", ast.NewBool(false)); err != nil {
-		return nil, err
+		return []byte{}, false
 	}
-	if !hasInstructions {
+	if !root.Get("instructions").Exists() {
 		if _, err := root.Set("instructions", ast.NewString("")); err != nil {
-			return nil, err
+			return []byte{}, false
 		}
 	}
-	return root.MarshalJSON()
-}
+	if _, err := root.Unset("temperature"); err != nil {
+		return []byte{}, false
+	}
 
+	out, err := root.MarshalJSON()
+	if err != nil {
+		return []byte{}, false
+	}
+
+	return out, clientStream
+}
 func resolveQuotaTierFromBody(body []byte) string {
 	model := strings.ToLower(gjson.GetBytes(body, "model").String())
 	if strings.Contains(model, "spark") {

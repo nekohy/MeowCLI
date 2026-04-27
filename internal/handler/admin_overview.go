@@ -141,7 +141,7 @@ func defaultHandlerOverview() []handlerOverview {
 			Key:                 utils.HandlerCodex,
 			Label:               "Codex CLI",
 			Status:              "available",
-			SupportedAPI:        []utils.APIType{utils.APIResponses, utils.APIResponsesCompact},
+			SupportedAPI:        []utils.APIType{utils.APIResponses, utils.APIResponsesCompact, utils.APICompletion},
 			PlanList:            corecodex.PlanList(),
 			SupportsCredentials: true,
 			CredentialEndpoint:  credentialsEndpointForHandler(utils.HandlerCodex),
