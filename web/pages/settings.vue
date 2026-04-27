@@ -64,6 +64,13 @@ const numericFields = [
     suffix: '秒',
   },
   {
+    key: 'score_refresh_interval_seconds',
+    label: 'Score刷新',
+    hint: '内存调度分数的重算周期',
+    min: 1,
+    suffix: '秒',
+  },
+  {
     key: 'logs_retention_seconds',
     label: '日志保留',
     hint: '内存日志存留时长',
@@ -105,7 +112,7 @@ const numericGroups = [
   },
   {
     title: '数据保留',
-    fields: ['quota_sync_interval_seconds', 'logs_retention_seconds'] as NumericFieldKey[],
+    fields: ['quota_sync_interval_seconds', 'score_refresh_interval_seconds', 'logs_retention_seconds'] as NumericFieldKey[],
   },
   {
     title: '指数退避',

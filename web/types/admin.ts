@@ -110,6 +110,7 @@ export interface SettingsSnapshot {
   refresh_before_seconds: number
   poll_interval_milliseconds: number
   quota_sync_interval_seconds: number
+  score_refresh_interval_seconds: number
   throttle_base_seconds: number
   throttle_max_seconds: number
   logs_retention_seconds: number
@@ -128,6 +129,7 @@ export interface SettingsForm {
   refresh_before_seconds: string
   poll_interval_milliseconds: string
   quota_sync_interval_seconds: string
+  score_refresh_interval_seconds: string
   throttle_base_seconds: string
   throttle_max_seconds: string
   logs_retention_seconds: string

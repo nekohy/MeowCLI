@@ -126,7 +126,19 @@ func (s *Scheduler) SetLogStore(store db.LogStore) {
 // StartQuotaSyncer 启动后台协程，定期从上游 API 获取配额并写入 quota 表
 // 当 ctx 被取消时停止
 func (s *Scheduler) StartQuotaSyncer(ctx context.Context) {
+	s.startScoreRefresh(ctx)
 	s.quotaSyncer().Start(ctx)
+}
+
+func (s *Scheduler) startScoreRefresh(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	scheduling.ScoreRefreshLoop{
+		Interval:        func() time.Duration { return s.settingsSnapshot().ScoreRefreshInterval() },
+		DefaultInterval: settings.DefaultSnapshot().ScoreRefreshInterval(),
+		Refresh:         s.refreshAvailableScores,
+	}.Start(ctx)
 }
 
 func (s *Scheduler) quotaSyncer() scheduling.QuotaSyncer[db.ListAvailableCodexRow] {
@@ -393,6 +405,33 @@ func (s *Scheduler) applyQuotaToAvailable(id string, q *codexAPI.Quota) {
 			return
 		}
 	}
+}
+
+func (s *Scheduler) refreshAvailableScores() {
+	config := s.settingsSnapshot()
+	scheduling.RefreshRows(
+		s.available.Load,
+		s.available.CompareAndSwap,
+		func(snap *availableSnapshot) []availableRow {
+			rows := make([]availableRow, len(snap.rows))
+			copy(rows, snap.rows)
+			return rows
+		},
+		func(rows []availableRow) *availableSnapshot {
+			sort.Slice(rows, func(i, j int) bool {
+				return scheduling.AdjustedScore(rows[i].Score, rows[i].Weight) > scheduling.AdjustedScore(rows[j].Score, rows[j].Weight)
+			})
+			return buildAvailableSnapshot(rows)
+		},
+		func(row *availableRow) {
+			if row.Score >= 0 {
+				row.Score = CalcScore(row.Quota5h, row.Quota7d, row.Reset5h, row.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
+			}
+			if row.ScoreSpark >= 0 {
+				row.ScoreSpark = CalcScoreSpark(row.QuotaSpark5h, row.QuotaSpark7d, row.ResetSpark5h, row.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
+			}
+		},
+	)
 }
 
 func (s *Scheduler) mergeQuotaUpdate(credentialID string, q *codexAPI.Quota) codexAPI.Quota {

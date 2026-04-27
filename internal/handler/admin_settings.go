@@ -28,6 +28,7 @@ type settingsUpdateRequest struct {
 	RefreshBeforeSeconds          *int    `json:"refresh_before_seconds"`
 	PollIntervalMilliseconds      *int    `json:"poll_interval_milliseconds"`
 	QuotaSyncIntervalSeconds      *int    `json:"quota_sync_interval_seconds"`
+	ScoreRefreshIntervalSeconds   *int    `json:"score_refresh_interval_seconds"`
 	ThrottleBaseSeconds           *int    `json:"throttle_base_seconds"`
 	ThrottleMaxSeconds            *int    `json:"throttle_max_seconds"`
 	RelayMaxRetries               *int    `json:"relay_max_retries"`
@@ -111,6 +112,9 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 	if err := applyPositiveSetting("quota_sync_interval_seconds", req.QuotaSyncIntervalSeconds, &next.QuotaSyncIntervalSeconds); err != nil {
 		return settings.Snapshot{}, err
 	}
+	if err := applyPositiveSetting("score_refresh_interval_seconds", req.ScoreRefreshIntervalSeconds, &next.ScoreRefreshIntervalSeconds); err != nil {
+		return settings.Snapshot{}, err
+	}
 	if err := applyPositiveSetting("throttle_base_seconds", req.ThrottleBaseSeconds, &next.ThrottleBaseSeconds); err != nil {
 		return settings.Snapshot{}, err
 	}
@@ -157,6 +161,7 @@ func buildSettingsResponse(snapshot settings.Snapshot) gin.H {
 		"refresh_before_seconds":             snapshot.RefreshBeforeSeconds,
 		"poll_interval_milliseconds":         snapshot.PollIntervalMilliseconds,
 		"quota_sync_interval_seconds":        snapshot.QuotaSyncIntervalSeconds,
+		"score_refresh_interval_seconds":     snapshot.ScoreRefreshIntervalSeconds,
 		"throttle_base_seconds":              snapshot.ThrottleBaseSeconds,
 		"throttle_max_seconds":               snapshot.ThrottleMaxSeconds,
 		"relay_max_retries":                  snapshot.RelayMaxRetries,
@@ -203,6 +208,7 @@ func snapshotToSettingParams(snapshot settings.Snapshot) []db.UpsertSettingParam
 		{Key: settings.KeyRefreshBeforeSeconds, Value: fmt.Sprintf("%d", snapshot.RefreshBeforeSeconds)},
 		{Key: settings.KeyPollIntervalMilliseconds, Value: fmt.Sprintf("%d", snapshot.PollIntervalMilliseconds)},
 		{Key: settings.KeyQuotaSyncIntervalSeconds, Value: fmt.Sprintf("%d", snapshot.QuotaSyncIntervalSeconds)},
+		{Key: settings.KeyScoreRefreshIntervalSeconds, Value: fmt.Sprintf("%d", snapshot.ScoreRefreshIntervalSeconds)},
 		{Key: settings.KeyThrottleBaseSeconds, Value: fmt.Sprintf("%d", snapshot.ThrottleBaseSeconds)},
 		{Key: settings.KeyThrottleMaxSeconds, Value: fmt.Sprintf("%d", snapshot.ThrottleMaxSeconds)},
 		{Key: settings.KeyRelayMaxRetries, Value: fmt.Sprintf("%d", snapshot.RelayMaxRetries)},

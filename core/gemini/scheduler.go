@@ -42,6 +42,9 @@ type throttleState struct {
 type availableRow struct {
 	ID              string
 	PlanTypeCode    int
+	QuotaPro        float64
+	QuotaFlash      float64
+	QuotaFlashLite  float64
 	ScorePro        float64 // score when serving Pro models
 	ScoreFlash      float64 // score when serving Flash models
 	ScoreFlashLite  float64 // score when serving FlashLite models
@@ -113,7 +116,19 @@ func (s *Scheduler) SetLogStore(store db.LogStore) {
 // quotas from the upstream API and writes them to the quota table.
 // It stops when ctx is cancelled.
 func (s *Scheduler) StartQuotaSyncer(ctx context.Context) {
+	s.startScoreRefresh(ctx)
 	s.quotaSyncer().Start(ctx)
+}
+
+func (s *Scheduler) startScoreRefresh(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	scheduling.ScoreRefreshLoop{
+		Interval:        func() time.Duration { return s.settingsSnapshot().ScoreRefreshInterval() },
+		DefaultInterval: settings.DefaultSnapshot().ScoreRefreshInterval(),
+		Refresh:         s.refreshAvailableScores,
+	}.Start(ctx)
 }
 
 func (s *Scheduler) quotaSyncer() scheduling.QuotaSyncer[db.ListAvailableGeminiCLIRow] {
@@ -307,6 +322,9 @@ func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.Li
 		row := availableRow{
 			ID:              r.ID,
 			PlanTypeCode:    planTypes.code(r.PlanType),
+			QuotaPro:        r.QuotaPro,
+			QuotaFlash:      r.QuotaFlash,
+			QuotaFlashLite:  r.QuotaFlashlite,
 			ScorePro:        CalcScore(r.QuotaPro, r.QuotaFlash, r.QuotaFlashlite, r.ResetPro, r.ResetFlash, r.ResetFlashlite, ModelTierPro, ws),
 			ScoreFlash:      CalcScore(r.QuotaPro, r.QuotaFlash, r.QuotaFlashlite, r.ResetPro, r.ResetFlash, r.ResetFlashlite, ModelTierFlash, ws),
 			ScoreFlashLite:  CalcScore(r.QuotaPro, r.QuotaFlash, r.QuotaFlashlite, r.ResetPro, r.ResetFlash, r.ResetFlashlite, ModelTierFlashLite, ws),
@@ -367,6 +385,9 @@ func (s *Scheduler) applyQuotaToAvailable(id string, q *geminiapi.Quota) {
 			if updated[i].ScoreFlashLite < 0 && newScoreFlashLite >= 0 {
 				updated[i].WeightFlashlite = 1.0
 			}
+			updated[i].QuotaPro = q.QuotaPro
+			updated[i].QuotaFlash = q.QuotaFlash
+			updated[i].QuotaFlashLite = q.QuotaFlashlite
 			updated[i].ScorePro = newScorePro
 			updated[i].ScoreFlash = newScoreFlash
 			updated[i].ScoreFlashLite = newScoreFlashLite
@@ -385,6 +406,34 @@ func (s *Scheduler) applyQuotaToAvailable(id string, q *geminiapi.Quota) {
 			return
 		}
 	}
+}
+
+func (s *Scheduler) refreshAvailableScores() {
+	config := s.settingsSnapshot()
+	ws := config.QuotaWindowGeminiSeconds()
+	scheduling.RefreshRows(
+		s.available.Load,
+		s.available.CompareAndSwap,
+		func(snap *[]availableRow) []availableRow {
+			rows := make([]availableRow, len(*snap))
+			copy(rows, *snap)
+			return rows
+		},
+		func(rows []availableRow) *[]availableRow {
+			return &rows
+		},
+		func(row *availableRow) {
+			if row.ScorePro >= 0 {
+				row.ScorePro = CalcScore(row.QuotaPro, row.QuotaFlash, row.QuotaFlashLite, row.ResetPro, row.ResetFlash, row.ResetFlashLite, ModelTierPro, ws)
+			}
+			if row.ScoreFlash >= 0 {
+				row.ScoreFlash = CalcScore(row.QuotaPro, row.QuotaFlash, row.QuotaFlashLite, row.ResetPro, row.ResetFlash, row.ResetFlashLite, ModelTierFlash, ws)
+			}
+			if row.ScoreFlashLite >= 0 {
+				row.ScoreFlashLite = CalcScore(row.QuotaPro, row.QuotaFlash, row.QuotaFlashLite, row.ResetPro, row.ResetFlash, row.ResetFlashLite, ModelTierFlashLite, ws)
+			}
+		},
+	)
 }
 
 func (s *Scheduler) evictCredential(id string) {

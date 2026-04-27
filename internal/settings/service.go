@@ -22,6 +22,7 @@ const (
 	KeyRefreshBeforeSeconds          = "refresh_before_seconds"
 	KeyPollIntervalMilliseconds      = "poll_interval_milliseconds"
 	KeyQuotaSyncIntervalSeconds      = "quota_sync_interval_seconds"
+	KeyScoreRefreshIntervalSeconds   = "score_refresh_interval_seconds"
 	KeyThrottleBaseSeconds           = "throttle_base_seconds"
 	KeyThrottleMaxSeconds            = "throttle_max_seconds"
 	KeyRelayMaxRetries               = "relay_max_retries"
@@ -49,6 +50,7 @@ type Snapshot struct {
 	RefreshBeforeSeconds          int    `json:"refresh_before_seconds"`
 	PollIntervalMilliseconds      int    `json:"poll_interval_milliseconds"`
 	QuotaSyncIntervalSeconds      int    `json:"quota_sync_interval_seconds"`
+	ScoreRefreshIntervalSeconds   int    `json:"score_refresh_interval_seconds"`
 	ThrottleBaseSeconds           int    `json:"throttle_base_seconds"`
 	ThrottleMaxSeconds            int    `json:"throttle_max_seconds"`
 	RelayMaxRetries               int    `json:"relay_max_retries"`
@@ -84,6 +86,7 @@ func DefaultSnapshot() Snapshot {
 		RefreshBeforeSeconds:          5,
 		PollIntervalMilliseconds:      200,
 		QuotaSyncIntervalSeconds:      6 * 60 * 60,
+		ScoreRefreshIntervalSeconds:   60,
 		ThrottleBaseSeconds:           60,
 		ThrottleMaxSeconds:            30 * 60,
 		RelayMaxRetries:               3,
@@ -185,6 +188,9 @@ func (s Snapshot) Normalize() Snapshot {
 	if s.QuotaSyncIntervalSeconds <= 0 {
 		s.QuotaSyncIntervalSeconds = defaults.QuotaSyncIntervalSeconds
 	}
+	if s.ScoreRefreshIntervalSeconds <= 0 {
+		s.ScoreRefreshIntervalSeconds = defaults.ScoreRefreshIntervalSeconds
+	}
 	if s.ThrottleBaseSeconds <= 0 {
 		s.ThrottleBaseSeconds = defaults.ThrottleBaseSeconds
 	}
@@ -225,6 +231,10 @@ func (s Snapshot) PollInterval() time.Duration {
 
 func (s Snapshot) QuotaSyncInterval() time.Duration {
 	return time.Duration(s.QuotaSyncIntervalSeconds) * time.Second
+}
+
+func (s Snapshot) ScoreRefreshInterval() time.Duration {
+	return time.Duration(s.ScoreRefreshIntervalSeconds) * time.Second
 }
 
 func (s Snapshot) UnauthorizedCheckTimeout() time.Duration {
@@ -272,6 +282,7 @@ func (s Snapshot) asMap() map[string]string {
 		KeyRefreshBeforeSeconds:          strconv.Itoa(s.RefreshBeforeSeconds),
 		KeyPollIntervalMilliseconds:      strconv.Itoa(s.PollIntervalMilliseconds),
 		KeyQuotaSyncIntervalSeconds:      strconv.Itoa(s.QuotaSyncIntervalSeconds),
+		KeyScoreRefreshIntervalSeconds:   strconv.Itoa(s.ScoreRefreshIntervalSeconds),
 		KeyThrottleBaseSeconds:           strconv.Itoa(s.ThrottleBaseSeconds),
 		KeyThrottleMaxSeconds:            strconv.Itoa(s.ThrottleMaxSeconds),
 		KeyRelayMaxRetries:               strconv.Itoa(s.RelayMaxRetries),
@@ -318,6 +329,9 @@ func applyValues(target *Snapshot, values map[string]string) {
 	}
 	if parsed, ok := intValueForKeys(values, KeyQuotaSyncIntervalSeconds); ok {
 		target.QuotaSyncIntervalSeconds = parsed
+	}
+	if parsed, ok := intValueForKeys(values, KeyScoreRefreshIntervalSeconds); ok {
+		target.ScoreRefreshIntervalSeconds = parsed
 	}
 	if parsed, ok := intValueForKeys(values, KeyThrottleBaseSeconds); ok {
 		target.ThrottleBaseSeconds = parsed
