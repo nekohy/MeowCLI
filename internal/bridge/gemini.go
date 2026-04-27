@@ -1,11 +1,14 @@
 package bridge
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/api/gemini"
 	"github.com/nekohy/MeowCLI/utils"
 
@@ -68,7 +71,28 @@ func (h *Handler) handleGemini(c *gin.Context) {
 			Action:    action,
 			RawQuery:  c.Request.URL.RawQuery,
 		},
+		prepareBackendOptions: prepareGeminiBackendOptions(target.sched),
 	})
+}
+
+func prepareGeminiBackendOptions(scheduler CredentialScheduler) func(context.Context, string, api.BackendOpts) (api.BackendOpts, error) {
+	resolver, ok := scheduler.(ProjectIDProvider)
+	if !ok {
+		return nil
+	}
+	return func(ctx context.Context, credentialID string, opts api.BackendOpts) (api.BackendOpts, error) {
+		geminiOpts, ok := opts.(*gemini.Options)
+		if !ok {
+			return opts, nil
+		}
+		projectID, err := resolver.ProjectID(ctx, credentialID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve gemini project id: %w", err)
+		}
+		cloned := *geminiOpts
+		cloned.ProjectID = projectID
+		return &cloned, nil
+	}
 }
 
 func parseGeminiModelAction(rawTarget string) (string, string, error) {

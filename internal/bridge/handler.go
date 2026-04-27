@@ -52,6 +52,10 @@ type CredentialScheduler interface {
 	RetryDecision(statusCode int32, text string, headers http.Header) scheduling.RetryDecision
 }
 
+type ProjectIDProvider interface {
+	ProjectID(ctx context.Context, credentialID string) (string, error)
+}
+
 type relayTarget struct {
 	info    *ResolvedModel
 	backend api.Backend

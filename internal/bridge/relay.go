@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/nekohy/MeowCLI/api"
-	apiGemini "github.com/nekohy/MeowCLI/api/gemini"
 	"github.com/nekohy/MeowCLI/core/scheduling"
 	db "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
@@ -17,20 +16,21 @@ import (
 )
 
 type upstreamRelay struct {
-	ctx                  context.Context
-	scheduler            CredentialScheduler
-	requestHeaders       http.Header
-	allowedPlans         []string
-	streamRequest        bool
-	modelAlias           string
-	modelTier            string
-	apiType              utils.APIType
-	backend              api.Backend
-	replaceResponseModel bool
-	responseModel        string
-	requestBody          []byte
-	backendOptions       api.BackendOpts
-	sessionKey           string
+	ctx                   context.Context
+	scheduler             CredentialScheduler
+	requestHeaders        http.Header
+	allowedPlans          []string
+	streamRequest         bool
+	modelAlias            string
+	modelTier             string
+	apiType               utils.APIType
+	backend               api.Backend
+	replaceResponseModel  bool
+	responseModel         string
+	requestBody           []byte
+	backendOptions        api.BackendOpts
+	prepareBackendOptions func(context.Context, string, api.BackendOpts) (api.BackendOpts, error)
+	sessionKey            string
 }
 
 type retryTracker struct {
@@ -231,10 +231,12 @@ func (cfg upstreamRelay) upstreamHeaders(authHeaders http.Header) http.Header {
 
 func (cfg upstreamRelay) send(credentialID string, headers http.Header) (*http.Response, error) {
 	opts := cfg.backendOptions
-	if geminiOpts, ok := opts.(*apiGemini.Options); ok {
-		cloned := *geminiOpts
-		cloned.ProjectID = headers.Get("X-Meow-Gemini-Project")
-		opts = &cloned
+	if cfg.prepareBackendOptions != nil {
+		prepared, err := cfg.prepareBackendOptions(cfg.ctx, credentialID, opts)
+		if err != nil {
+			return nil, err
+		}
+		opts = prepared
 	}
 	return cfg.backend.Chat(&api.Request{
 		Ctx:     cfg.ctx,

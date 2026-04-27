@@ -529,6 +529,13 @@ func (s *Scheduler) AuthHeaders(ctx context.Context, credentialID string) (http.
 	return s.manager.AuthHeaders(ctx, credentialID, scheduling.UseCached)
 }
 
+func (s *Scheduler) ProjectID(ctx context.Context, credentialID string) (string, error) {
+	if s == nil || s.manager == nil {
+		return "", fmt.Errorf("gemini scheduler manager is unavailable")
+	}
+	return s.manager.GetProjectID(ctx, credentialID)
+}
+
 func (s *Scheduler) InvalidateCredential(credentialID string) {
 	if s == nil || s.manager == nil || credentialID == "" {
 		return
