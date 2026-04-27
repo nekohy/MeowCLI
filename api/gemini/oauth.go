@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
@@ -155,14 +156,18 @@ func (c *Client) ResolveProjectID(ctx context.Context, accessToken string) (stri
 		return "", err
 	}
 
+	activeProjectIDs := make([]string, 0, len(payload.Projects))
 	for _, project := range payload.Projects {
 		projectID := strings.TrimSpace(project.ProjectID)
 		if projectID == "" {
 			continue
 		}
 		if strings.EqualFold(strings.TrimSpace(project.LifecycleState), "ACTIVE") {
-			return projectID, nil
+			activeProjectIDs = append(activeProjectIDs, projectID)
 		}
+	}
+	if len(activeProjectIDs) > 0 {
+		return activeProjectIDs[rand.Intn(len(activeProjectIDs))], nil
 	}
 	return "", fmt.Errorf("gemini project resolver returned no active project_id")
 }
