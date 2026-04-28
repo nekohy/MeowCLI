@@ -24,6 +24,10 @@ type batchCreateGeminiReq struct {
 	Tokens []string `json:"tokens" binding:"required,min=1"`
 }
 
+type geminiCodeAssistPlanLoader interface {
+	LoadCodeAssistPlan(ctx context.Context, accessToken string, projectID string) (string, error)
+}
+
 type geminiListItem struct {
 	Handler        string                 `json:"handler"`
 	ID             string                 `json:"id"`
@@ -113,8 +117,8 @@ func (a *AdminHandler) BatchUpdateGeminiStatus(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	var updated []string
-	var errs []batchError
+	updated := make([]string, 0, len(req.IDs))
+	errs := make([]batchError, 0)
 
 	for _, id := range req.IDs {
 		id = strings.TrimSpace(id)
@@ -151,8 +155,8 @@ func (a *AdminHandler) BatchDeleteGemini(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	var deleted []string
-	var errs []batchError
+	deleted := make([]string, 0, len(req.IDs))
+	errs := make([]batchError, 0)
 
 	for _, id := range req.IDs {
 		id = strings.TrimSpace(id)
@@ -321,6 +325,9 @@ func (a *AdminHandler) upsertGeminiCredentialFromTokenData(ctx context.Context, 
 	} else if !isStoreNotFound(getErr) {
 		return db.GeminiCredential{}, getErr
 	}
+	if loadedPlanType, ok := loadGeminiImportPlanType(ctx, a.geminiAPI, tokenData.AccessToken, projectID); ok {
+		planType = loadedPlanType
+	}
 
 	return a.store.UpsertGeminiCLI(ctx, db.UpsertGeminiCLIParams{
 		ID:           credentialID,
@@ -333,6 +340,21 @@ func (a *AdminHandler) upsertGeminiCredentialFromTokenData(ctx context.Context, 
 		PlanType:     planType,
 		Reason:       "",
 	})
+}
+
+func loadGeminiImportPlanType(ctx context.Context, loader geminiCodeAssistPlanLoader, accessToken string, projectID string) (string, bool) {
+	if loader == nil || strings.TrimSpace(accessToken) == "" || strings.TrimSpace(projectID) == "" {
+		return "", false
+	}
+	loaded, err := loader.LoadCodeAssistPlan(ctx, accessToken, projectID)
+	if err != nil {
+		return "", false
+	}
+	planType := coregemini.NormalizePlanType(loaded)
+	if planType == "" {
+		return "", false
+	}
+	return planType, true
 }
 
 func isStoreNotFound(err error) bool {

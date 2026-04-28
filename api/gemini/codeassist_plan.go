@@ -60,13 +60,13 @@ func resolveCodeAssistPlanFromTier(tier *codeAssistTier) string {
 	if tier == nil {
 		return ""
 	}
-	text := strings.ToLower(strings.Join([]string{tier.ID, tier.Name, tier.Description}, " "))
+	id := strings.ToLower(strings.TrimSpace(tier.ID))
 	switch {
-	case strings.Contains(text, "ultra"):
+	case strings.Contains(id, "ultra"):
 		return codeAssistPlanUltra
-	case strings.Contains(text, "pro"):
+	case strings.Contains(id, "pro"):
 		return codeAssistPlanPro
-	case strings.Contains(text, "free"):
+	case strings.Contains(id, "free"):
 		return codeAssistPlanFree
 	default:
 		return ""

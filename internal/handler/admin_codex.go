@@ -239,8 +239,8 @@ func (a *AdminHandler) BatchUpdateStatus(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	var updated []string
-	var errs []batchError
+	updated := make([]string, 0, len(req.IDs))
+	errs := make([]batchError, 0)
 
 	for _, id := range req.IDs {
 		id = strings.TrimSpace(id)
@@ -277,8 +277,8 @@ func (a *AdminHandler) BatchDeleteCodex(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	var deleted []string
-	var errs []batchError
+	deleted := make([]string, 0, len(req.IDs))
+	errs := make([]batchError, 0)
 
 	for _, id := range req.IDs {
 		id = strings.TrimSpace(id)
