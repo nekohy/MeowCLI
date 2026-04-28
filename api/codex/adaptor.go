@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -122,7 +123,10 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	}
 	// Codex upstream only supports stream processing reliably; preserve the
 	// client's requested mode locally and force the upstream request to stream.
-	body, clientStream := prepareCodexResponsesRequestBody(body)
+	body, clientStream, err := prepareCodexResponsesRequestBody(body)
+	if err != nil {
+		return nil, err
+	}
 
 	r := c.client.R().
 		SetContext(ctx).
@@ -188,38 +192,47 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	return raw, nil
 }
 
-func prepareCodexResponsesRequestBody(body []byte) ([]byte, bool) {
-	var root ast.Node
-	if err := root.UnmarshalJSON(body); err != nil {
-		return []byte{}, false
+func prepareCodexResponsesRequestBody(body []byte) ([]byte, bool, error) {
+	if !json.Valid(body) {
+		return body, false, fmt.Errorf("invalid responses request JSON")
 	}
 
-	clientStream, err := root.Get("stream").Bool()
-	if err != nil {
-		return []byte{}, false
+	var root ast.Node
+	if err := root.UnmarshalJSON(body); err != nil {
+		return body, false, fmt.Errorf("parse responses request: %w", err)
+	}
+
+	clientStream := false
+	stream := root.Get("stream")
+	if stream.Exists() {
+		parsed, err := stream.Bool()
+		if err != nil {
+			return body, false, fmt.Errorf("parse responses request stream: %w", err)
+		}
+		clientStream = parsed
 	}
 
 	if _, err := root.Set("stream", ast.NewBool(true)); err != nil {
-		return []byte{}, false
+		return body, clientStream, fmt.Errorf("set responses request stream: %w", err)
 	}
 	if _, err := root.Set("store", ast.NewBool(false)); err != nil {
-		return []byte{}, false
+		return body, clientStream, fmt.Errorf("set responses request store: %w", err)
 	}
 	if !root.Get("instructions").Exists() {
 		if _, err := root.Set("instructions", ast.NewString("")); err != nil {
-			return []byte{}, false
+			return body, clientStream, fmt.Errorf("set responses request instructions: %w", err)
 		}
 	}
 	if _, err := root.Unset("temperature"); err != nil {
-		return []byte{}, false
+		return body, clientStream, fmt.Errorf("unset responses request temperature: %w", err)
 	}
 
 	out, err := root.MarshalJSON()
 	if err != nil {
-		return []byte{}, false
+		return body, clientStream, fmt.Errorf("marshal responses request: %w", err)
 	}
 
-	return out, clientStream
+	return out, clientStream, nil
 }
 func resolveQuotaTierFromBody(body []byte) string {
 	model := strings.ToLower(gjson.GetBytes(body, "model").String())
