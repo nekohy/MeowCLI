@@ -15,6 +15,7 @@ const (
 	KeyGlobalProxy                   = "global_proxy"
 	KeyCodexProxy                    = "codex_proxy"
 	KeyGeminiProxy                   = "gemini_proxy"
+	KeyGeminiBaseURLs                = "gemini_base_urls"
 	KeyCodexAllowUserPlanTypeHeader  = "codex_allow_user_plan_type_header"
 	KeyCodexPreferredPlanTypes       = "codex_preferred_plan_types"
 	KeyGeminiAllowUserPlanTypeHeader = "gemini_allow_user_plan_type_header"
@@ -43,6 +44,7 @@ type Snapshot struct {
 	GlobalProxy                   string `json:"global_proxy"`
 	CodexProxy                    string `json:"codex_proxy"`
 	GeminiProxy                   string `json:"gemini_proxy"`
+	GeminiBaseURLsRaw             string `json:"gemini_base_urls"`
 	CodexAllowUserPlanTypeHeader  bool   `json:"codex_allow_user_plan_type_header"`
 	CodexPreferredPlanTypes       string `json:"codex_preferred_plan_types"`
 	GeminiAllowUserPlanTypeHeader bool   `json:"gemini_allow_user_plan_type_header"`
@@ -79,6 +81,7 @@ func DefaultSnapshot() Snapshot {
 		GlobalProxy:                   "",
 		CodexProxy:                    "",
 		GeminiProxy:                   "",
+		GeminiBaseURLsRaw:             "",
 		CodexAllowUserPlanTypeHeader:  false,
 		CodexPreferredPlanTypes:       "",
 		GeminiAllowUserPlanTypeHeader: false,
@@ -176,6 +179,7 @@ func (s Snapshot) Normalize() Snapshot {
 	s.GlobalProxy = strings.TrimSpace(s.GlobalProxy)
 	s.CodexProxy = strings.TrimSpace(s.CodexProxy)
 	s.GeminiProxy = strings.TrimSpace(s.GeminiProxy)
+	s.GeminiBaseURLsRaw = strings.TrimSpace(s.GeminiBaseURLsRaw)
 	s.CodexPreferredPlanTypes = strings.TrimSpace(s.CodexPreferredPlanTypes)
 	s.GeminiPreferredPlanTypes = strings.TrimSpace(s.GeminiPreferredPlanTypes)
 
@@ -275,6 +279,7 @@ func (s Snapshot) asMap() map[string]string {
 		KeyGlobalProxy:                   s.GlobalProxy,
 		KeyCodexProxy:                    s.CodexProxy,
 		KeyGeminiProxy:                   s.GeminiProxy,
+		KeyGeminiBaseURLs:                s.GeminiBaseURLsRaw,
 		KeyCodexAllowUserPlanTypeHeader:  strconv.FormatBool(s.CodexAllowUserPlanTypeHeader),
 		KeyCodexPreferredPlanTypes:       s.CodexPreferredPlanTypes,
 		KeyGeminiAllowUserPlanTypeHeader: strconv.FormatBool(s.GeminiAllowUserPlanTypeHeader),
@@ -304,6 +309,9 @@ func applyValues(target *Snapshot, values map[string]string) {
 	}
 	if value, ok := valueForKeys(values, KeyGeminiProxy); ok {
 		target.GeminiProxy = strings.TrimSpace(value)
+	}
+	if value, ok := valueForKeys(values, KeyGeminiBaseURLs); ok {
+		target.GeminiBaseURLsRaw = value
 	}
 	if value, ok := valueForKeys(values, KeyCodexAllowUserPlanTypeHeader); ok {
 		if parsed, err := strconv.ParseBool(value); err == nil {

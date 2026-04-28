@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
 	coregemini "github.com/nekohy/MeowCLI/core/gemini"
 	"github.com/nekohy/MeowCLI/internal/settings"
@@ -21,6 +22,7 @@ type settingsUpdateRequest struct {
 	GlobalProxy                   *string `json:"global_proxy"`
 	CodexProxy                    *string `json:"codex_proxy"`
 	GeminiProxy                   *string `json:"gemini_proxy"`
+	GeminiBaseURLs                *string `json:"gemini_base_urls"`
 	CodexAllowUserPlanTypeHeader  *bool   `json:"codex_allow_user_plan_type_header"`
 	CodexPreferredPlanTypes       *string `json:"codex_preferred_plan_types"`
 	GeminiAllowUserPlanTypeHeader *bool   `json:"gemini_allow_user_plan_type_header"`
@@ -91,6 +93,9 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 	if req.GeminiProxy != nil {
 		next.GeminiProxy = strings.TrimSpace(*req.GeminiProxy)
 	}
+	if req.GeminiBaseURLs != nil {
+		next.GeminiBaseURLsRaw = *req.GeminiBaseURLs
+	}
 	if req.CodexAllowUserPlanTypeHeader != nil {
 		next.CodexAllowUserPlanTypeHeader = *req.CodexAllowUserPlanTypeHeader
 	}
@@ -154,6 +159,7 @@ func buildSettingsResponse(snapshot settings.Snapshot) gin.H {
 		"global_proxy":                       snapshot.GlobalProxy,
 		"codex_proxy":                        snapshot.CodexProxy,
 		"gemini_proxy":                       strings.TrimSpace(snapshot.GeminiProxy),
+		"gemini_base_urls":                   strings.Join(geminiapi.NormalizeCodeAssistEndpointKeys(snapshot.GeminiBaseURLsRaw), ","),
 		"codex_allow_user_plan_type_header":  snapshot.CodexAllowUserPlanTypeHeader,
 		"codex_preferred_plan_types":         snapshot.CodexPreferredPlanTypes,
 		"gemini_allow_user_plan_type_header": snapshot.GeminiAllowUserPlanTypeHeader,
@@ -201,6 +207,7 @@ func snapshotToSettingParams(snapshot settings.Snapshot) []db.UpsertSettingParam
 		{Key: settings.KeyGlobalProxy, Value: snapshot.GlobalProxy},
 		{Key: settings.KeyCodexProxy, Value: snapshot.CodexProxy},
 		{Key: settings.KeyGeminiProxy, Value: snapshot.GeminiProxy},
+		{Key: settings.KeyGeminiBaseURLs, Value: strings.Join(geminiapi.NormalizeCodeAssistEndpointKeys(snapshot.GeminiBaseURLsRaw), ",")},
 		{Key: settings.KeyCodexAllowUserPlanTypeHeader, Value: fmt.Sprintf("%t", snapshot.CodexAllowUserPlanTypeHeader)},
 		{Key: settings.KeyCodexPreferredPlanTypes, Value: snapshot.CodexPreferredPlanTypes},
 		{Key: settings.KeyGeminiAllowUserPlanTypeHeader, Value: fmt.Sprintf("%t", snapshot.GeminiAllowUserPlanTypeHeader)},

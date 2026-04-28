@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
@@ -22,6 +23,8 @@ import (
 const (
 	readBodyLimit = 4 << 20
 )
+
+var randomIntn = rand.Intn
 
 type Client struct {
 	client   *http.Client
@@ -98,7 +101,7 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("gemini action is required")
 	}
 
-	targetURL := fmt.Sprintf("%s/%s:%s", codeAssistEndpoint, codeAssistVersion, action)
+	targetURL := fmt.Sprintf("%s/%s:%s", c.codeAssistEndpoint(), codeAssistVersion, action)
 	query := transformCodeAssistQuery(action, rawQuery)
 	if query != "" {
 		targetURL += "?" + query
@@ -192,6 +195,63 @@ func (c *Client) httpClient() *http.Client {
 	return c.client
 }
 
+func (c *Client) codeAssistEndpoint() string {
+	rawSelections := ""
+	if c != nil && c.settings != nil {
+		rawSelections = c.settings.Snapshot().GeminiBaseURLsRaw
+	}
+	endpoints := NormalizeCodeAssistEndpoints(rawSelections)
+	if len(endpoints) == 0 {
+		return codeAssistEndpointProd
+	}
+	if len(endpoints) == 1 {
+		return endpoints[0]
+	}
+	return endpoints[randomIntn(len(endpoints))]
+}
+
+func NormalizeCodeAssistEndpoints(raw string) []string {
+	keys := NormalizeCodeAssistEndpointKeys(raw)
+	byKey := make(map[string]string, len(codeAssistEndpointOptions))
+	for _, option := range codeAssistEndpointOptions {
+		byKey[option.key] = option.url
+	}
+
+	endpoints := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if endpoint := byKey[key]; endpoint != "" {
+			endpoints = append(endpoints, endpoint)
+		}
+	}
+	if len(endpoints) == 0 {
+		return []string{codeAssistEndpointProd}
+	}
+	return endpoints
+}
+
+func NormalizeCodeAssistEndpointKeys(raw string) []string {
+	allowed := make(map[string]bool, len(codeAssistEndpointOptions))
+	for _, option := range codeAssistEndpointOptions {
+		allowed[option.key] = true
+	}
+	parts := strings.Split(raw, ",")
+
+	values := make([]string, 0, len(parts))
+	seen := make(map[string]bool, len(parts))
+	for _, part := range parts {
+		key := strings.TrimSpace(part)
+		if !allowed[key] || seen[key] {
+			continue
+		}
+		seen[key] = true
+		values = append(values, key)
+	}
+	if len(values) == 0 {
+		return []string{codeAssistEndpointKeyProd}
+	}
+	return values
+}
+
 // FetchQuota fetches the real remaining quota from the retrieveUserQuota API.
 // If projectID is empty, it is resolved automatically from the access token.
 func (c *Client) FetchQuota(ctx context.Context, _ string, accessToken string, projectID string) (*Quota, error) {
@@ -213,7 +273,7 @@ func (c *Client) FetchQuota(ctx context.Context, _ string, accessToken string, p
 	}
 
 	reqBody, _ := sonic.Marshal(map[string]string{"project": pid})
-	quotaURL := fmt.Sprintf("%s/%s:retrieveUserQuota", codeAssistEndpoint, codeAssistVersion)
+	quotaURL := fmt.Sprintf("%s/%s:retrieveUserQuota", c.codeAssistEndpoint(), codeAssistVersion)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, quotaURL, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("create gemini quota request: %w", err)

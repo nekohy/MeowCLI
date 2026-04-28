@@ -2,9 +2,12 @@
 import { adminApi } from '~/composables/useAdminApi'
 import {
   DEFAULT_SETTINGS_FORM,
+  geminiBaseURLText,
+  joinGeminiBaseURLInput,
   joinPlanTypeInput,
   settingsToForm,
   settingsToPayload,
+  splitGeminiBaseURLInput,
   splitPlanTypeInput,
 } from '~/lib/admin'
 import type { SettingsForm } from '~/types/admin'
@@ -17,6 +20,7 @@ const admin = useAdminApp()
 
 const loading = ref(false)
 const actionBusy = ref(false)
+const geminiEndpointOpen = ref(false)
 const form = ref<SettingsForm>({ ...DEFAULT_SETTINGS_FORM })
 
 const availablePlanTypes = computed(() => admin.activeHandler.value?.plan_list || [])
@@ -33,6 +37,24 @@ const geminiPlanOrder = usePlanOrderModal(
   (v) => { form.value.gemini_preferred_plan_types = v },
   () => geminiPlanTypes,
 )
+
+const geminiEndpointSelection = computed(() => splitGeminiBaseURLInput(form.value.gemini_base_urls))
+const geminiEndpointPreview = computed(() => geminiEndpointSelection.value.map(geminiBaseURLText).join(' / '))
+
+function isGeminiEndpointSelected(value: string) {
+  return geminiEndpointSelection.value.includes(value)
+}
+
+function toggleGeminiEndpoint(value: string) {
+  const selected = splitGeminiBaseURLInput(form.value.gemini_base_urls)
+  const idx = selected.indexOf(value)
+  if (idx >= 0) {
+    selected.splice(idx, 1)
+  } else {
+    selected.push(value)
+  }
+  form.value.gemini_base_urls = joinGeminiBaseURLInput(selected)
+}
 
 const numericFields = [
   {
@@ -131,6 +153,7 @@ function normalizeSettingsForm(source: SettingsForm): SettingsForm {
     global_proxy: source.global_proxy.trim(),
     codex_proxy: source.codex_proxy.trim(),
     gemini_proxy: source.gemini_proxy.trim(),
+    gemini_base_urls: joinGeminiBaseURLInput(splitGeminiBaseURLInput(source.gemini_base_urls)),
     codex_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.codex_preferred_plan_types)),
     gemini_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.gemini_preferred_plan_types)),
   }
@@ -306,6 +329,16 @@ watch(
           />
         </div>
 
+        <div class="settings-item settings-item--toggle" style="cursor: pointer" @click="geminiEndpointOpen = true">
+          <div class="settings-item-copy">
+            <div class="settings-item-title">Gemini CLI 接口</div>
+            <div class="settings-item-description text-medium-emphasis">
+              已启用：{{ geminiEndpointPreview }}
+            </div>
+          </div>
+          <VIcon icon="mdi-chevron-right" />
+        </div>
+
         <div class="settings-item settings-item--toggle" style="cursor: pointer" @click="geminiPlanOrder.openModal()">
           <div class="settings-item-copy">
             <div class="settings-item-title">调用套餐顺序</div>
@@ -353,6 +386,14 @@ watch(
       :on-drag-over="geminiPlanOrder.onDragOver"
       :on-drag-end="geminiPlanOrder.onDragEnd"
       @close="geminiPlanOrder.closeModal()"
+    />
+
+    <GeminiEndpointModal
+      :open="geminiEndpointOpen"
+      :selected="geminiEndpointSelection"
+      :is-selected="isGeminiEndpointSelected"
+      :toggle="toggleGeminiEndpoint"
+      @close="geminiEndpointOpen = false"
     />
   </div>
 </template>

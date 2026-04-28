@@ -71,11 +71,18 @@ export const CREDENTIAL_PAGE_SIZE_OPTIONS = [
   { title: '60 条 / 页', value: 60 },
 ]
 
+export const GEMINI_BASE_URL_OPTIONS = [
+  { title: 'Prod', value: 'prod' },
+  { title: 'Daily', value: 'daily' },
+  { title: 'Daily Sandbox', value: 'daily_sandbox' },
+]
+
 export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   allow_user_plan_type_header: false,
   global_proxy: '',
   codex_proxy: '',
   gemini_proxy: '',
+  gemini_base_urls: GEMINI_BASE_URL_OPTIONS[0]!.value,
   codex_allow_user_plan_type_header: false,
   codex_preferred_plan_types: '',
   gemini_allow_user_plan_type_header: false,
@@ -317,12 +324,36 @@ export function joinPlanTypeInput(planTypes: string[]) {
   return splitPlanTypeInput(planTypes.join(',')).join(',')
 }
 
+export function splitGeminiBaseURLInput(value?: string | null) {
+  const allowed = new Set(GEMINI_BASE_URL_OPTIONS.map((option) => option.value))
+  const selected: string[] = []
+  const seen = new Set<string>()
+  for (const part of String(value || '').split(PLAN_TYPE_SPLIT_RE)) {
+    const endpoint = part.trim().replace(/\/+$/, '')
+    if (!allowed.has(endpoint) || seen.has(endpoint)) {
+      continue
+    }
+    seen.add(endpoint)
+    selected.push(endpoint)
+  }
+  return selected.length ? selected : [GEMINI_BASE_URL_OPTIONS[0]!.value]
+}
+
+export function joinGeminiBaseURLInput(values: string[]) {
+  return splitGeminiBaseURLInput(values.join(',')).join(',')
+}
+
+export function geminiBaseURLText(value: string) {
+  return GEMINI_BASE_URL_OPTIONS.find((option) => option.value === value)?.title || value
+}
+
 export function settingsToForm(data: SettingsSnapshot): SettingsForm {
   return {
     allow_user_plan_type_header: Boolean(data.allow_user_plan_type_header),
     global_proxy: data.global_proxy,
     codex_proxy: data.codex_proxy,
     gemini_proxy: data.gemini_proxy,
+    gemini_base_urls: joinGeminiBaseURLInput([data.gemini_base_urls]),
     codex_allow_user_plan_type_header: Boolean(data.codex_allow_user_plan_type_header),
     codex_preferred_plan_types: data.codex_preferred_plan_types.trim(),
     gemini_allow_user_plan_type_header: Boolean(data.gemini_allow_user_plan_type_header),
@@ -344,6 +375,7 @@ export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
     global_proxy: form.global_proxy.trim(),
     codex_proxy: form.codex_proxy.trim(),
     gemini_proxy: form.gemini_proxy.trim(),
+    gemini_base_urls: joinGeminiBaseURLInput([form.gemini_base_urls]),
     codex_allow_user_plan_type_header: Boolean(form.codex_allow_user_plan_type_header),
     codex_preferred_plan_types: form.codex_preferred_plan_types.trim(),
     gemini_allow_user_plan_type_header: Boolean(form.gemini_allow_user_plan_type_header),

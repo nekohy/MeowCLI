@@ -103,6 +103,7 @@ export interface SettingsSnapshot {
   global_proxy: string
   codex_proxy: string
   gemini_proxy: string
+  gemini_base_urls: string
   codex_allow_user_plan_type_header: boolean
   codex_preferred_plan_types: string
   gemini_allow_user_plan_type_header: boolean
@@ -122,6 +123,7 @@ export interface SettingsForm {
   global_proxy: string
   codex_proxy: string
   gemini_proxy: string
+  gemini_base_urls: string
   codex_allow_user_plan_type_header: boolean
   codex_preferred_plan_types: string
   gemini_allow_user_plan_type_header: boolean

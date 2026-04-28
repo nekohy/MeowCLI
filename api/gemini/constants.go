@@ -6,18 +6,37 @@ import (
 )
 
 const (
-	tokenRefreshURL          = "https://oauth2.googleapis.com/token"
-	userInfoURL              = "https://www.googleapis.com/oauth2/v1/userinfo?alt=json"
-	generativeLanguage       = "https://generativelanguage.googleapis.com"
-	cloudResourceMgr         = "https://cloudresourcemanager.googleapis.com"
-	codeAssistEndpoint       = "https://cloudcode-pa.googleapis.com"
-	codeAssistVersion        = "v1internal"
-	geminiCLIVersion         = "0.31.0"
-	geminiCLIApiClientHeader = "google-genai-sdk/1.41.0 gl-node/v22.19.0"
+	tokenRefreshURL                = "https://oauth2.googleapis.com/token"
+	userInfoURL                    = "https://www.googleapis.com/oauth2/v1/userinfo?alt=json"
+	generativeLanguage             = "https://generativelanguage.googleapis.com"
+	cloudResourceMgr               = "https://cloudresourcemanager.googleapis.com"
+	codeAssistEndpointProd         = "https://cloudcode-pa.googleapis.com"
+	codeAssistEndpointDaily        = "https://daily-cloudcode-pa.googleapis.com"
+	codeAssistEndpointDailySandbox = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+	codeAssistVersion              = "v1internal"
+	geminiCLIVersion               = "0.31.0"
+	geminiCLIApiClientHeader       = "google-genai-sdk/1.41.0 gl-node/v22.19.0"
 
 	clientID     = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
 	clientSecret = "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"
 )
+
+const (
+	codeAssistEndpointKeyProd         = "prod"
+	codeAssistEndpointKeyDaily        = "daily"
+	codeAssistEndpointKeyDailySandbox = "daily_sandbox"
+)
+
+type codeAssistEndpointOption struct {
+	key string
+	url string
+}
+
+var codeAssistEndpointOptions = []codeAssistEndpointOption{
+	{key: codeAssistEndpointKeyProd, url: codeAssistEndpointProd},
+	{key: codeAssistEndpointKeyDaily, url: codeAssistEndpointDaily},
+	{key: codeAssistEndpointKeyDailySandbox, url: codeAssistEndpointDailySandbox},
+}
 
 func geminiCLIUserAgent(model string) string {
 	if model == "" {
