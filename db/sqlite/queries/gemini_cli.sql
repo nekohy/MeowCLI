@@ -91,6 +91,14 @@ SET
 WHERE id = ?
 RETURNING *;
 
+-- name: UpdateGeminiPlanType :one
+UPDATE gemini
+SET
+    plan_type = ?,
+    synced_at = datetime('now')
+WHERE id = ?
+RETURNING *;
+
 -- name: DeleteGeminiCLI :execrows
 DELETE FROM gemini WHERE id = ?;
 

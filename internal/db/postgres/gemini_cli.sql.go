@@ -305,6 +305,38 @@ func (q *Queries) UpdateGeminiCLIStatus(ctx context.Context, arg UpdateGeminiCLI
 	return i, err
 }
 
+const updateGeminiPlanType = `-- name: UpdateGeminiPlanType :one
+UPDATE gemini
+SET
+    plan_type = $1,
+    synced_at = NOW()
+WHERE id = $2
+RETURNING id, status, access_token, refresh_token, expired, email, project_id, plan_type, reason, synced_at
+`
+
+type UpdateGeminiPlanTypeParams struct {
+	PlanType string `json:"plan_type"`
+	ID       string `json:"id"`
+}
+
+func (q *Queries) UpdateGeminiPlanType(ctx context.Context, arg UpdateGeminiPlanTypeParams) (Gemini, error) {
+	row := q.db.QueryRow(ctx, updateGeminiPlanType, arg.PlanType, arg.ID)
+	var i Gemini
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.AccessToken,
+		&i.RefreshToken,
+		&i.Expired,
+		&i.Email,
+		&i.ProjectID,
+		&i.PlanType,
+		&i.Reason,
+		&i.SyncedAt,
+	)
+	return i, err
+}
+
 const updateGeminiTokens = `-- name: UpdateGeminiTokens :one
 UPDATE gemini
 SET

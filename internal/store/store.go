@@ -354,6 +354,7 @@ type Store interface {
 	UpdateCodexStatus(ctx context.Context, id string, status string, reason string) (Codex, error)
 	GetGeminiCLI(ctx context.Context, id string) (GeminiCredential, error)
 	UpdateGeminiTokens(ctx context.Context, arg UpdateGeminiTokensParams) (GeminiCredential, error)
+	UpdateGeminiPlanType(ctx context.Context, id string, planType string) (GeminiCredential, error)
 	ListGeminiCLI(ctx context.Context) ([]ListGeminiCLIRow, error)
 	ListGeminiCLIPaged(ctx context.Context, arg ListCredentialPagedParams) ([]ListGeminiCLIRow, error)
 	UpsertGeminiCLI(ctx context.Context, arg UpsertGeminiCLIParams) (GeminiCredential, error)

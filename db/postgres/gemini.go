@@ -50,6 +50,17 @@ func (s *Store) UpdateGeminiTokens(ctx context.Context, arg db.UpdateGeminiToken
 	return geminiCredentialTo(row), nil
 }
 
+func (s *Store) UpdateGeminiPlanType(ctx context.Context, id string, planType string) (db.GeminiCredential, error) {
+	row, err := s.queries.UpdateGeminiPlanType(ctx, sqlcpostgres.UpdateGeminiPlanTypeParams{
+		ID:       id,
+		PlanType: strings.TrimSpace(planType),
+	})
+	if err != nil {
+		return db.GeminiCredential{}, wrapError(err)
+	}
+	return geminiCredentialTo(row), nil
+}
+
 func (s *Store) ListGeminiCLI(ctx context.Context) ([]db.ListGeminiCLIRow, error) {
 	rows, err := s.queries.ListGeminiCLI(ctx)
 	if err != nil {

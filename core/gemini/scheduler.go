@@ -29,6 +29,11 @@ type SchedulerStore interface {
 	UpsertGeminiQuota(ctx context.Context, arg db.UpsertGeminiQuotaParams) error
 	SetGeminiQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
 	UpdateGeminiCLIStatus(ctx context.Context, id string, status string, reason string) (db.GeminiCredential, error)
+	UpdateGeminiPlanType(ctx context.Context, id string, planType string) (db.GeminiCredential, error)
+}
+
+type planFetcher interface {
+	LoadCodeAssistPlan(ctx context.Context, accessToken string, projectID string) (string, error)
 }
 
 // throttleState tracks exponential backoff state per credential in memory.
@@ -63,6 +68,7 @@ type Scheduler struct {
 	logStore db.LogStore
 	manager  *Manager
 	fetcher  geminiapi.QuotaFetcher
+	planAPI  planFetcher
 	settings settings.Provider
 
 	mu               sync.Mutex
@@ -96,6 +102,9 @@ func (s *Scheduler) SetQuotaFetcher(fetcher geminiapi.QuotaFetcher) {
 		return
 	}
 	s.fetcher = fetcher
+	if planAPI, ok := fetcher.(planFetcher); ok {
+		s.planAPI = planAPI
+	}
 }
 
 func (s *Scheduler) SetSettingsProvider(provider settings.Provider) {
@@ -172,8 +181,8 @@ func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableGemini
 
 	quotaCtx, cancel := context.WithTimeout(ctx, s.settingsSnapshot().ImportedCheckTimeout())
 	q, err := s.fetcher.FetchQuota(quotaCtx, row.ID, token, row.ProjectID)
-	cancel()
 	if err != nil {
+		cancel()
 		if statusCode, body, ok := geminiapi.ParseAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
 			s.HandleUnauthorized(ctx, row.ID, int32(statusCode), "", db.LogRequestMetrics{Error: body})
 			return
@@ -181,6 +190,8 @@ func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableGemini
 		log.Error().Err(err).Str("credential", row.ID).Msg("gemini quota-sync: fetch quota")
 		return
 	}
+	s.refreshPlanType(quotaCtx, row.ID, token, row.ProjectID, row.PlanType)
+	cancel()
 
 	log.Info().
 		Str("credential", row.ID).
@@ -742,6 +753,69 @@ func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *gem
 	}
 }
 
+func (s *Scheduler) refreshPlanType(ctx context.Context, credentialID, accessToken, projectID, fallback string) {
+	if s == nil || s.planAPI == nil || s.store == nil || credentialID == "" {
+		return
+	}
+	current := NormalizePlanType(fallback)
+	currentKnown := current != ""
+	if current == "" {
+		current = PlanTypeFree
+	}
+	loaded, err := s.planAPI.LoadCodeAssistPlan(ctx, accessToken, projectID)
+	if err != nil {
+		log.Warn().Err(err).Str("credential", credentialID).Msg("gemini quota-sync: load plan")
+		return
+	}
+	planType := NormalizePlanType(loaded)
+	if planType == "" || (currentKnown && planType == current) {
+		return
+	}
+	if _, err := s.store.UpdateGeminiPlanType(ctx, credentialID, planType); err != nil {
+		log.Error().Err(err).Str("credential", credentialID).Str("plan_type", planType).Msg("gemini quota-sync: update plan type")
+		return
+	}
+	if !s.applyPlanTypeToAvailable(credentialID, planType) {
+		if _, err := s.RefreshAvailable(ctx); err != nil {
+			log.Error().Err(err).Str("credential", credentialID).Msg("gemini quota-sync: refresh available after plan update")
+		}
+	}
+}
+
+func (s *Scheduler) applyPlanTypeToAvailable(id string, planType string) bool {
+	code := s.planTypeCodec().code(planType)
+	if code == planTypeCodeUnknown {
+		return false
+	}
+	for {
+		snap := s.available.Load()
+		if snap == nil {
+			return false
+		}
+
+		updated := make([]availableRow, len(*snap))
+		copy(updated, *snap)
+
+		found := false
+		for i := range updated {
+			if updated[i].ID != id {
+				continue
+			}
+			updated[i].PlanTypeCode = code
+			found = true
+			break
+		}
+		if !found {
+			return false
+		}
+
+		next := updated
+		if s.available.CompareAndSwap(snap, &next) {
+			return true
+		}
+	}
+}
+
 // QueueQuotaRefresh temporarily removes the credential tier from the in-memory
 // scheduling pool and refreshes quota in the background without writing DB state.
 func (s *Scheduler) QueueQuotaRefresh(_ context.Context, credentialID string, modelTier string) {
@@ -933,6 +1007,7 @@ func (s *Scheduler) verifyCredentialUsable(ctx context.Context, credentialID str
 		return
 	}
 
+	s.refreshPlanType(ctx, credentialID, token, projectID, "")
 	s.UpdateQuota(ctx, credentialID, q)
 	log.Info().Str("credential", credentialID).Msg("gemini credential usage verification succeeded after refresh")
 }
@@ -979,6 +1054,7 @@ func (s *Scheduler) syncImportedCredential(ctx context.Context, credentialID str
 		Float64("quota_flash", q.QuotaFlash).
 		Float64("quota_flashlite", q.QuotaFlashlite).
 		Msg("gemini sync-credentials: fetched")
+	s.refreshPlanType(ctx, credentialID, token, projectID, "")
 	s.UpdateQuota(ctx, credentialID, q)
 }
 
