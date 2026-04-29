@@ -34,7 +34,19 @@ func (s *Store) GetGeminiCLI(ctx context.Context, id string) (db.GeminiCredentia
 }
 
 func (s *Store) UpdateGeminiTokens(ctx context.Context, arg db.UpdateGeminiTokensParams) (db.GeminiCredential, error) {
-	row, err := s.queries.UpdateGeminiTokens(ctx, sqlcpostgres.UpdateGeminiTokensParams{
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return db.GeminiCredential{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+
+	queries := s.queries.WithTx(tx)
+	row, err := queries.UpdateGeminiTokens(ctx, sqlcpostgres.UpdateGeminiTokensParams{
 		Status:       arg.Status,
 		AccessToken:  arg.AccessToken,
 		RefreshToken: arg.RefreshToken,
@@ -47,6 +59,15 @@ func (s *Store) UpdateGeminiTokens(ctx context.Context, arg db.UpdateGeminiToken
 	if err != nil {
 		return db.GeminiCredential{}, wrapError(err)
 	}
+	if shouldClearCredentialThrottle(arg.Status) {
+		if err := queries.ClearGeminiQuotaThrottle(ctx, arg.ID); err != nil {
+			return db.GeminiCredential{}, wrapError(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return db.GeminiCredential{}, err
+	}
+	committed = true
 	return geminiCredentialTo(row), nil
 }
 
@@ -129,7 +150,19 @@ func (s *Store) ListGeminiCLIPaged(ctx context.Context, arg db.ListCredentialPag
 }
 
 func (s *Store) UpsertGeminiCLI(ctx context.Context, arg db.UpsertGeminiCLIParams) (db.GeminiCredential, error) {
-	row, err := s.queries.UpsertGeminiCLI(ctx, sqlcpostgres.UpsertGeminiCLIParams{
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return db.GeminiCredential{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+
+	queries := s.queries.WithTx(tx)
+	row, err := queries.UpsertGeminiCLI(ctx, sqlcpostgres.UpsertGeminiCLIParams{
 		ID:           arg.ID,
 		Status:       arg.Status,
 		AccessToken:  arg.AccessToken,
@@ -143,6 +176,15 @@ func (s *Store) UpsertGeminiCLI(ctx context.Context, arg db.UpsertGeminiCLIParam
 	if err != nil {
 		return db.GeminiCredential{}, wrapError(err)
 	}
+	if shouldClearCredentialThrottle(arg.Status) {
+		if err := queries.ClearGeminiQuotaThrottle(ctx, arg.ID); err != nil {
+			return db.GeminiCredential{}, wrapError(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return db.GeminiCredential{}, err
+	}
+	committed = true
 	return geminiCredentialTo(row), nil
 }
 
@@ -158,7 +200,19 @@ func (s *Store) DeleteGeminiCLI(ctx context.Context, id string) error {
 }
 
 func (s *Store) UpdateGeminiCLIStatus(ctx context.Context, id string, status string, reason string) (db.GeminiCredential, error) {
-	row, err := s.queries.UpdateGeminiCLIStatus(ctx, sqlcpostgres.UpdateGeminiCLIStatusParams{
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return db.GeminiCredential{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+
+	queries := s.queries.WithTx(tx)
+	row, err := queries.UpdateGeminiCLIStatus(ctx, sqlcpostgres.UpdateGeminiCLIStatusParams{
 		Status: status,
 		Reason: reason,
 		ID:     id,
@@ -166,6 +220,15 @@ func (s *Store) UpdateGeminiCLIStatus(ctx context.Context, id string, status str
 	if err != nil {
 		return db.GeminiCredential{}, wrapError(err)
 	}
+	if shouldClearCredentialThrottle(status) {
+		if err := queries.ClearGeminiQuotaThrottle(ctx, id); err != nil {
+			return db.GeminiCredential{}, wrapError(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return db.GeminiCredential{}, err
+	}
+	committed = true
 	return geminiCredentialTo(row), nil
 }
 

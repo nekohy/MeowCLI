@@ -51,6 +51,17 @@ SET
     throttled_until_flashlite = EXCLUDED.throttled_until_flashlite,
     synced_at = NOW();
 
+-- name: ClearGeminiQuotaThrottle :exec
+-- Clears all tier throttles for a Gemini credential by moving them to now.
+INSERT INTO gemini_quota (credential_id, throttled_until_pro, throttled_until_flash, throttled_until_flashlite, synced_at)
+VALUES ($1, NOW(), NOW(), NOW(), NOW())
+ON CONFLICT (credential_id) DO UPDATE
+SET
+    throttled_until_pro = NOW(),
+    throttled_until_flash = NOW(),
+    throttled_until_flashlite = NOW(),
+    synced_at = NOW();
+
 -- name: GetGeminiQuota :one
 SELECT * FROM gemini_quota WHERE credential_id = $1 LIMIT 1;
 

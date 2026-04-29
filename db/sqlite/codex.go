@@ -34,7 +34,19 @@ func (s *Store) GetCodex(ctx context.Context, id string) (db.Codex, error) {
 }
 
 func (s *Store) UpdateCodexTokens(ctx context.Context, arg db.UpdateCodexTokensParams) (db.Codex, error) {
-	row, err := s.queries.UpdateCodexTokens(ctx, sqlcsqlite.UpdateCodexTokensParams{
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return db.Codex{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	queries := sqlcsqlite.New(tx)
+	row, err := queries.UpdateCodexTokens(ctx, sqlcsqlite.UpdateCodexTokensParams{
 		ID:           arg.ID,
 		Status:       arg.Status,
 		AccessToken:  arg.AccessToken,
@@ -45,6 +57,15 @@ func (s *Store) UpdateCodexTokens(ctx context.Context, arg db.UpdateCodexTokensP
 	if err != nil {
 		return db.Codex{}, wrapError(err)
 	}
+	if shouldClearCredentialThrottle(arg.Status) {
+		if err := queries.ClearQuotaThrottle(ctx, arg.ID); err != nil {
+			return db.Codex{}, wrapError(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return db.Codex{}, err
+	}
+	committed = true
 	return codexTo(row), nil
 }
 
@@ -157,7 +178,19 @@ func (s *Store) DeleteCodex(ctx context.Context, id string) error {
 }
 
 func (s *Store) UpdateCodexStatus(ctx context.Context, id string, status string, reason string) (db.Codex, error) {
-	row, err := s.queries.UpdateCodexStatus(ctx, sqlcsqlite.UpdateCodexStatusParams{
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return db.Codex{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	queries := sqlcsqlite.New(tx)
+	row, err := queries.UpdateCodexStatus(ctx, sqlcsqlite.UpdateCodexStatusParams{
 		ID:     id,
 		Status: status,
 		Reason: reason,
@@ -165,9 +198,27 @@ func (s *Store) UpdateCodexStatus(ctx context.Context, id string, status string,
 	if err != nil {
 		return db.Codex{}, wrapError(err)
 	}
+	if shouldClearCredentialThrottle(status) {
+		if err := queries.ClearQuotaThrottle(ctx, id); err != nil {
+			return db.Codex{}, wrapError(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return db.Codex{}, err
+	}
+	committed = true
 	return codexTo(row), nil
 }
 
 func (s *Store) RestoreExpiredThrottledCodex(ctx context.Context) error {
 	return wrapError(s.queries.RestoreExpiredThrottledCodex(ctx))
+}
+
+func shouldClearCredentialThrottle(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "enabled", "disabled":
+		return true
+	default:
+		return false
+	}
 }

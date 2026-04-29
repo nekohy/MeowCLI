@@ -11,6 +11,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearQuotaThrottle = `-- name: ClearQuotaThrottle :exec
+INSERT INTO codex_quota (credential_id, throttled_until, throttled_until_spark, synced_at)
+VALUES ($1, NOW(), NOW(), NOW())
+ON CONFLICT (credential_id) DO UPDATE
+SET
+    throttled_until = NOW(),
+    throttled_until_spark = NOW(),
+    synced_at = NOW()
+`
+
+// Clears all tier throttles for a credential by moving them to now.
+func (q *Queries) ClearQuotaThrottle(ctx context.Context, credentialID string) error {
+	_, err := q.db.Exec(ctx, clearQuotaThrottle, credentialID)
+	return err
+}
+
 const deleteQuota = `-- name: DeleteQuota :execrows
 DELETE FROM codex_quota WHERE credential_id = $1
 `

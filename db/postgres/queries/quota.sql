@@ -43,6 +43,16 @@ SET
     throttled_until_spark = EXCLUDED.throttled_until_spark,
     synced_at = NOW();
 
+-- name: ClearQuotaThrottle :exec
+-- Clears all tier throttles for a credential by moving them to now.
+INSERT INTO codex_quota (credential_id, throttled_until, throttled_until_spark, synced_at)
+VALUES ($1, NOW(), NOW(), NOW())
+ON CONFLICT (credential_id) DO UPDATE
+SET
+    throttled_until = NOW(),
+    throttled_until_spark = NOW(),
+    synced_at = NOW();
+
 -- name: GetQuota :one
 SELECT * FROM codex_quota WHERE credential_id = $1 LIMIT 1;
 

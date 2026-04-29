@@ -9,6 +9,23 @@ import (
 	"context"
 )
 
+const clearGeminiQuotaThrottle = `-- name: ClearGeminiQuotaThrottle :exec
+INSERT INTO gemini_quota (credential_id, throttled_until_pro, throttled_until_flash, throttled_until_flashlite, synced_at)
+VALUES (?, datetime('now'), datetime('now'), datetime('now'), datetime('now'))
+ON CONFLICT (credential_id) DO UPDATE
+SET
+    throttled_until_pro = datetime('now'),
+    throttled_until_flash = datetime('now'),
+    throttled_until_flashlite = datetime('now'),
+    synced_at = datetime('now')
+`
+
+// Clears all tier throttles for a Gemini credential by moving them to now.
+func (q *Queries) ClearGeminiQuotaThrottle(ctx context.Context, credentialID string) error {
+	_, err := q.db.ExecContext(ctx, clearGeminiQuotaThrottle, credentialID)
+	return err
+}
+
 const deleteGeminiQuota = `-- name: DeleteGeminiQuota :execrows
 DELETE FROM gemini_quota WHERE credential_id = ?
 `
