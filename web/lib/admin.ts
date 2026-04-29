@@ -5,6 +5,7 @@ import type {
   ThemeMode,
   UiTone,
 } from '~/types/admin'
+import { credentialStatusLabel, credentialStatusTone, isKnownCredentialStatus } from './credentialStatus'
 
 export const THEME_STORAGE_KEY = 'meowcli-admin-theme'
 const THEME_META_COLORS: Record<ThemeMode, string> = {
@@ -98,8 +99,6 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  enabled: '启用',
-  disabled: '停用',
   available: '可用',
   planned: '规划中',
 }
@@ -193,6 +192,9 @@ export function formatPercent(value?: number | null) {
 }
 
 export function statusText(status?: string | null) {
+  if (isKnownCredentialStatus(status)) {
+    return credentialStatusLabel(status)
+  }
   return STATUS_LABELS[status ?? ''] || status || '-'
 }
 
@@ -201,12 +203,12 @@ export function roleText(role?: string | null) {
 }
 
 export function toneForStatus(status?: string | null): UiTone {
+  if (isKnownCredentialStatus(status)) {
+    return credentialStatusTone(status)
+  }
   switch (status) {
-    case 'enabled':
     case 'available':
       return 'success'
-    case 'disabled':
-      return 'danger'
     case 'planned':
       return 'accent'
     case 'admin':

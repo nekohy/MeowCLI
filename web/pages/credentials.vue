@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
 import {
+  CREDENTIAL_STATUS_FILTER_ALL,
+  credentialReasonLabel,
+  credentialStatusFilterOptions,
+  credentialStatusIcon,
+  credentialStatusQueryValue,
+  shouldShowCredentialReason,
+  type CredentialStatusFilter,
+} from '~/lib/credentialStatus'
+import {
   CREDENTIAL_PAGE_SIZE_OPTIONS,
   codexCredentialAccountID,
   codexCredentialEmail,
@@ -37,7 +46,7 @@ const pageSize = ref(6)
 const loading = ref(false)
 const searchInput = ref('')
 const searchQuery = ref('')
-const statusFilter = ref<'all' | 'enabled' | 'disabled'>('all')
+const statusFilter = ref<CredentialStatusFilter>(CREDENTIAL_STATUS_FILTER_ALL)
 const planFilter = ref('all')
 const sortBy = ref('')
 const sortOrder = ref<'desc' | 'asc'>('desc')
@@ -58,7 +67,6 @@ const activeCredentialField = computed(() => (
 ))
 const isCodexHandler = computed(() => credentialHandlerKey.value === 'codex')
 const isGeminiHandler = computed(() => credentialHandlerKey.value === 'gemini')
-const knownStatusOptions = ['enabled', 'disabled'] as const
 
 const codexRows = computed(() => rows.value.filter(isCodexItem))
 const geminiRows = computed(() => rows.value.filter(isGeminiItem))
@@ -96,28 +104,14 @@ const availablePlanTypes = computed(() => {
 })
 
 const availableStatusFilters = computed(() => {
-  const statuses = new Set<string>(knownStatusOptions)
+  const statuses = new Set<string>()
   admin.activeHandler.value?.credential_status_options?.forEach((status) => {
-    if (status === 'enabled' || status === 'disabled') {
-      statuses.add(status)
-    }
+    statuses.add(status)
   })
   rows.value.forEach((item) => {
-    if (item.status === 'enabled' || item.status === 'disabled') {
-      statuses.add(item.status)
-    }
+    statuses.add(item.status)
   })
-
-  const filters: Array<{ value: typeof statusFilter.value, label: string }> = [
-    { value: 'all', label: '全部状态' },
-  ]
-  if (statuses.has('enabled')) {
-    filters.push({ value: 'enabled', label: '启用' })
-  }
-  if (statuses.has('disabled')) {
-    filters.push({ value: 'disabled', label: '停用' })
-  }
-  return filters
+  return credentialStatusFilterOptions(statuses)
 })
 
 const defaultSortOption = { title: '默认', value: '' }
@@ -326,10 +320,6 @@ function errorRateFromWeight(metric: { weight: number }) {
   return Math.max(0, Math.min(1, 1 - metric.weight))
 }
 
-function statusIcon(status: string) {
-  return status === 'enabled' ? 'mdi-check' : 'mdi-close-circle'
-}
-
 function formatScore(value: number) {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return '-'
@@ -347,9 +337,7 @@ function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.valu
     page: nextPage,
     pageSize: nextPageSize,
     search: search || undefined,
-    status: statusFilter.value === 'enabled' || statusFilter.value === 'disabled'
-      ? statusFilter.value
-      : undefined,
+    status: credentialStatusQueryValue(statusFilter.value),
     planType: planFilter.value !== 'all' ? planFilter.value : undefined,
     sortBy: sortBy.value || undefined,
     sortOrder: sortOrder.value,
@@ -517,7 +505,7 @@ watch(
 watch(
   () => admin.selectedHandler.value,
   () => {
-    statusFilter.value = 'all'
+    statusFilter.value = CREDENTIAL_STATUS_FILTER_ALL
     planFilter.value = 'all'
     sortBy.value = ''
     sortOrder.value = 'desc'
@@ -713,7 +701,7 @@ onBeforeUnmount(() => {
                             <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
                               {{ planTypeText(item.plan_type) }}
                             </AdminBadge>
-                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="statusIcon(item.status)">
+                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="credentialStatusIcon(item.status)">
                               {{ statusText(item.status) }}
                             </AdminBadge>
                             <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.default))" subtle icon="mdi-chart-line">
@@ -769,8 +757,8 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
 
-                    <div v-if="item.status === 'disabled' && item.reason" class="reason-block">
-                      <div class="reason-label">停用原因</div>
+                    <div v-if="shouldShowCredentialReason(item.status) && item.reason" class="reason-block">
+                      <div class="reason-label">{{ credentialReasonLabel(item.status) }}</div>
                       <div class="reason-value">{{ item.reason }}</div>
                     </div>
                   </VCardText>
@@ -797,7 +785,7 @@ onBeforeUnmount(() => {
                             <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
                               {{ planTypeText(item.plan_type) }}
                             </AdminBadge>
-                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="statusIcon(item.status)">
+                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="credentialStatusIcon(item.status)">
                               {{ statusText(item.status) }}
                             </AdminBadge>
                             <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.pro))" subtle icon="mdi-chart-line">
@@ -853,8 +841,8 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
 
-                    <div v-if="item.status === 'disabled' && item.reason" class="reason-block">
-                      <div class="reason-label">停用原因</div>
+                    <div v-if="shouldShowCredentialReason(item.status) && item.reason" class="reason-block">
+                      <div class="reason-label">{{ credentialReasonLabel(item.status) }}</div>
                       <div class="reason-value">{{ item.reason }}</div>
                     </div>
                   </VCardText>
@@ -881,7 +869,7 @@ onBeforeUnmount(() => {
                             <AdminBadge v-if="item.plan_type" tone="secondary" subtle icon="mdi-star-circle-outline">
                               {{ planTypeText(item.plan_type) }}
                             </AdminBadge>
-                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="statusIcon(item.status)">
+                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="credentialStatusIcon(item.status)">
                               {{ statusText(item.status) }}
                             </AdminBadge>
                           </div>
@@ -900,8 +888,8 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
 
-                    <div v-if="item.status === 'disabled' && item.reason" class="reason-block">
-                      <div class="reason-label">停用原因</div>
+                    <div v-if="shouldShowCredentialReason(item.status) && item.reason" class="reason-block">
+                      <div class="reason-label">{{ credentialReasonLabel(item.status) }}</div>
                       <div class="reason-value">{{ item.reason }}</div>
                     </div>
                   </VCardText>

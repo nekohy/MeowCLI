@@ -14,6 +14,7 @@ import type {
   SetupResult,
   StatusResponse,
 } from '~/types/admin'
+import type { KnownCredentialStatus } from '~/lib/credentialStatus'
 
 const PRIMARY_TOKEN_KEY = 'meowcli_admin_token'
 
@@ -118,7 +119,7 @@ type CredentialQuery = {
   page: number
   pageSize: number
   search?: string
-  status?: 'enabled' | 'disabled'
+  status?: KnownCredentialStatus
   planType?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
