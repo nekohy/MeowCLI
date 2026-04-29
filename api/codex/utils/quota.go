@@ -10,6 +10,7 @@ import (
 
 // Quota 包含从上游获取的配额使用情况和重置时间
 type Quota struct {
+	PlanType     string
 	Quota5h      float64   // 5h 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
 	Quota7d      float64   // 7d 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
 	QuotaSpark5h float64   // Spark 5h 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0

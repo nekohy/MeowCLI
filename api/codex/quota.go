@@ -11,6 +11,7 @@ import (
 )
 
 type usageResponse struct {
+	PlanType             string                `json:"plan_type"`
 	RateLimit            usageRateLimit        `json:"rate_limit"`
 	AdditionalRateLimits []additionalRateLimit `json:"additional_rate_limits"`
 }
@@ -53,6 +54,7 @@ func (c *Client) FetchQuota(ctx context.Context, credentialID, accessToken strin
 
 func parseUsageQuota(usage usageResponse) *codexutils.Quota {
 	q := &codexutils.Quota{
+		PlanType:        normalizeUsagePlanType(usage.PlanType),
 		Quota5h:         1.0,
 		Quota7d:         1.0,
 		QuotaSpark5h:    1.0,
@@ -76,6 +78,16 @@ func parseUsageQuota(usage usageResponse) *codexutils.Quota {
 	}
 
 	return q
+}
+
+func normalizeUsagePlanType(planType string) string {
+	normalized := strings.ToLower(strings.TrimSpace(planType))
+	switch normalized {
+	case "free", "plus", "pro", "business", "enterprise", "unknown":
+		return normalized
+	default:
+		return ""
+	}
 }
 
 func isSparkUsageRateLimit(extra additionalRateLimit) bool {

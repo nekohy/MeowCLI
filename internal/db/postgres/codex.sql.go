@@ -398,3 +398,32 @@ func (q *Queries) UpdateCodexTokens(ctx context.Context, arg UpdateCodexTokensPa
 	)
 	return i, err
 }
+
+const updateCodexPlanType = `-- name: UpdateCodexPlanType :one
+UPDATE codex
+SET
+    plan_type = $1,
+    reason = ''
+WHERE id = $2
+RETURNING id, status, access_token, expired, refresh_token, plan_type, reason
+`
+
+type UpdateCodexPlanTypeParams struct {
+	PlanType string `json:"plan_type"`
+	ID       string `json:"id"`
+}
+
+func (q *Queries) UpdateCodexPlanType(ctx context.Context, arg UpdateCodexPlanTypeParams) (Codex, error) {
+	row := q.db.QueryRow(ctx, updateCodexPlanType, arg.PlanType, arg.ID)
+	var i Codex
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.AccessToken,
+		&i.Expired,
+		&i.RefreshToken,
+		&i.PlanType,
+		&i.Reason,
+	)
+	return i, err
+}

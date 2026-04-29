@@ -21,6 +21,14 @@ SET
 WHERE id = $1
 RETURNING *;
 
+-- name: UpdateCodexPlanType :one
+UPDATE codex
+SET
+    plan_type = $1,
+    reason = ''
+WHERE id = $2
+RETURNING *;
+
 -- name: CountCodex :one
 SELECT COUNT(*) FROM codex;
 

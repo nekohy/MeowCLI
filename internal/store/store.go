@@ -347,6 +347,7 @@ type Store interface {
 	CountAuthKeys(ctx context.Context) (int64, error)
 	GetCodex(ctx context.Context, id string) (Codex, error)
 	UpdateCodexTokens(ctx context.Context, arg UpdateCodexTokensParams) (Codex, error)
+	UpdateCodexPlanType(ctx context.Context, id string, planType string) (Codex, error)
 	ListCodex(ctx context.Context) ([]ListCodexRow, error)
 	ListCodexPaged(ctx context.Context, arg ListCredentialPagedParams) ([]ListCodexRow, error)
 	CreateCodex(ctx context.Context, arg CreateCodexParams) (Codex, error)

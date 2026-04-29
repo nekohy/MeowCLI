@@ -33,6 +33,7 @@ type SchedulerStore interface {
 	ListAvailableCodex(ctx context.Context) ([]db.ListAvailableCodexRow, error)
 	UpsertQuota(ctx context.Context, arg db.UpsertQuotaParams) error
 	SetQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
+	UpdateCodexPlanType(ctx context.Context, id string, planType string) (db.Codex, error)
 	UpdateCodexStatus(ctx context.Context, id string, status string, reason string) (db.Codex, error)
 	RestoreExpiredThrottledCodex(ctx context.Context) error
 }
@@ -883,7 +884,11 @@ func (s *Scheduler) StoreQuota(ctx context.Context, credentialID string, q *code
 	if !q.HasDefaultQuota && !q.HasSparkQuota {
 		return
 	}
+	planTypeUpdated := s.updatePlanType(ctx, credentialID, q.PlanType)
 	cacheUpdated := s.applyQuotaToAvailable(credentialID, q)
+	if planTypeUpdated {
+		cacheUpdated = false
+	}
 	if err := s.store.UpsertQuota(ctx, db.UpsertQuotaParams{
 		CredentialID: credentialID,
 		Quota5h:      q.Quota5h,
@@ -903,6 +908,26 @@ func (s *Scheduler) StoreQuota(ctx context.Context, credentialID string, q *code
 			log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: refresh available after quota insert")
 		}
 	}
+}
+
+func (s *Scheduler) updatePlanType(ctx context.Context, credentialID string, planType string) bool {
+	normalized := NormalizePlanType(planType)
+	if normalized == "" {
+		return false
+	}
+	if snap := s.available.Load(); snap != nil {
+		expectedCode := s.planTypeCodec().code(normalized)
+		for _, row := range snap.rows {
+			if row.ID == credentialID && row.PlanTypeCode == expectedCode {
+				return false
+			}
+		}
+	}
+	if _, err := s.store.UpdateCodexPlanType(ctx, credentialID, normalized); err != nil {
+		log.Error().Err(err).Str("credential", credentialID).Str("plan_type", normalized).Msg("scheduler: update codex plan type")
+		return false
+	}
+	return true
 }
 
 // SyncCredentials 为新导入凭证异步执行首轮 quota 校验

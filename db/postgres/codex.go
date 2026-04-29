@@ -69,6 +69,17 @@ func (s *Store) UpdateCodexTokens(ctx context.Context, arg db.UpdateCodexTokensP
 	return codexTo(row), nil
 }
 
+func (s *Store) UpdateCodexPlanType(ctx context.Context, id string, planType string) (db.Codex, error) {
+	row, err := s.queries.UpdateCodexPlanType(ctx, sqlcpostgres.UpdateCodexPlanTypeParams{
+		ID:       id,
+		PlanType: strings.ToLower(strings.TrimSpace(planType)),
+	})
+	if err != nil {
+		return db.Codex{}, wrapError(err)
+	}
+	return codexTo(row), nil
+}
+
 func (s *Store) ListCodex(ctx context.Context) ([]db.ListCodexRow, error) {
 	rows, err := s.queries.ListCodex(ctx)
 	if err != nil {
