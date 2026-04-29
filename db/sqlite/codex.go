@@ -167,3 +167,7 @@ func (s *Store) UpdateCodexStatus(ctx context.Context, id string, status string,
 	}
 	return codexTo(row), nil
 }
+
+func (s *Store) RestoreExpiredThrottledCodex(ctx context.Context) error {
+	return wrapError(s.queries.RestoreExpiredThrottledCodex(ctx))
+}

@@ -278,6 +278,26 @@ func (q *Queries) ListGeminiCLIPaged(ctx context.Context, arg ListGeminiCLIPaged
 	return items, nil
 }
 
+const restoreExpiredThrottledGeminiCLI = `-- name: RestoreExpiredThrottledGeminiCLI :exec
+UPDATE gemini
+SET status = 'enabled', reason = ''
+WHERE status = 'throttled'
+  AND id IN (
+    SELECT g.id
+    FROM gemini g
+    LEFT JOIN gemini_quota q ON q.credential_id = g.id
+    WHERE g.status = 'throttled'
+      AND COALESCE(q.throttled_until_pro, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_flash, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_flashlite, datetime('now')) <= datetime('now')
+  )
+`
+
+func (q *Queries) RestoreExpiredThrottledGeminiCLI(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, restoreExpiredThrottledGeminiCLI)
+	return err
+}
+
 const updateGeminiCLIStatus = `-- name: UpdateGeminiCLIStatus :one
 UPDATE gemini
 SET status = ?, reason = ?

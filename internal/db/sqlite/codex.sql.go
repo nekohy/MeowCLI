@@ -314,6 +314,25 @@ func (q *Queries) ListCodexPaged(ctx context.Context, arg ListCodexPagedParams) 
 	return items, nil
 }
 
+const restoreExpiredThrottledCodex = `-- name: RestoreExpiredThrottledCodex :exec
+UPDATE codex
+SET status = 'enabled', reason = ''
+WHERE status = 'throttled'
+  AND id IN (
+    SELECT c.id
+    FROM codex c
+    LEFT JOIN codex_quota q ON q.credential_id = c.id
+    WHERE c.status = 'throttled'
+      AND COALESCE(q.throttled_until, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_spark, datetime('now')) <= datetime('now')
+  )
+`
+
+func (q *Queries) RestoreExpiredThrottledCodex(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, restoreExpiredThrottledCodex)
+	return err
+}
+
 const updateCodexStatus = `-- name: UpdateCodexStatus :one
 UPDATE codex SET status = ?, reason = ? WHERE id = ?
 RETURNING id, status, access_token, expired, refresh_token, plan_type, reason

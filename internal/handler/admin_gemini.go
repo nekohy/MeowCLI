@@ -72,7 +72,7 @@ func (a *AdminHandler) ListGemini(c *gin.Context) {
 
 func geminiCredentialFiltersFromRequest(c *gin.Context) db.CredentialFilterParams {
 	status := strings.TrimSpace(c.Query("status"))
-	if status != "enabled" && status != "disabled" {
+	if status != "enabled" && status != "disabled" && status != "throttled" {
 		status = ""
 	}
 

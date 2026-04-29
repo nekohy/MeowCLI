@@ -168,3 +168,7 @@ func (s *Store) UpdateGeminiCLIStatus(ctx context.Context, id string, status str
 	}
 	return geminiCredentialTo(row), nil
 }
+
+func (s *Store) RestoreExpiredThrottledGeminiCLI(ctx context.Context) error {
+	return wrapError(s.queries.RestoreExpiredThrottledGeminiCLI(ctx))
+}

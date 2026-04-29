@@ -352,6 +352,7 @@ type Store interface {
 	CreateCodex(ctx context.Context, arg CreateCodexParams) (Codex, error)
 	DeleteCodex(ctx context.Context, id string) error
 	UpdateCodexStatus(ctx context.Context, id string, status string, reason string) (Codex, error)
+	RestoreExpiredThrottledCodex(ctx context.Context) error
 	GetGeminiCLI(ctx context.Context, id string) (GeminiCredential, error)
 	UpdateGeminiTokens(ctx context.Context, arg UpdateGeminiTokensParams) (GeminiCredential, error)
 	UpdateGeminiPlanType(ctx context.Context, id string, planType string) (GeminiCredential, error)
@@ -360,6 +361,7 @@ type Store interface {
 	UpsertGeminiCLI(ctx context.Context, arg UpsertGeminiCLIParams) (GeminiCredential, error)
 	DeleteGeminiCLI(ctx context.Context, id string) error
 	UpdateGeminiCLIStatus(ctx context.Context, id string, status string, reason string) (GeminiCredential, error)
+	RestoreExpiredThrottledGeminiCLI(ctx context.Context) error
 
 	ReverseInfoFromModel(ctx context.Context, alias string) (ReverseInfoFromModelRow, error)
 	ListModels(ctx context.Context) ([]ModelRow, error)

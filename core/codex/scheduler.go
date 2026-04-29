@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,6 +33,8 @@ type SchedulerStore interface {
 	ListAvailableCodex(ctx context.Context) ([]db.ListAvailableCodexRow, error)
 	UpsertQuota(ctx context.Context, arg db.UpsertQuotaParams) error
 	SetQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
+	UpdateCodexStatus(ctx context.Context, id string, status string, reason string) (db.Codex, error)
+	RestoreExpiredThrottledCodex(ctx context.Context) error
 }
 
 // QuotaFetcher 由 API 适配器实现，用于从上游服务获取指定凭证的配额
@@ -292,6 +295,9 @@ func (s *Scheduler) listAvailable(ctx context.Context) (*availableSnapshot, erro
 // 在启动时由 StartQuotaSyncer 调用，也可在需要完整重建缓存时手动调用
 func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error) {
 	value, err, _ := s.refreshGroup.Do("available", func() (any, error) {
+		if err := s.store.RestoreExpiredThrottledCodex(ctx); err != nil {
+			return nil, fmt.Errorf("restore expired throttled codex: %w", err)
+		}
 		dbRows, err := s.store.ListAvailableCodex(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("list available codex: %w", err)
@@ -708,6 +714,9 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 	if err := s.store.SetQuotaThrottled(bgCtx, credentialID, throttleTier, throttledUntil); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: set throttled")
 	}
+	if _, err := s.store.UpdateCodexStatus(bgCtx, credentialID, string(utils.StatusThrottled), temporaryThrottleReason(decision.Reason)); err != nil {
+		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: update throttled credential status")
+	}
 	s.rememberThrottleUntil(credentialID, throttledUntil)
 
 	if decision.ExplicitRetryAfter && modelTier != "" {
@@ -1114,6 +1123,14 @@ func (s *Scheduler) recordAuthRejection(ctx context.Context, credentialID string
 	if err := s.recordResponse(ctx, credentialID, statusCode, modelTier, metrics); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert auth rejection log")
 	}
+}
+
+func temporaryThrottleReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "temporary throttle"
+	}
+	return "temporary throttle: " + reason
 }
 
 func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) {

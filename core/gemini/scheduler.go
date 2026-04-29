@@ -30,6 +30,7 @@ type SchedulerStore interface {
 	SetGeminiQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
 	UpdateGeminiCLIStatus(ctx context.Context, id string, status string, reason string) (db.GeminiCredential, error)
 	UpdateGeminiPlanType(ctx context.Context, id string, planType string) (db.GeminiCredential, error)
+	RestoreExpiredThrottledGeminiCLI(ctx context.Context) error
 }
 
 type planFetcher interface {
@@ -303,6 +304,9 @@ func (s *Scheduler) listAvailable(ctx context.Context) ([]availableRow, error) {
 // Called at startup by StartQuotaSyncer and manually when a full cache rebuild is needed.
 func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error) {
 	value, err, _ := s.refreshGroup.Do("available", func() (any, error) {
+		if err := s.store.RestoreExpiredThrottledGeminiCLI(ctx); err != nil {
+			return nil, fmt.Errorf("restore expired throttled gemini cli: %w", err)
+		}
 		dbRows, err := s.store.ListAvailableGeminiCLI(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("list available gemini cli: %w", err)
@@ -661,6 +665,9 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 	throttledUntil := now.Add(decision.Backoff)
 	if err := s.store.SetGeminiQuotaThrottled(bgCtx, credentialID, throttleTier, throttledUntil); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: set throttled")
+	}
+	if _, err := s.store.UpdateGeminiCLIStatus(bgCtx, credentialID, string(utils.StatusThrottled), temporaryThrottleReason(decision.Reason)); err != nil {
+		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: update throttled credential status")
 	}
 	s.rememberThrottleUntil(credentialID, throttledUntil)
 
@@ -1134,6 +1141,14 @@ func (s *Scheduler) recordAuthRejection(ctx context.Context, credentialID string
 	if err := s.recordResponse(ctx, credentialID, statusCode, modelTier, metrics); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: insert auth rejection log")
 	}
+}
+
+func temporaryThrottleReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "temporary throttle"
+	}
+	return "temporary throttle: " + reason
 }
 
 func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) {

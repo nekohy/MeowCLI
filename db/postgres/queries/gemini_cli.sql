@@ -107,3 +107,17 @@ UPDATE gemini
 SET status = $1, reason = $2
 WHERE id = $3
 RETURNING *;
+
+-- name: RestoreExpiredThrottledGeminiCLI :exec
+UPDATE gemini
+SET status = 'enabled', reason = ''
+WHERE status = 'throttled'
+  AND id IN (
+    SELECT g.id
+    FROM gemini g
+    LEFT JOIN gemini_quota q ON q.credential_id = g.id
+    WHERE g.status = 'throttled'
+      AND COALESCE(q.throttled_until_pro, NOW()) <= NOW()
+      AND COALESCE(q.throttled_until_flash, NOW()) <= NOW()
+      AND COALESCE(q.throttled_until_flashlite, NOW()) <= NOW()
+  );

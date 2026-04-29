@@ -87,7 +87,7 @@ func (a *AdminHandler) ListCodex(c *gin.Context) {
 
 func codexFiltersFromRequest(c *gin.Context) db.CredentialFilterParams {
 	status := strings.TrimSpace(c.Query("status"))
-	if status != "enabled" && status != "disabled" {
+	if status != "enabled" && status != "disabled" && status != "throttled" {
 		status = ""
 	}
 

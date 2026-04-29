@@ -85,3 +85,16 @@ DELETE FROM codex WHERE id = ?;
 -- name: UpdateCodexStatus :one
 UPDATE codex SET status = ?, reason = ? WHERE id = ?
 RETURNING *;
+
+-- name: RestoreExpiredThrottledCodex :exec
+UPDATE codex
+SET status = 'enabled', reason = ''
+WHERE status = 'throttled'
+  AND id IN (
+    SELECT c.id
+    FROM codex c
+    LEFT JOIN codex_quota q ON q.credential_id = c.id
+    WHERE c.status = 'throttled'
+      AND COALESCE(q.throttled_until, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_spark, datetime('now')) <= datetime('now')
+  );

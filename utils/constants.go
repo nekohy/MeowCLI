@@ -43,8 +43,9 @@ const (
 type AccountStatus string
 
 const (
-	StatusEnabled  AccountStatus = "enabled"
-	StatusDisabled AccountStatus = "disabled"
+	StatusEnabled   AccountStatus = "enabled"
+	StatusDisabled  AccountStatus = "disabled"
+	StatusThrottled AccountStatus = "throttled"
 )
 
 func ParseAccountStatus(s string) (AccountStatus, error) {
@@ -53,6 +54,8 @@ func ParseAccountStatus(s string) (AccountStatus, error) {
 		return StatusEnabled, nil
 	case "disabled":
 		return StatusDisabled, nil
+	case "throttled":
+		return StatusThrottled, nil
 	default:
 		return "", fmt.Errorf("unknown status: %q", s)
 	}
