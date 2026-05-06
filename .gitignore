@@ -11,4 +11,3 @@ web/.output/
 *.db-wal
 *.exe
 /.claude
-CLIProxyAPI/
