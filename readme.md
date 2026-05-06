@@ -1,72 +1,20 @@
 # MeowCLI
 
-MeowCLI 是一个注重高性能，更优调度的API转发服务
+> 一个注重高性能与调度质量的 API 转发服务。
 
 ## 特性
 
-- 开箱即用，可使用SQLite/PostgreSQL，且使用sqlc生成代码，优化查询速度
-- 跟随对话更新额度， 5 小时和 7 天窗口的剩余额度与重置时间综合评分，优先选择最优凭据，并在失败后自动选择基于 `Retry-After` 或指数退避的临时熔断
-- 如未近期未对话，后台也会定时拉取上游 Quota
-- 前端使用 Nuxt SSG 构建
-- 使用atomic和otter缓存，规避延时大的SQL操作
-- 缓存层过期自动刷新access_token，无需干预
-- 可创建多个Key用于内部分发
+- 开箱即用，支持 SQLite / PostgreSQL，并通过 `sqlc` 生成代码以优化查询性能
+- 冷启动/重启秒恢复状态
+- 跟随对话/定时同步额度，综合 5 小时与 7 天窗口的剩余额度和重置时间评分，优先选择更优凭据，而不是随机选择
+- 可以单独指定某模型的调用套餐类型（如pro/free），也可指定调用顺序
+- 请求失败后自动触发基于 `Retry-After` 或指数退避的临时熔断
+- atomic 和 otter 缓存层，规避高延迟 SQL 操作
+- 支持创建多个 Key 用于内部分发
+- 前端使用 Nuxt SSG 构建，且符合MD3风格
 
-## 效果图
-![1.png](image/1.png?v=9390)
-![2.png](image/2.png?v=9390)
-![3.png](image/3.png?v=9390)
-![4.png](image/4.png?v=9390)
-## 快速开始
-### 管理面板
-
-浏览器打开：
-
-```text
-http://127.0.0.1:3000/admin
-```
-
-首次启动时，页面会提示创建第一个管理员密钥
-
-
-### 配置模型映射
-
-调用模型接口之前，需要先在管理台创建模型映射
-
-
-- `alias`：对外暴露的模型别名
-- `origin`：真实上游模型名
-- `handler`：映射的CLI类型
-
-
-### 创建接口调用密钥
-
-在管理台“密钥”页面创建一个 `user` 或 `admin` 密钥
-
-- `admin`：完整的管理权限
-- `user`：只能访问模型接口
-注意：
-- 日志只保存在内存中，服务重启后会清空
-- 日志保留时间可以在设置页调整
-
-### 指定优先 planType
-
-调用 `/v1/responses` 或 `/v1/responses/compact` 时，可通过请求头 `X-Meow-Plan-Type` 指定优先套餐类型。
-
-- 支持单个值：`X-Meow-Plan-Type: pro`
-- 支持逗号分隔的优先级列表：`X-Meow-Plan-Type: pro,plus,free`
-- 仅当全局 `allow_user_plan_type_header` 和对应 provider 的“允许用户自定义 PlanType”都开启后才会生效
-- 系统还可单独配置“内置 PlanType 优先级”，当用户未传 header 或 header 未命中可用凭据时，会先按该优先级回退，再回到默认评分结果
-- Codex 内部稳定编码固定为 `free=0`、`plus=1`、`team=2`、`pro=3`，管理台会自动反向显示为套餐名
-
-### Gemini 原生接口
-
-`gemini-cli` 不再提供 OpenAI Responses 兼容层，改为原生 Gemini 接口：
-
-- 非流式：`POST /v1beta/models/{alias}:generateContent`
-- 流式：`POST /v1beta/models/{alias}:streamGenerateContent`
-
-其中 `{alias}` 仍然使用管理台中配置的模型别名，服务端会在转发时映射为真实上游模型名。凭据统一通过管理台手工导入。
+* gemini-cli由于header未返回配额信息，只能定时同步配额/报错时自动同步,codex为实时读取header，但不会入库，会影响性能
+* 由于atomic+otter的缓存机制，它的内存占用不会很小，但是性能比数据库频繁读写快多了
 
 ## 配置方式
 
@@ -75,27 +23,95 @@ http://127.0.0.1:3000/admin
 | 变量名 | 说明 | 默认值 |
 | --- | --- | --- |
 | `LISTEN_ADDR` | 服务监听地址 | `:3000` |
-| `DATABASE_URL` | 数据库地址；为空时使用 SQLite 文件 | `meowcli.db` |
+| `DATABASE_URL` | 数据库地址；为空时使用 SQLite 文件 | `` |
 | `DB_TYPE` | 数据库类型，支持 `sqlite` / `postgres` | `sqlite` |
-| `DEBUG` | 设为 `TRUE` 启用 pprof 调试服务（监听 `:6060`） | (空) |
+| `DEBUG` | 设为 `TRUE` 启用 pprof 调试服务，监听 `:6060` | `False` |
 
+PostgreSQL 连接 URL 示例：
 
-## todo
+```text
+postgres://meowcli:meowcli@postgres:5432/meowcli?sslmode=disable
+```
 
-- 我不会写前端，所以前端是纯AI的（包括你现在看的readme.md，我懒得写）
-- 
+## 管理面板
+
+浏览器打开：
+
+```text
+http://127.0.0.1:3000/admin
+```
+
+首次启动时，页面会提示创建第一个管理员密钥。
+
+### 配置模型映射
+
+调用模型接口之前，需要先在管理台创建模型映射：
+
+- `alias`：对外暴露的模型别名
+- `origin`：真实上游模型名
+- `handler`：映射的 CLI 类型
+
+### 接口调用密钥
+
+在管理台“密钥”页面创建一个 `user` 或 `admin` 密钥：
+
+- `admin`：完整管理权限
+- `user`：只能访问模型接口
+
+注意：
+
+- 日志只保存在内存中，服务重启后会清空
+- 日志保留时间可以在设置页调整
+
+## 接口支持
+
+- `codex`：提供原生 OpenAI Responses 接口；Completion 接口与非流式 Response 由内置逻辑完成转换
+- `gemini-cli`：提供原生 Gemini 接口
+
+## 效果图
+
+<table>
+  <tr>
+    <td width="50%"><img src="image/PixPin_2026-05-06_13-49-45.png" alt="管理台首页" width="100%"></td>
+    <td width="50%"><img src="image/PixPin_2026-05-06_13-50-07.png" alt="模型映射页面" width="100%"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="image/PixPin_2026-05-06_13-50-25.png" alt="密钥页面" width="100%"></td>
+    <td width="50%"><img src="image/PixPin_2026-05-06_13-50-53.png" alt="日志页面" width="100%"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="image/PixPin_2026-05-06_13-51-47.png" alt="用量页面" width="100%"></td>
+    <td width="50%"><img src="image/PixPin_2026-05-06_13-52-03.png" alt="额度页面" width="100%"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="image/PixPin_2026-05-06_13-52-11.png" alt="设置页面" width="100%"></td>
+    <td width="50%"><img src="image/PixPin_2026-05-06_13-52-26.png" alt="接口调用示例一" width="100%"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="image/PixPin_2026-05-06_13-52-56.png" alt="接口调用示例二" width="100%"></td>
+    <td width="50%"><img src="image/PixPin_2026-05-06_13-53-19.png" alt="接口调用示例三" width="100%"></td>
+  </tr>
+</table>
+
+## 须知
+
+- 前端页面主要由 AI 生成，当前重点仍然是后端能力与调度逻辑
+- Gemini 个人号可能存在兼容性问题
+- 各种格式转换与计费系统并不是这个反代的目标能力
+- 该反代没有做防封禁处理，使用者需自行承担风险
+
 ## 开发指南
 
 ### 环境要求
 
 - Go 1.25+
 - Node.js 22+
-- [sqlc](https://sqlc.dev/) — 仅在修改 `db/*/schema` 或 `db/*/queries` 后需要重新生成 `internal/db/*`
+- [sqlc](https://sqlc.dev/)：仅在修改 `db/*/schema` 或 `db/*/queries` 后需要重新生成 `internal/db/*`
 
 ### 本地开发
 
 ```bash
-# 生成SQL代码
+# 生成 SQL 代码
 sqlc generate
 
 # 启动完整本地开发环境（Go 后端 + Nuxt HMR）
@@ -110,34 +126,4 @@ make build
 ```bash
 make release       # 生成发布二进制和 checksum
 make clean         # 清理构建产物
-```
-
-### 发布流程
-
-打 tag 推送后 GitHub Actions 自动构建并发布：
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-`internal/db/*` 作为已生成代码入库，Release workflow 与 Docker 构建会直接使用这些文件，不会自动安装或运行 `sqlc`。
-
-CI 会自动完成：生成 6 个平台发布二进制 → 生成 checksum → 创建 GitHub Release → 构建并推送 Docker 镜像到 GHCR
-
-## 项目结构
-
-```text
-main.go                 程序入口
-internal/app            应用装配、配置加载、服务启动
-internal/router         路由注册
-internal/bridge         转发逻辑
-internal/handler        /admin API 与 web/dist 分发入口
-web                     Nuxt 管理台源码与 SSG 产物
-core/codex              凭据缓存、刷新、调度、额度同步
-api/codex               上游 Codex HTTP 客户端
-db/sqlite               SQLite store 与 SQL
-db/postgres             PostgreSQL store 与 SQL
-internal/db/*           sqlc 生成代码
-utils                   常量、枚举与通用工具
 ```
