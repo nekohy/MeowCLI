@@ -690,7 +690,7 @@ func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string,
 		delete(s.throttle, credentialID)
 		delete(s.checking, credentialID)
 		s.mu.Unlock()
-		s.DisableCredential(context.Background(), credentialID, fmt.Sprintf("credential rejected (%d)", statusCode))
+		s.DisableCredential(context.Background(), credentialID, directDisableReason(int(statusCode), metrics.Error, fmt.Sprintf("credential rejected (%d)", statusCode)))
 		return true
 	}
 	if !isRefreshableAuthStatus(int(statusCode)) {
@@ -1003,7 +1003,7 @@ func (s *Scheduler) verifyCredentialUsable(ctx context.Context, credentialID str
 			}); err != nil {
 				log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: insert usage verification failure log")
 			}
-			s.DisableCredential(ctx, credentialID, fmt.Sprintf("usage rejected after refresh (%d)", statusCode))
+			s.DisableCredential(ctx, credentialID, directDisableReason(statusCode, body, fmt.Sprintf("usage rejected after refresh (%d)", statusCode)))
 			log.Warn().
 				Str("credential", credentialID).
 				Int("status", statusCode).
@@ -1044,7 +1044,7 @@ func (s *Scheduler) syncImportedCredential(ctx context.Context, credentialID str
 				log.Error().Err(logErr).Str("credential", credentialID).Msg("gemini scheduler: insert import validation failure log")
 			}
 			s.evictCredential(credentialID)
-			s.DisableCredential(ctx, credentialID, fmt.Sprintf("initial quota validation rejected (%d)", statusCode))
+			s.DisableCredential(ctx, credentialID, directDisableReason(statusCode, body, fmt.Sprintf("initial quota validation rejected (%d)", statusCode)))
 			log.Warn().
 				Str("credential", credentialID).
 				Int("status", statusCode).
@@ -1096,7 +1096,7 @@ func isRefreshableAuthStatus(statusCode int) bool {
 }
 
 func isDirectDisableStatus(statusCode int) bool {
-	return statusCode == http.StatusPaymentRequired
+	return statusCode == http.StatusPaymentRequired || statusCode == http.StatusForbidden
 }
 
 func (s *Scheduler) RetryDecision(statusCode int32, text string, headers http.Header) scheduling.RetryDecision {
@@ -1149,6 +1149,16 @@ func temporaryThrottleReason(reason string) string {
 		return "temporary throttle"
 	}
 	return "temporary throttle: " + reason
+}
+
+func directDisableReason(statusCode int, body string, fallback string) string {
+	if statusCode == http.StatusForbidden {
+		body = strings.TrimSpace(body)
+		if body != "" {
+			return body
+		}
+	}
+	return fallback
 }
 
 func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) {
