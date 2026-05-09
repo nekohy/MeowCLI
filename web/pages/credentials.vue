@@ -87,20 +87,36 @@ const importInputLabel = computed(() => activeCredentialField.value?.label || '�
 const importInputPlaceholder = computed(() => activeCredentialField.value?.placeholder || '每行填写一个凭据')
 
 const availablePlanTypes = computed(() => {
-  const planTypes = new Set<string>()
-  admin.activeHandler.value?.plan_list?.forEach((plan) => {
-    const planType = normalizePlanType(plan)
-    if (planType) {
-      planTypes.add(planType)
-    }
-  })
+  const orderedPlanTypes: string[] = []
+  const seen = new Set<string>()
   rows.value.forEach((item) => {
     const planType = normalizePlanType(item.plan_type)
-    if (planType) {
-      planTypes.add(planType)
+    if (!planType || seen.has(planType)) {
+      return
+    }
+    seen.add(planType)
+    orderedPlanTypes.push(planType)
+  })
+
+  const preferredOrder = (admin.activeHandler.value?.plan_list || [])
+    .map((plan) => normalizePlanType(plan))
+    .filter((planType): planType is string => Boolean(planType))
+
+  const presentPlanTypes = new Set(orderedPlanTypes)
+  const sortedPlanTypes = preferredOrder.filter((planType) => presentPlanTypes.has(planType))
+  orderedPlanTypes.forEach((planType) => {
+    if (!sortedPlanTypes.includes(planType)) {
+      sortedPlanTypes.push(planType)
     }
   })
-  return ['all', ...planTypes]
+
+  return ['all', ...sortedPlanTypes]
+})
+
+watch(availablePlanTypes, (planTypes) => {
+  if (!planTypes.includes(planFilter.value)) {
+    planFilter.value = 'all'
+  }
 })
 
 const availableStatusFilters = computed(() => {

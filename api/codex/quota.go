@@ -83,7 +83,7 @@ func parseUsageQuota(usage usageResponse) *codexutils.Quota {
 func normalizeUsagePlanType(planType string) string {
 	normalized := strings.ToLower(strings.TrimSpace(planType))
 	switch normalized {
-	case "free", "plus", "pro", "business", "enterprise", "unknown":
+	case "free", "plus", "edu", "prolite", "pro", "team", "enterprise", "unknown":
 		return normalized
 	default:
 		return ""
