@@ -399,3 +399,17 @@ func (d *credentialRefreshDispatcher) InvalidateCredentials(handler utils.Handle
 		}
 	}
 }
+
+func (d *credentialRefreshDispatcher) CachedCodexQuota(id string) (coreCodex.CachedQuotaSnapshot, bool) {
+	if d == nil || d.codex == nil {
+		return coreCodex.CachedQuotaSnapshot{}, false
+	}
+	return d.codex.CachedQuota(id)
+}
+
+func (d *credentialRefreshDispatcher) CachedGeminiQuota(id string) (coreGemini.CachedQuotaSnapshot, bool) {
+	if d == nil || d.gemini == nil {
+		return coreGemini.CachedQuotaSnapshot{}, false
+	}
+	return d.gemini.CachedQuota(id)
+}

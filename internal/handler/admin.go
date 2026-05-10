@@ -28,6 +28,8 @@ type CredentialRefresher interface {
 	RefreshAvailable(ctx context.Context, handler utils.HandlerType) error
 	SyncQuotas(ctx context.Context, handler utils.HandlerType, ids []string)
 	InvalidateCredentials(handler utils.HandlerType, ids []string)
+	CachedCodexQuota(id string) (corecodex.CachedQuotaSnapshot, bool)
+	CachedGeminiQuota(id string) (coregemini.CachedQuotaSnapshot, bool)
 }
 
 type ModelCache interface {

@@ -368,6 +368,7 @@ func (a *AdminHandler) serializeCodexRows(ctx context.Context, rows []db.ListCod
 			},
 		})
 	}
+	overlayCodexQuotaCache(items, a.credRefresh)
 	return items
 }
 

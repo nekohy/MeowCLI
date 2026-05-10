@@ -280,6 +280,7 @@ func (a *AdminHandler) listGeminiCredentials(ctx context.Context, page, pageSize
 			},
 		}
 	}
+	overlayGeminiQuotaCache(items, a.credRefresh)
 	if sortOptions.enabled() {
 		sortGeminiListItems(items, sortOptions)
 		items = paginateGeminiListItems(items, page, pageSize)
