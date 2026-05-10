@@ -182,6 +182,10 @@ pre {
   --v-field-border-width: 1px;
 }
 
+.v-input__control > .v-field--variant-outlined {
+  margin-top: 8px;
+}
+
 .v-field--variant-outlined .v-field-label {
   font-size: 0.86rem;
 }

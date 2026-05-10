@@ -62,6 +62,9 @@ func Setup(r *gin.Engine, deps Deps) {
 			apiGroup.PUT("/gemini/status", deps.Admin.BatchUpdateGeminiStatus)
 			apiGroup.DELETE("/gemini", deps.Admin.BatchDeleteGemini)
 
+			apiGroup.POST("/oauth/:provider/start", deps.Admin.StartOAuth)
+			apiGroup.POST("/oauth/:provider/callback", deps.Admin.OAuthCallback)
+
 			apiGroup.GET("/models", deps.Admin.ListModels)
 			apiGroup.POST("/models", deps.Admin.CreateModel)
 			apiGroup.PUT("/models/:alias", deps.Admin.UpdateModel)
