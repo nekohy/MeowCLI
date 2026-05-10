@@ -18,23 +18,20 @@ import (
 )
 
 type settingsUpdateRequest struct {
-	AllowUserPlanTypeHeader       *bool   `json:"allow_user_plan_type_header"`
-	GlobalProxy                   *string `json:"global_proxy"`
-	CodexProxy                    *string `json:"codex_proxy"`
-	GeminiProxy                   *string `json:"gemini_proxy"`
-	GeminiBaseURLs                *string `json:"gemini_base_urls"`
-	CodexAllowUserPlanTypeHeader  *bool   `json:"codex_allow_user_plan_type_header"`
-	CodexPreferredPlanTypes       *string `json:"codex_preferred_plan_types"`
-	GeminiAllowUserPlanTypeHeader *bool   `json:"gemini_allow_user_plan_type_header"`
-	GeminiPreferredPlanTypes      *string `json:"gemini_preferred_plan_types"`
-	RefreshBeforeSeconds          *int    `json:"refresh_before_seconds"`
-	PollIntervalMilliseconds      *int    `json:"poll_interval_milliseconds"`
-	QuotaSyncIntervalSeconds      *int    `json:"quota_sync_interval_seconds"`
-	ScoreRefreshIntervalSeconds   *int    `json:"score_refresh_interval_seconds"`
-	ThrottleBaseSeconds           *int    `json:"throttle_base_seconds"`
-	ThrottleMaxSeconds            *int    `json:"throttle_max_seconds"`
-	RelayMaxRetries               *int    `json:"relay_max_retries"`
-	LogsRetentionSeconds          *int    `json:"logs_retention_seconds"`
+	GlobalProxy                 *string `json:"global_proxy"`
+	CodexProxy                  *string `json:"codex_proxy"`
+	GeminiProxy                 *string `json:"gemini_proxy"`
+	GeminiBaseURLs              *string `json:"gemini_base_urls"`
+	CodexPreferredPlanTypes     *string `json:"codex_preferred_plan_types"`
+	GeminiPreferredPlanTypes    *string `json:"gemini_preferred_plan_types"`
+	RefreshBeforeSeconds        *int    `json:"refresh_before_seconds"`
+	PollIntervalMilliseconds    *int    `json:"poll_interval_milliseconds"`
+	QuotaSyncIntervalSeconds    *int    `json:"quota_sync_interval_seconds"`
+	ScoreRefreshIntervalSeconds *int    `json:"score_refresh_interval_seconds"`
+	ThrottleBaseSeconds         *int    `json:"throttle_base_seconds"`
+	ThrottleMaxSeconds          *int    `json:"throttle_max_seconds"`
+	RelayMaxRetries             *int    `json:"relay_max_retries"`
+	LogsRetentionSeconds        *int    `json:"logs_retention_seconds"`
 }
 
 func (a *AdminHandler) GetSettings(c *gin.Context) {
@@ -81,9 +78,6 @@ func (a *AdminHandler) UpdateSettings(c *gin.Context) {
 func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (settings.Snapshot, error) {
 	next := base
 
-	if req.AllowUserPlanTypeHeader != nil {
-		next.AllowUserPlanTypeHeader = *req.AllowUserPlanTypeHeader
-	}
 	if req.GlobalProxy != nil {
 		next.GlobalProxy = strings.TrimSpace(*req.GlobalProxy)
 	}
@@ -96,14 +90,8 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 	if req.GeminiBaseURLs != nil {
 		next.GeminiBaseURLsRaw = *req.GeminiBaseURLs
 	}
-	if req.CodexAllowUserPlanTypeHeader != nil {
-		next.CodexAllowUserPlanTypeHeader = *req.CodexAllowUserPlanTypeHeader
-	}
 	if req.CodexPreferredPlanTypes != nil {
 		next.CodexPreferredPlanTypes = corecodex.NormalizePlanTypeList(*req.CodexPreferredPlanTypes)
-	}
-	if req.GeminiAllowUserPlanTypeHeader != nil {
-		next.GeminiAllowUserPlanTypeHeader = *req.GeminiAllowUserPlanTypeHeader
 	}
 	if req.GeminiPreferredPlanTypes != nil {
 		next.GeminiPreferredPlanTypes = coregemini.NormalizePlanTypeList(*req.GeminiPreferredPlanTypes)
@@ -155,23 +143,20 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 
 func buildSettingsResponse(snapshot settings.Snapshot) gin.H {
 	return gin.H{
-		"allow_user_plan_type_header":        snapshot.AllowUserPlanTypeHeader,
-		"global_proxy":                       snapshot.GlobalProxy,
-		"codex_proxy":                        snapshot.CodexProxy,
-		"gemini_proxy":                       strings.TrimSpace(snapshot.GeminiProxy),
-		"gemini_base_urls":                   strings.Join(geminiapi.NormalizeCodeAssistEndpointKeys(snapshot.GeminiBaseURLsRaw), ","),
-		"codex_allow_user_plan_type_header":  snapshot.CodexAllowUserPlanTypeHeader,
-		"codex_preferred_plan_types":         snapshot.CodexPreferredPlanTypes,
-		"gemini_allow_user_plan_type_header": snapshot.GeminiAllowUserPlanTypeHeader,
-		"gemini_preferred_plan_types":        snapshot.GeminiPreferredPlanTypes,
-		"refresh_before_seconds":             snapshot.RefreshBeforeSeconds,
-		"poll_interval_milliseconds":         snapshot.PollIntervalMilliseconds,
-		"quota_sync_interval_seconds":        snapshot.QuotaSyncIntervalSeconds,
-		"score_refresh_interval_seconds":     snapshot.ScoreRefreshIntervalSeconds,
-		"throttle_base_seconds":              snapshot.ThrottleBaseSeconds,
-		"throttle_max_seconds":               snapshot.ThrottleMaxSeconds,
-		"relay_max_retries":                  snapshot.RelayMaxRetries,
-		"logs_retention_seconds":             snapshot.LogsRetentionSeconds,
+		"global_proxy":                   snapshot.GlobalProxy,
+		"codex_proxy":                    snapshot.CodexProxy,
+		"gemini_proxy":                   strings.TrimSpace(snapshot.GeminiProxy),
+		"gemini_base_urls":               strings.Join(geminiapi.NormalizeCodeAssistEndpointKeys(snapshot.GeminiBaseURLsRaw), ","),
+		"codex_preferred_plan_types":     snapshot.CodexPreferredPlanTypes,
+		"gemini_preferred_plan_types":    snapshot.GeminiPreferredPlanTypes,
+		"refresh_before_seconds":         snapshot.RefreshBeforeSeconds,
+		"poll_interval_milliseconds":     snapshot.PollIntervalMilliseconds,
+		"quota_sync_interval_seconds":    snapshot.QuotaSyncIntervalSeconds,
+		"score_refresh_interval_seconds": snapshot.ScoreRefreshIntervalSeconds,
+		"throttle_base_seconds":          snapshot.ThrottleBaseSeconds,
+		"throttle_max_seconds":           snapshot.ThrottleMaxSeconds,
+		"relay_max_retries":              snapshot.RelayMaxRetries,
+		"logs_retention_seconds":         snapshot.LogsRetentionSeconds,
 	}
 }
 
@@ -203,14 +188,11 @@ func validateProxyURL(raw, field string) error {
 
 func snapshotToSettingParams(snapshot settings.Snapshot) []db.UpsertSettingParams {
 	return []db.UpsertSettingParams{
-		{Key: settings.KeyAllowUserPlanTypeHeader, Value: fmt.Sprintf("%t", snapshot.AllowUserPlanTypeHeader)},
 		{Key: settings.KeyGlobalProxy, Value: snapshot.GlobalProxy},
 		{Key: settings.KeyCodexProxy, Value: snapshot.CodexProxy},
 		{Key: settings.KeyGeminiProxy, Value: snapshot.GeminiProxy},
 		{Key: settings.KeyGeminiBaseURLs, Value: strings.Join(geminiapi.NormalizeCodeAssistEndpointKeys(snapshot.GeminiBaseURLsRaw), ",")},
-		{Key: settings.KeyCodexAllowUserPlanTypeHeader, Value: fmt.Sprintf("%t", snapshot.CodexAllowUserPlanTypeHeader)},
 		{Key: settings.KeyCodexPreferredPlanTypes, Value: snapshot.CodexPreferredPlanTypes},
-		{Key: settings.KeyGeminiAllowUserPlanTypeHeader, Value: fmt.Sprintf("%t", snapshot.GeminiAllowUserPlanTypeHeader)},
 		{Key: settings.KeyGeminiPreferredPlanTypes, Value: snapshot.GeminiPreferredPlanTypes},
 		{Key: settings.KeyRefreshBeforeSeconds, Value: fmt.Sprintf("%d", snapshot.RefreshBeforeSeconds)},
 		{Key: settings.KeyPollIntervalMilliseconds, Value: fmt.Sprintf("%d", snapshot.PollIntervalMilliseconds)},

@@ -99,14 +99,11 @@ export interface StatusResponse {
 }
 
 export interface SettingsSnapshot {
-  allow_user_plan_type_header: boolean
   global_proxy: string
   codex_proxy: string
   gemini_proxy: string
   gemini_base_urls: string
-  codex_allow_user_plan_type_header: boolean
   codex_preferred_plan_types: string
-  gemini_allow_user_plan_type_header: boolean
   gemini_preferred_plan_types: string
   refresh_before_seconds: number
   poll_interval_milliseconds: number
@@ -119,14 +116,11 @@ export interface SettingsSnapshot {
 }
 
 export interface SettingsForm {
-  allow_user_plan_type_header: boolean
   global_proxy: string
   codex_proxy: string
   gemini_proxy: string
   gemini_base_urls: string
-  codex_allow_user_plan_type_header: boolean
   codex_preferred_plan_types: string
-  gemini_allow_user_plan_type_header: boolean
   gemini_preferred_plan_types: string
   refresh_before_seconds: string
   poll_interval_milliseconds: string

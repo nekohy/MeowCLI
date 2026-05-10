@@ -38,7 +38,6 @@ type FailureThrottleDecision struct {
 }
 
 type CredentialSelection struct {
-	Headers               http.Header
 	PreferredCredentialID string
 	AllowedPlanTypes      []string
 	ModelTier             string

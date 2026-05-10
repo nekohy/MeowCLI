@@ -212,7 +212,7 @@ func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableCodexR
 // credential is selected.
 func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.CredentialSelection) (string, error) {
 	codec := s.planTypeCodec()
-	return s.selectCredential(ctx, s.preferredPlanTypeCodes(selection.Headers), codec.codesFor(selection.AllowedPlanTypes), selection.PreferredCredentialID, selection.ModelTier)
+	return s.selectCredential(ctx, s.preferredPlanTypeCodes(), codec.codesFor(selection.AllowedPlanTypes), selection.PreferredCredentialID, selection.ModelTier)
 }
 
 func (s *Scheduler) selectCredential(ctx context.Context, preferredCodes []int, allowedCodes []int, preferredCredentialID string, modelTier string) (string, error) {

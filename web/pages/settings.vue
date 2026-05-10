@@ -237,14 +237,6 @@ watch(
     <!-- Global -->
     <SectionCard title="全局" icon="mdi-earth">
       <div class="setting-field-stack">
-        <div class="settings-item settings-item--toggle">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">透传 PlanType 请求头</div>
-            <div class="settings-item-description text-medium-emphasis">允许客户端通过请求头指定套餐类型</div>
-          </div>
-          <VSwitch v-model="form.allow_user_plan_type_header" />
-        </div>
-
         <div class="settings-item">
           <div class="settings-item-copy">
             <div class="settings-item-title">全局代理</div>
@@ -304,13 +296,6 @@ watch(
           <VIcon icon="mdi-chevron-right" />
         </div>
 
-        <div class="settings-item settings-item--toggle">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">允许 PlanType 请求头</div>
-            <div class="settings-item-description text-medium-emphasis">允许客户端为 Codex 请求指定套餐类型</div>
-          </div>
-          <VSwitch v-model="form.codex_allow_user_plan_type_header" />
-        </div>
       </div>
     </SectionCard>
 
@@ -349,13 +334,6 @@ watch(
           <VIcon icon="mdi-chevron-right" />
         </div>
 
-        <div class="settings-item settings-item--toggle">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">允许 PlanType 请求头</div>
-            <div class="settings-item-description text-medium-emphasis">允许客户端为 Gemini CLI 请求指定套餐类型</div>
-          </div>
-          <VSwitch v-model="form.gemini_allow_user_plan_type_header" />
-        </div>
       </div>
     </SectionCard>
 

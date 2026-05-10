@@ -212,7 +212,7 @@ func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableGemini
 // credential is selected.
 func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.CredentialSelection) (string, error) {
 	codec := s.planTypeCodec()
-	return s.selectCredential(ctx, s.preferredPlanTypeCodes(selection.Headers), codec.codesFor(selection.AllowedPlanTypes), selection.PreferredCredentialID, selection.ModelTier)
+	return s.selectCredential(ctx, s.preferredPlanTypeCodes(), codec.codesFor(selection.AllowedPlanTypes), selection.PreferredCredentialID, selection.ModelTier)
 }
 
 func (s *Scheduler) selectCredential(ctx context.Context, preferredCodes []int, allowedCodes []int, preferredCredentialID string, modelTier string) (string, error) {
@@ -565,21 +565,11 @@ func (s *Scheduler) planTypeCodec() *planTypeCodec {
 	return s.planTypes
 }
 
-func (s *Scheduler) preferredPlanTypeCodes(headers http.Header) []int {
+func (s *Scheduler) preferredPlanTypeCodes() []int {
 	snapshot := s.settingsSnapshot()
 	codec := s.planTypeCodec()
 
-	return scheduling.MergePlanTypeCodes(
-		headerPlanTypeCodes(headers, snapshot.GeminiAllowUserPlanTypeHeader, codec),
-		codec.codesFor(ParsePlanTypeList(snapshot.GeminiPreferredPlanTypes)),
-	)
-}
-
-func headerPlanTypeCodes(headers http.Header, enabled bool, codec *planTypeCodec) []int {
-	if !enabled {
-		return nil
-	}
-	return codec.codesFor(ParsePlanTypeList(strings.Join(headers.Values(utils.HeaderPlanTypePreference), ",")))
+	return codec.codesFor(ParsePlanTypeList(snapshot.GeminiPreferredPlanTypes))
 }
 
 // CalcScore computes a priority score for a specific model tier.

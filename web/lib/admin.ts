@@ -79,14 +79,11 @@ export const GEMINI_BASE_URL_OPTIONS = [
 ]
 
 export const DEFAULT_SETTINGS_FORM: SettingsForm = {
-  allow_user_plan_type_header: false,
   global_proxy: '',
   codex_proxy: '',
   gemini_proxy: '',
   gemini_base_urls: GEMINI_BASE_URL_OPTIONS[0]!.value,
-  codex_allow_user_plan_type_header: false,
   codex_preferred_plan_types: '',
-  gemini_allow_user_plan_type_header: false,
   gemini_preferred_plan_types: '',
   refresh_before_seconds: '30',
   poll_interval_milliseconds: '200',
@@ -351,14 +348,11 @@ export function geminiBaseURLText(value: string) {
 
 export function settingsToForm(data: SettingsSnapshot): SettingsForm {
   return {
-    allow_user_plan_type_header: Boolean(data.allow_user_plan_type_header),
     global_proxy: data.global_proxy,
     codex_proxy: data.codex_proxy,
     gemini_proxy: data.gemini_proxy,
     gemini_base_urls: joinGeminiBaseURLInput([data.gemini_base_urls]),
-    codex_allow_user_plan_type_header: Boolean(data.codex_allow_user_plan_type_header),
     codex_preferred_plan_types: data.codex_preferred_plan_types.trim(),
-    gemini_allow_user_plan_type_header: Boolean(data.gemini_allow_user_plan_type_header),
     gemini_preferred_plan_types: data.gemini_preferred_plan_types.trim(),
     refresh_before_seconds: String(data.refresh_before_seconds),
     poll_interval_milliseconds: String(data.poll_interval_milliseconds),
@@ -373,14 +367,11 @@ export function settingsToForm(data: SettingsSnapshot): SettingsForm {
 
 export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
   return {
-    allow_user_plan_type_header: Boolean(form.allow_user_plan_type_header),
     global_proxy: form.global_proxy.trim(),
     codex_proxy: form.codex_proxy.trim(),
     gemini_proxy: form.gemini_proxy.trim(),
     gemini_base_urls: joinGeminiBaseURLInput([form.gemini_base_urls]),
-    codex_allow_user_plan_type_header: Boolean(form.codex_allow_user_plan_type_header),
     codex_preferred_plan_types: form.codex_preferred_plan_types.trim(),
-    gemini_allow_user_plan_type_header: Boolean(form.gemini_allow_user_plan_type_header),
     gemini_preferred_plan_types: form.gemini_preferred_plan_types.trim(),
     refresh_before_seconds: Number(form.refresh_before_seconds),
     poll_interval_milliseconds: Number(form.poll_interval_milliseconds),

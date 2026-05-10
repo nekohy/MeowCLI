@@ -46,7 +46,6 @@ func (h *Handler) relayUpstream(c *gin.Context, cfg upstreamRelay) {
 	state := retryTracker{}
 	for attempt := 1; attempt <= h.maxAttempts(); attempt++ {
 		credID, err := cfg.scheduler.SelectCredential(cfg.ctx, scheduling.CredentialSelection{
-			Headers:               cfg.requestHeaders,
 			PreferredCredentialID: h.preferredCredential(cfg.sessionKey, state.graceCredentialID),
 			AllowedPlanTypes:      cfg.allowedPlans,
 			ModelTier:             cfg.modelTier,
@@ -221,7 +220,6 @@ func (h *Handler) preferredCredential(sessionKey string, graceCredentialID strin
 func (cfg upstreamRelay) upstreamHeaders(authHeaders http.Header) http.Header {
 	headers := cfg.requestHeaders.Clone()
 	headers.Del("Accept")
-	headers.Del(utils.HeaderPlanTypePreference)
 	scrubLocalAuthHeaders(headers)
 	for k, vs := range authHeaders {
 		headers[k] = vs

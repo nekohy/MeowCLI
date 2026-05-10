@@ -1,10 +1,8 @@
 package codex
 
 import (
-	"net/http"
 	"strings"
 
-	"github.com/nekohy/MeowCLI/core/scheduling"
 	"github.com/nekohy/MeowCLI/utils"
 )
 
@@ -108,19 +106,9 @@ func (c *planTypeCodec) codesFor(planTypes []string) []int {
 	return codes
 }
 
-func (s *Scheduler) preferredPlanTypeCodes(headers http.Header) []int {
+func (s *Scheduler) preferredPlanTypeCodes() []int {
 	snapshot := s.settingsSnapshot()
 	codec := s.planTypeCodec()
 
-	return scheduling.MergePlanTypeCodes(
-		headerPlanTypeCodes(headers, snapshot.AllowUserPlanTypeHeader && snapshot.CodexAllowUserPlanTypeHeader, codec),
-		codec.codesFor(ParsePlanTypeList(snapshot.CodexPreferredPlanTypes)),
-	)
-}
-
-func headerPlanTypeCodes(headers http.Header, enabled bool, codec *planTypeCodec) []int {
-	if !enabled {
-		return nil
-	}
-	return codec.codesFor(ParsePlanTypeList(strings.Join(headers.Values(utils.HeaderPlanTypePreference), ",")))
+	return codec.codesFor(ParsePlanTypeList(snapshot.CodexPreferredPlanTypes))
 }
