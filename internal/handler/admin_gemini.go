@@ -316,7 +316,14 @@ func (a *AdminHandler) upsertGeminiCredentialFromTokenData(ctx context.Context, 
 	if err != nil {
 		return db.GeminiCredential{}, err
 	}
-	projectID, _ := a.geminiAPI.ResolveProjectID(ctx, tokenData.AccessToken)
+	projectID, err := a.geminiAPI.ResolveProjectID(ctx, tokenData.AccessToken)
+	if err != nil {
+		return db.GeminiCredential{}, fmt.Errorf("resolve gemini project_id: %w", err)
+	}
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return db.GeminiCredential{}, fmt.Errorf("resolve gemini project_id: empty project_id")
+	}
 	credentialID := coregemini.DefaultCredentialID(email, projectID)
 	if credentialID == "" {
 		return db.GeminiCredential{}, fmt.Errorf("gemini credential id is required")
