@@ -57,6 +57,11 @@ const actionBusy = ref(false)
 const importOpen = ref(false)
 const importTokens = ref('')
 const importError = ref('')
+const oauthOpen = ref(false)
+const oauthBusy = ref(false)
+const oauthCodeInput = ref('')
+const oauthError = ref('')
+const oauthFlow = ref<{ provider: string; state: string; authorizeUrl: string } | null>(null)
 
 const credentialHandlerKey = computed<CredentialHandlerKey>(() => admin.activeHandler.value?.key || '')
 const credentialEndpoint = computed(() => admin.activeHandler.value?.credential_endpoint || '')
@@ -68,6 +73,7 @@ const activeCredentialField = computed(() => (
 ))
 const isCodexHandler = computed(() => credentialHandlerKey.value === 'codex')
 const isGeminiHandler = computed(() => credentialHandlerKey.value === 'gemini')
+const supportsOAuth = computed(() => isCodexHandler.value || isGeminiHandler.value)
 
 const codexRows = computed(() => rows.value.filter(isCodexItem))
 const geminiRows = computed(() => rows.value.filter(isGeminiItem))
@@ -86,6 +92,9 @@ const importLines = computed(() => (
 ))
 const importInputLabel = computed(() => activeCredentialField.value?.label || '凭据列表')
 const importInputPlaceholder = computed(() => activeCredentialField.value?.placeholder || '每行填写一个凭据')
+const oauthModalTitle = computed(() => `${activeHandlerLabel.value} OAuth`)
+const oauthCallbackPlaceholder = '粘贴回调链接'
+const oauthSubmitDisabled = computed(() => !oauthFlow.value || !oauthCodeInput.value.trim())
 
 const availablePlanTypes = computed(() => {
   const sourcePlanTypes = planTypes.value.length
@@ -225,6 +234,128 @@ function closeImportModal() {
   importOpen.value = false
   importTokens.value = ''
   importError.value = ''
+}
+
+function closeOAuthModal(force = false) {
+  if (oauthBusy.value && !force) {
+    return
+  }
+  oauthOpen.value = false
+  oauthCodeInput.value = ''
+  oauthError.value = ''
+  oauthFlow.value = null
+}
+
+function parseOAuthCallbackInput(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return { code: '', state: '' }
+  }
+
+  const parseParams = (params: URLSearchParams) => ({
+    code: (params.get('code') || '').trim(),
+    state: (params.get('state') || '').trim(),
+  })
+
+  try {
+    const url = new URL(trimmed)
+    const searchParsed = parseParams(url.searchParams)
+    if (searchParsed.code) {
+      return searchParsed
+    }
+    const hashParsed = parseParams(new URLSearchParams(url.hash.replace(/^#/, '')))
+    if (hashParsed.code) {
+      return hashParsed
+    }
+  } catch {
+    // Fall through and treat the input as a query string or raw code.
+  }
+
+  const queryStart = trimmed.indexOf('?')
+  const queryLike = queryStart >= 0 ? trimmed.slice(queryStart + 1) : trimmed
+  if (queryLike.includes('=')) {
+    const parsed = parseParams(new URLSearchParams(queryLike.replace(/^#/, '')))
+    if (parsed.code) {
+      return parsed
+    }
+  }
+
+  return { code: trimmed, state: '' }
+}
+
+async function startOAuthLogin() {
+  const provider = credentialHandlerKey.value
+  if (!admin.token.value || !provider || !supportsOAuth.value) {
+    return
+  }
+
+  oauthBusy.value = true
+  oauthError.value = ''
+  oauthCodeInput.value = ''
+  oauthFlow.value = null
+  oauthOpen.value = true
+
+  try {
+    const flow = await adminApi.startOAuth(admin.token.value, provider)
+    if (!flow.state || !flow.authorize_url) {
+      throw new Error('OAuth 授权链接无效')
+    }
+
+    oauthFlow.value = {
+      provider: flow.provider || provider,
+      state: flow.state,
+      authorizeUrl: flow.authorize_url,
+    }
+
+  } catch (error) {
+    oauthError.value = error instanceof Error ? error.message : '启动 OAuth 登录失败'
+  } finally {
+    oauthBusy.value = false
+  }
+}
+
+function reopenOAuthAuthorizeUrl() {
+  if (!import.meta.client || !oauthFlow.value?.authorizeUrl) {
+    return
+  }
+  window.open(oauthFlow.value.authorizeUrl, '_blank', 'noopener,noreferrer')
+}
+
+async function completeOAuthLogin() {
+  const flow = oauthFlow.value
+  if (!flow) {
+    oauthError.value = '请先打开 OAuth 授权链接'
+    return
+  }
+
+  const parsed = parseOAuthCallbackInput(oauthCodeInput.value)
+  if (!parsed.code) {
+    oauthError.value = '请粘贴回调地址或授权 code'
+    return
+  }
+  if (parsed.state && parsed.state !== flow.state) {
+    oauthError.value = '回调 state 与当前授权流程不一致，请重新发起 OAuth 登录'
+    return
+  }
+
+  oauthBusy.value = true
+  oauthError.value = ''
+  try {
+    const result = await adminApi.completeOAuth(admin.token.value, flow.provider, {
+      state: flow.state,
+      code: parsed.code,
+    })
+    closeOAuthModal(true)
+    admin.notify(`OAuth 凭据已添加：${result.id}`, 'success')
+    await Promise.all([
+      admin.loadOverview(admin.token.value, true),
+      loadCredentials(1, pageSize.value),
+    ])
+  } catch (error) {
+    oauthError.value = error instanceof Error ? error.message : 'OAuth 回调兑换失败'
+  } finally {
+    oauthBusy.value = false
+  }
 }
 
 function toggleSelectAll() {
@@ -572,6 +703,15 @@ onBeforeUnmount(() => {
         </AdminBadge>
       </template>
       <template #actions>
+        <AdminButton
+          v-if="admin.activeHandler.value?.supports_credentials && supportsOAuth"
+          variant="secondary"
+          prepend-icon="mdi-login"
+          :loading="oauthBusy && oauthOpen"
+          @click="startOAuthLogin"
+        >
+          OAuth 登录
+        </AdminButton>
         <AdminButton
           v-if="admin.activeHandler.value?.supports_credentials"
           prepend-icon="mdi-import"
@@ -929,9 +1069,20 @@ onBeforeUnmount(() => {
             icon="mdi-key-plus"
           >
             <template #action>
-              <AdminButton prepend-icon="mdi-import" @click="importOpen = true">
-                导入凭据
-              </AdminButton>
+              <div class="d-flex flex-wrap justify-center ga-2">
+                <AdminButton
+                  v-if="supportsOAuth"
+                  variant="secondary"
+                  prepend-icon="mdi-login"
+                  :loading="oauthBusy && oauthOpen"
+                  @click="startOAuthLogin"
+                >
+                  OAuth 登录
+                </AdminButton>
+                <AdminButton prepend-icon="mdi-import" @click="importOpen = true">
+                  导入凭据
+                </AdminButton>
+              </div>
             </template>
           </EmptyState>
 
@@ -1001,6 +1152,61 @@ onBeforeUnmount(() => {
           @click="createCredential"
         >
           开始导入
+        </AdminButton>
+      </template>
+    </ModalDialog>
+
+    <ModalDialog
+      :open="oauthOpen"
+      :title="oauthModalTitle"
+      icon="mdi-login"
+      max-width="720"
+      @close="closeOAuthModal"
+    >
+      <div class="d-grid ga-4">
+        <VTextField
+          :model-value="oauthFlow?.authorizeUrl || ''"
+          label="授权链接"
+          prepend-inner-icon="mdi-vector-link"
+          readonly
+          :loading="oauthBusy && !oauthFlow"
+        />
+
+        <VTextarea
+          v-model="oauthCodeInput"
+          rows="4"
+          label="回调地址"
+          :placeholder="oauthCallbackPlaceholder"
+          prepend-inner-icon="mdi-keyboard-return"
+          :disabled="!oauthFlow"
+        />
+
+        <VAlert
+          v-if="oauthError"
+          type="error"
+          variant="tonal"
+          density="comfortable"
+          :text="oauthError"
+          style="white-space: pre-wrap"
+        />
+      </div>
+      <template #footer>
+        <AdminButton variant="ghost" :disabled="oauthBusy" @click="closeOAuthModal">取消</AdminButton>
+        <AdminButton
+          variant="secondary"
+          prepend-icon="mdi-open-in-new"
+          :disabled="!oauthFlow"
+          @click="reopenOAuthAuthorizeUrl"
+        >
+          打开授权链接
+        </AdminButton>
+        <AdminButton
+          prepend-icon="mdi-key-plus"
+          :loading="oauthBusy"
+          :disabled="oauthSubmitDisabled"
+          @click="completeOAuthLogin"
+        >
+          完成添加
         </AdminButton>
       </template>
     </ModalDialog>

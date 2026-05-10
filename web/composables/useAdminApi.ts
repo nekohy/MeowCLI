@@ -8,6 +8,8 @@ import type {
   ImportJobSnapshot,
   LogListResponse,
   ModelItem,
+  OAuthCallbackResponse,
+  OAuthStartResponse,
   OverviewResponse,
   PaginatedResponse,
   SettingsSnapshot,
@@ -194,6 +196,19 @@ export const adminApi = {
   },
   importCredentials(token: string, endpoint: string, payload: { tokens: string[] }) {
     return apiRequest<ImportJobSnapshot>(credentialsPath(endpoint), {
+      token,
+      method: 'POST',
+      body: payload,
+    })
+  },
+  startOAuth(token: string, provider: string) {
+    return apiRequest<OAuthStartResponse>(`/oauth/${encodeURIComponent(provider)}/start`, {
+      token,
+      method: 'POST',
+    })
+  },
+  completeOAuth(token: string, provider: string, payload: { state: string; code: string }) {
+    return apiRequest<OAuthCallbackResponse>(`/oauth/${encodeURIComponent(provider)}/callback`, {
       token,
       method: 'POST',
       body: payload,

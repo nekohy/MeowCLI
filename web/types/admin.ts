@@ -201,6 +201,19 @@ export type CredentialItem = CodexItem | GeminiCredentialItem | GenericCredentia
 
 export type CredentialHandlerKey = string
 
+export type OAuthProvider = 'codex' | 'gemini'
+
+export interface OAuthStartResponse {
+  provider: OAuthProvider | string
+  state: string
+  authorize_url: string
+}
+
+export interface OAuthCallbackResponse {
+  provider: OAuthProvider | string
+  id: string
+}
+
 export interface ModelItem {
   alias: string
   origin: string
