@@ -22,6 +22,17 @@ WHERE
     AND (sqlc.arg(plan_type) = '' OR LOWER(g.plan_type) = LOWER(sqlc.arg(plan_type)))
     AND (sqlc.arg(unsynced_only) = false OR q.synced_at IS NULL OR q.synced_at <= '0001-01-01'::timestamptz);
 
+-- name: ListGeminiCLIPlanTypes :many
+SELECT DISTINCT LOWER(TRIM(g.plan_type)) AS plan_type
+FROM gemini g
+LEFT JOIN gemini_quota q ON q.credential_id = g.id
+WHERE
+    (sqlc.arg(search) = '' OR LOWER(g.id) LIKE sqlc.arg(search) OR LOWER(g.email) LIKE sqlc.arg(search) OR LOWER(g.status) LIKE sqlc.arg(search) OR LOWER(g.plan_type) LIKE sqlc.arg(search))
+    AND (sqlc.arg(status) = '' OR g.status = sqlc.arg(status))
+    AND (sqlc.arg(unsynced_only) = false OR q.synced_at IS NULL OR q.synced_at <= '0001-01-01'::timestamptz)
+    AND TRIM(g.plan_type) <> ''
+ORDER BY plan_type;
+
 -- name: ListGeminiCLI :many
 SELECT
     g.id, g.status, g.access_token, g.refresh_token, g.expired,

@@ -50,6 +50,12 @@ func (a *AdminHandler) ListCodex(c *gin.Context) {
 	filters := codexFiltersFromRequest(c)
 	sortOptions := credentialSortOptionsFromRequest(c.Query, codexCredentialSortKeys)
 
+	planTypes, err := a.store.ListCodexPlanTypes(c.Request.Context(), credentialPlanTypeFilter(filters))
+	if err != nil {
+		writeInternalError(c, err)
+		return
+	}
+
 	total, err := a.store.CountCodexFiltered(c.Request.Context(), filters)
 	if err != nil {
 		writeInternalError(c, err)
@@ -78,11 +84,17 @@ func (a *AdminHandler) ListCodex(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
-		"data":      items,
+		"total":      total,
+		"page":       page,
+		"page_size":  pageSize,
+		"plan_types": planTypes,
+		"data":       items,
 	})
+}
+
+func credentialPlanTypeFilter(filters db.CredentialFilterParams) db.CredentialFilterParams {
+	filters.PlanType = ""
+	return filters
 }
 
 func codexFiltersFromRequest(c *gin.Context) db.CredentialFilterParams {

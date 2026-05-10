@@ -278,6 +278,47 @@ func (q *Queries) ListGeminiCLIPaged(ctx context.Context, arg ListGeminiCLIPaged
 	return items, nil
 }
 
+const listGeminiCLIPlanTypes = `-- name: ListGeminiCLIPlanTypes :many
+SELECT DISTINCT LOWER(TRIM(g.plan_type)) AS plan_type
+FROM gemini g
+LEFT JOIN gemini_quota q ON q.credential_id = g.id
+WHERE
+    (?1 = '' OR LOWER(g.id) LIKE ?1 OR LOWER(g.email) LIKE ?1 OR LOWER(g.status) LIKE ?1 OR LOWER(g.plan_type) LIKE ?1)
+    AND (?2 = '' OR g.status = ?2)
+    AND (?3 = 0 OR q.synced_at IS NULL OR q.synced_at = '')
+    AND TRIM(g.plan_type) <> ''
+ORDER BY plan_type
+`
+
+type ListGeminiCLIPlanTypesParams struct {
+	Search       interface{} `json:"search"`
+	Status       interface{} `json:"status"`
+	UnsyncedOnly interface{} `json:"unsynced_only"`
+}
+
+func (q *Queries) ListGeminiCLIPlanTypes(ctx context.Context, arg ListGeminiCLIPlanTypesParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listGeminiCLIPlanTypes, arg.Search, arg.Status, arg.UnsyncedOnly)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var plan_type string
+		if err := rows.Scan(&plan_type); err != nil {
+			return nil, err
+		}
+		items = append(items, plan_type)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const restoreExpiredThrottledGeminiCLI = `-- name: RestoreExpiredThrottledGeminiCLI :exec
 UPDATE gemini
 SET status = 'enabled', reason = ''

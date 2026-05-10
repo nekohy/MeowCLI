@@ -237,6 +237,7 @@ export interface PaginatedResponse<T> {
   total: number
   page: number
   page_size: number
+  plan_types?: string[]
   data: T[]
 }
 

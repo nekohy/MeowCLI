@@ -40,6 +40,7 @@ const importJobs = useImportJobs()
 
 const rows = ref<CredentialItem[]>([])
 const rowsHandlerKey = ref('')
+const planTypes = ref<string[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(6)
@@ -87,10 +88,13 @@ const importInputLabel = computed(() => activeCredentialField.value?.label || '�
 const importInputPlaceholder = computed(() => activeCredentialField.value?.placeholder || '每行填写一个凭据')
 
 const availablePlanTypes = computed(() => {
+  const sourcePlanTypes = planTypes.value.length
+    ? planTypes.value
+    : rows.value.map((item) => item.plan_type || '')
   const orderedPlanTypes: string[] = []
   const seen = new Set<string>()
-  rows.value.forEach((item) => {
-    const planType = normalizePlanType(item.plan_type)
+  sourcePlanTypes.forEach((rawPlanType) => {
+    const planType = normalizePlanType(rawPlanType)
     if (!planType || seen.has(planType)) {
       return
     }
@@ -369,6 +373,7 @@ async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.va
   if (!admin.token.value || !handlerKey || !supportsCredentials) {
     rows.value = []
     rowsHandlerKey.value = handlerKey
+    planTypes.value = []
     total.value = 0
     page.value = 1
     selectedIds.value = []
@@ -384,6 +389,7 @@ async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.va
     }
     rows.value = data.data
     rowsHandlerKey.value = handlerKey
+    planTypes.value = data.plan_types || []
     total.value = data.total
     page.value = data.page
     pageSize.value = data.page_size
@@ -392,6 +398,7 @@ async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.va
     if (requestToken === latestLoadToken) {
       rows.value = []
       rowsHandlerKey.value = handlerKey
+      planTypes.value = []
       total.value = 0
       selectedIds.value = []
       admin.notify(error instanceof Error ? error.message : '加载凭据失败', 'danger')
@@ -523,6 +530,7 @@ watch(
   () => {
     statusFilter.value = CREDENTIAL_STATUS_FILTER_ALL
     planFilter.value = 'all'
+    planTypes.value = []
     sortBy.value = ''
     sortOrder.value = 'desc'
     searchInput.value = ''

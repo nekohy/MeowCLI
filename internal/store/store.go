@@ -350,6 +350,7 @@ type Store interface {
 	UpdateCodexPlanType(ctx context.Context, id string, planType string) (Codex, error)
 	ListCodex(ctx context.Context) ([]ListCodexRow, error)
 	ListCodexPaged(ctx context.Context, arg ListCredentialPagedParams) ([]ListCodexRow, error)
+	ListCodexPlanTypes(ctx context.Context, filter CredentialFilterParams) ([]string, error)
 	CreateCodex(ctx context.Context, arg CreateCodexParams) (Codex, error)
 	DeleteCodex(ctx context.Context, id string) error
 	UpdateCodexStatus(ctx context.Context, id string, status string, reason string) (Codex, error)
@@ -359,6 +360,7 @@ type Store interface {
 	UpdateGeminiPlanType(ctx context.Context, id string, planType string) (GeminiCredential, error)
 	ListGeminiCLI(ctx context.Context) ([]ListGeminiCLIRow, error)
 	ListGeminiCLIPaged(ctx context.Context, arg ListCredentialPagedParams) ([]ListGeminiCLIRow, error)
+	ListGeminiCLIPlanTypes(ctx context.Context, filter CredentialFilterParams) ([]string, error)
 	UpsertGeminiCLI(ctx context.Context, arg UpsertGeminiCLIParams) (GeminiCredential, error)
 	DeleteGeminiCLI(ctx context.Context, id string) error
 	UpdateGeminiCLIStatus(ctx context.Context, id string, status string, reason string) (GeminiCredential, error)

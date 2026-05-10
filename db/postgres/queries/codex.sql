@@ -42,6 +42,17 @@ WHERE
     AND (sqlc.arg(plan_type) = '' OR LOWER(c.plan_type) = LOWER(sqlc.arg(plan_type)))
     AND ((NOT sqlc.arg(unsynced_only)::boolean) OR q.synced_at IS NULL OR q.synced_at <= '0001-01-01'::timestamptz);
 
+-- name: ListCodexPlanTypes :many
+SELECT DISTINCT LOWER(TRIM(c.plan_type)) AS plan_type
+FROM codex c
+LEFT JOIN codex_quota q ON q.credential_id = c.id
+WHERE
+    (sqlc.arg(search) = '' OR LOWER(c.id) LIKE sqlc.arg(search) OR LOWER(c.status) LIKE sqlc.arg(search) OR LOWER(c.plan_type) LIKE sqlc.arg(search))
+    AND (sqlc.arg(status) = '' OR c.status = sqlc.arg(status))
+    AND ((NOT sqlc.arg(unsynced_only)::boolean) OR q.synced_at IS NULL OR q.synced_at <= '0001-01-01'::timestamptz)
+    AND TRIM(c.plan_type) <> ''
+ORDER BY plan_type;
+
 -- name: ListCodex :many
 SELECT
     c.*,

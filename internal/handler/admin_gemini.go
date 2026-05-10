@@ -56,6 +56,11 @@ func (a *AdminHandler) ListGemini(c *gin.Context) {
 
 	filters := geminiCredentialFiltersFromRequest(c)
 	sortOptions := credentialSortOptionsFromRequest(c.Query, geminiCredentialSortKeys)
+	planTypes, err := a.store.ListGeminiCLIPlanTypes(c.Request.Context(), credentialPlanTypeFilter(filters))
+	if err != nil {
+		writeInternalError(c, err)
+		return
+	}
 	total, rows, err := a.listGeminiCredentials(c.Request.Context(), page, pageSize, filters, sortOptions)
 	if err != nil {
 		writeInternalError(c, err)
@@ -63,10 +68,11 @@ func (a *AdminHandler) ListGemini(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
-		"data":      rows,
+		"total":      total,
+		"page":       page,
+		"page_size":  pageSize,
+		"plan_types": planTypes,
+		"data":       rows,
 	})
 }
 

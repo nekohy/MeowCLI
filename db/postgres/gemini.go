@@ -149,6 +149,14 @@ func (s *Store) ListGeminiCLIPaged(ctx context.Context, arg db.ListCredentialPag
 	return resolved, nil
 }
 
+func (s *Store) ListGeminiCLIPlanTypes(ctx context.Context, filter db.CredentialFilterParams) ([]string, error) {
+	return s.queries.ListGeminiCLIPlanTypes(ctx, sqlcpostgres.ListGeminiCLIPlanTypesParams{
+		Search:       postgresCodexSearchPattern(filter.Search),
+		Status:       strings.TrimSpace(filter.Status),
+		UnsyncedOnly: filter.UnsyncedOnly,
+	})
+}
+
 func (s *Store) UpsertGeminiCLI(ctx context.Context, arg db.UpsertGeminiCLIParams) (db.GeminiCredential, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

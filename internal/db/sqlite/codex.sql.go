@@ -314,6 +314,47 @@ func (q *Queries) ListCodexPaged(ctx context.Context, arg ListCodexPagedParams) 
 	return items, nil
 }
 
+const listCodexPlanTypes = `-- name: ListCodexPlanTypes :many
+SELECT DISTINCT LOWER(TRIM(c.plan_type)) AS plan_type
+FROM codex c
+LEFT JOIN codex_quota q ON q.credential_id = c.id
+WHERE
+    (?1 = '' OR LOWER(c.id) LIKE ?1 OR LOWER(c.status) LIKE ?1 OR LOWER(c.plan_type) LIKE ?1)
+    AND (?2 = '' OR c.status = ?2)
+    AND (?3 = 0 OR q.synced_at IS NULL OR q.synced_at = '')
+    AND TRIM(c.plan_type) <> ''
+ORDER BY plan_type
+`
+
+type ListCodexPlanTypesParams struct {
+	Search       interface{} `json:"search"`
+	Status       interface{} `json:"status"`
+	UnsyncedOnly interface{} `json:"unsynced_only"`
+}
+
+func (q *Queries) ListCodexPlanTypes(ctx context.Context, arg ListCodexPlanTypesParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listCodexPlanTypes, arg.Search, arg.Status, arg.UnsyncedOnly)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var plan_type string
+		if err := rows.Scan(&plan_type); err != nil {
+			return nil, err
+		}
+		items = append(items, plan_type)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const restoreExpiredThrottledCodex = `-- name: RestoreExpiredThrottledCodex :exec
 UPDATE codex
 SET status = 'enabled', reason = ''
@@ -331,6 +372,35 @@ WHERE status = 'throttled'
 func (q *Queries) RestoreExpiredThrottledCodex(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, restoreExpiredThrottledCodex)
 	return err
+}
+
+const updateCodexPlanType = `-- name: UpdateCodexPlanType :one
+UPDATE codex
+SET
+    plan_type = ?,
+    reason = ''
+WHERE id = ?
+RETURNING id, status, access_token, expired, refresh_token, plan_type, reason
+`
+
+type UpdateCodexPlanTypeParams struct {
+	PlanType string `json:"plan_type"`
+	ID       string `json:"id"`
+}
+
+func (q *Queries) UpdateCodexPlanType(ctx context.Context, arg UpdateCodexPlanTypeParams) (Codex, error) {
+	row := q.db.QueryRowContext(ctx, updateCodexPlanType, arg.PlanType, arg.ID)
+	var i Codex
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.AccessToken,
+		&i.Expired,
+		&i.RefreshToken,
+		&i.PlanType,
+		&i.Reason,
+	)
+	return i, err
 }
 
 const updateCodexStatus = `-- name: UpdateCodexStatus :one
@@ -390,35 +460,6 @@ func (q *Queries) UpdateCodexTokens(ctx context.Context, arg UpdateCodexTokensPa
 		arg.PlanType,
 		arg.ID,
 	)
-	var i Codex
-	err := row.Scan(
-		&i.ID,
-		&i.Status,
-		&i.AccessToken,
-		&i.Expired,
-		&i.RefreshToken,
-		&i.PlanType,
-		&i.Reason,
-	)
-	return i, err
-}
-
-const updateCodexPlanType = `-- name: UpdateCodexPlanType :one
-UPDATE codex
-SET
-    plan_type = ?,
-    reason = ''
-WHERE id = ?
-RETURNING id, status, access_token, expired, refresh_token, plan_type, reason
-`
-
-type UpdateCodexPlanTypeParams struct {
-	PlanType string `json:"plan_type"`
-	ID       string `json:"id"`
-}
-
-func (q *Queries) UpdateCodexPlanType(ctx context.Context, arg UpdateCodexPlanTypeParams) (Codex, error) {
-	row := q.db.QueryRowContext(ctx, updateCodexPlanType, arg.PlanType, arg.ID)
 	var i Codex
 	err := row.Scan(
 		&i.ID,

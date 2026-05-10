@@ -147,6 +147,14 @@ func (s *Store) ListCodexPaged(ctx context.Context, arg db.ListCredentialPagedPa
 	return resolved, nil
 }
 
+func (s *Store) ListCodexPlanTypes(ctx context.Context, filter db.CredentialFilterParams) ([]string, error) {
+	return s.queries.ListCodexPlanTypes(ctx, sqlcsqlite.ListCodexPlanTypesParams{
+		Search:       sqliteCodexSearchPattern(filter.Search),
+		Status:       strings.TrimSpace(filter.Status),
+		UnsyncedOnly: sqliteBool(filter.UnsyncedOnly),
+	})
+}
+
 func sqliteCodexSearchPattern(search string) string {
 	value := strings.TrimSpace(search)
 	if value == "" {
