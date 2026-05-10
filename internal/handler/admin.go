@@ -13,6 +13,7 @@ import (
 
 	codexapi "github.com/nekohy/MeowCLI/api/codex"
 	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
+	oauthcore "github.com/nekohy/MeowCLI/core"
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
 	coregemini "github.com/nekohy/MeowCLI/core/gemini"
 	"github.com/nekohy/MeowCLI/internal/auth"
@@ -49,6 +50,7 @@ type AdminHandler struct {
 	logStore    LogStore
 	codexAPI    *codexapi.Client
 	geminiAPI   *geminiapi.Client
+	oauthFlows  map[utils.HandlerType]oauthcore.OAuthFlow
 	authCache   *auth.KeyCache
 	credRefresh CredentialRefresher
 	modelCache  ModelCache

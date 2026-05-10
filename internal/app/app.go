@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	oauthcore "github.com/nekohy/MeowCLI/core"
 	coreCodex "github.com/nekohy/MeowCLI/core/codex"
 	coreGemini "github.com/nekohy/MeowCLI/core/gemini"
 	"github.com/nekohy/MeowCLI/db/postgres"
@@ -114,6 +115,11 @@ func Run(ctx context.Context, cfg Config) error {
 	h.SetSettingsProvider(settingsSvc)
 
 	adminHandler := handler.NewAdminHandler(store, codexClient, geminiClient)
+	oauthFlows, err := newOAuthFlows()
+	if err != nil {
+		return err
+	}
+	adminHandler.SetOAuthFlows(oauthFlows)
 	adminHandler.SetAuthCache(authCache)
 	adminHandler.SetModelCache(modelCache)
 	adminHandler.SetCredentialRefresher(&credentialRefreshDispatcher{
@@ -165,6 +171,21 @@ func Run(ctx context.Context, cfg Config) error {
 	case err := <-serverErr:
 		return err
 	}
+}
+
+func newOAuthFlows() (map[utils.HandlerType]oauthcore.OAuthFlow, error) {
+	codexOAuth, err := coreCodex.NewOAuthFlow(nil)
+	if err != nil {
+		return nil, fmt.Errorf("init codex oauth flow: %w", err)
+	}
+	geminiOAuth, err := coreGemini.NewOAuthFlow(nil)
+	if err != nil {
+		return nil, fmt.Errorf("init gemini oauth flow: %w", err)
+	}
+	return map[utils.HandlerType]oauthcore.OAuthFlow{
+		utils.HandlerCodex:  codexOAuth,
+		utils.HandlerGemini: geminiOAuth,
+	}, nil
 }
 
 func openStore(ctx context.Context, cfg Config) (db.Store, error) {
