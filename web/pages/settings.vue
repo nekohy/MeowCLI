@@ -23,19 +23,22 @@ const actionBusy = ref(false)
 const geminiEndpointOpen = ref(false)
 const form = ref<SettingsForm>({ ...DEFAULT_SETTINGS_FORM })
 
-const availablePlanTypes = computed(() => admin.activeHandler.value?.plan_list || [])
-const geminiPlanTypes = ['ultra', 'pro', 'free', 'unknown']
+const fallbackCodexPlanTypes = ['free', 'plus', 'edu', 'prolite', 'pro', 'team', 'enterprise', 'unknown']
+const fallbackGeminiPlanTypes = ['ultra', 'pro', 'free', 'unknown']
+
+const codexPlanTypes = computed(() => admin.handlerLookup.value.get('codex')?.plan_list || fallbackCodexPlanTypes)
+const geminiPlanTypes = computed(() => admin.handlerLookup.value.get('gemini')?.plan_list || fallbackGeminiPlanTypes)
 
 const codexPlanOrder = usePlanOrderModal(
   () => form.value.codex_preferred_plan_types,
   (v) => { form.value.codex_preferred_plan_types = v },
-  () => availablePlanTypes.value,
+  () => codexPlanTypes.value,
 )
 
 const geminiPlanOrder = usePlanOrderModal(
   () => form.value.gemini_preferred_plan_types,
   (v) => { form.value.gemini_preferred_plan_types = v },
-  () => geminiPlanTypes,
+  () => geminiPlanTypes.value,
 )
 
 const geminiEndpointSelection = computed(() => splitGeminiBaseURLInput(form.value.gemini_base_urls))
