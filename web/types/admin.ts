@@ -102,9 +102,13 @@ export interface SettingsSnapshot {
   global_proxy: string
   codex_proxy: string
   gemini_proxy: string
+  antigravity_proxy: string
   gemini_base_urls: string
   codex_preferred_plan_types: string
   gemini_preferred_plan_types: string
+  antigravity_preferred_plan_types: string
+  antigravity_api_endpoint?: string
+  antigravity_use_credits?: boolean
   refresh_before_seconds: number
   poll_interval_milliseconds: number
   quota_sync_interval_seconds: number
@@ -119,9 +123,13 @@ export interface SettingsForm {
   global_proxy: string
   codex_proxy: string
   gemini_proxy: string
+  antigravity_proxy: string
   gemini_base_urls: string
   codex_preferred_plan_types: string
   gemini_preferred_plan_types: string
+  antigravity_preferred_plan_types: string
+  antigravity_api_endpoint?: string
+  antigravity_use_credits?: boolean
   refresh_before_seconds: string
   poll_interval_milliseconds: string
   quota_sync_interval_seconds: string
@@ -148,6 +156,12 @@ export interface GeminiSchedulingMetric {
   reset: string
   score: number
   weight: number
+}
+
+export interface AntigravityCreditsMetric {
+  available: boolean
+  amount: number
+  types: string[]
 }
 
 export interface CodexItem {
@@ -179,6 +193,26 @@ export interface GeminiCredentialItem {
   flashlite: GeminiSchedulingMetric
 }
 
+export interface AntigravityCredentialItem {
+  handler: 'antigravity'
+  id: string
+  status: string
+  email: string
+  project_id: string
+  plan_type: string
+  expired: string
+  reason: string
+  synced_at: string
+  throttled_until: string
+  claude: GeminiSchedulingMetric
+  pro: GeminiSchedulingMetric
+  flash: GeminiSchedulingMetric
+  flashlite: GeminiSchedulingMetric
+  tab: GeminiSchedulingMetric
+  image: GeminiSchedulingMetric
+  credits: AntigravityCreditsMetric
+}
+
 export interface GenericCredentialItem {
   handler: string
   id: string
@@ -191,11 +225,11 @@ export interface GenericCredentialItem {
   [key: string]: unknown
 }
 
-export type CredentialItem = CodexItem | GeminiCredentialItem | GenericCredentialItem
+export type CredentialItem = CodexItem | GeminiCredentialItem | AntigravityCredentialItem | GenericCredentialItem
 
 export type CredentialHandlerKey = string
 
-export type OAuthProvider = 'codex' | 'gemini'
+export type OAuthProvider = 'codex' | 'gemini' | 'antigravity'
 
 export interface OAuthStartResponse {
   provider: OAuthProvider | string

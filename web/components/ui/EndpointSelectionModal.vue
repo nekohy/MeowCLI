@@ -1,12 +1,24 @@
 <script setup lang="ts">
 import { GEMINI_BASE_URL_OPTIONS } from '~/lib/admin'
 
-defineProps<{
+interface EndpointOption {
+  title: string
+  value: string
+}
+
+const props = withDefaults(defineProps<{
   open: boolean
   selected: string[]
   isSelected: (value: string) => boolean
   toggle: (value: string) => void
-}>()
+  title?: string
+  description?: string
+  options?: EndpointOption[]
+}>(), {
+  title: '接口',
+  description: '勾选启用，每次请求随机选择',
+  options: () => GEMINI_BASE_URL_OPTIONS,
+})
 
 defineEmits<{
   close: []
@@ -16,15 +28,15 @@ defineEmits<{
 <template>
   <ModalDialog
     :open="open"
-    title="Gemini CLI 接口"
-    description="勾选启用，每次请求随机选择"
+    :title="props.title"
+    :description="props.description"
     icon="mdi-swap-vertical"
     :max-width="400"
     @close="$emit('close')"
   >
     <div class="endpoint-list">
       <div
-        v-for="option in GEMINI_BASE_URL_OPTIONS"
+        v-for="option in props.options"
         :key="option.value"
         class="endpoint-item"
         :class="{ 'endpoint-item--selected': isSelected(option.value) }"

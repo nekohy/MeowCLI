@@ -78,13 +78,18 @@ export const GEMINI_BASE_URL_OPTIONS = [
   { title: 'Daily Sandbox', value: 'daily_sandbox' },
 ]
 
+export const ANTIGRAVITY_API_ENDPOINT_OPTIONS = GEMINI_BASE_URL_OPTIONS
+
 export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   global_proxy: '',
   codex_proxy: '',
   gemini_proxy: '',
+  antigravity_proxy: '',
   gemini_base_urls: GEMINI_BASE_URL_OPTIONS[0]!.value,
   codex_preferred_plan_types: '',
   gemini_preferred_plan_types: '',
+  antigravity_preferred_plan_types: '',
+  antigravity_api_endpoint: 'prod',
   refresh_before_seconds: '30',
   poll_interval_milliseconds: '200',
   quota_sync_interval_seconds: '900',
@@ -301,16 +306,19 @@ export function codexCredentialAccountID(id?: string | null) {
   return text.slice(idx + CREDENTIAL_ID_SEPARATOR.length) || '-'
 }
 
-export function splitPlanTypeInput(value?: string | null) {
+export function splitPlanTypeInput(value?: string | null, allowedPlanTypes?: string[]) {
   if (!value) {
     return []
   }
 
+  const allowed = allowedPlanTypes?.length
+    ? new Set(allowedPlanTypes.map((item) => normalizePlanType(item)).filter(Boolean))
+    : null
   const planTypes: string[] = []
   const seen = new Set<string>()
   for (const part of value.split(PLAN_TYPE_SPLIT_RE)) {
     const planType = normalizePlanType(part)
-    if (!planType || seen.has(planType)) {
+    if (!planType || seen.has(planType) || (allowed && !allowed.has(planType))) {
       continue
     }
     seen.add(planType)
@@ -319,12 +327,20 @@ export function splitPlanTypeInput(value?: string | null) {
   return planTypes
 }
 
-export function joinPlanTypeInput(planTypes: string[]) {
-  return splitPlanTypeInput(planTypes.join(',')).join(',')
+export function joinPlanTypeInput(planTypes: string[], allowedPlanTypes?: string[]) {
+  return splitPlanTypeInput(planTypes.join(','), allowedPlanTypes).join(',')
 }
 
 export function splitGeminiBaseURLInput(value?: string | null) {
-  const allowed = new Set(GEMINI_BASE_URL_OPTIONS.map((option) => option.value))
+  return splitEndpointInput(value, GEMINI_BASE_URL_OPTIONS)
+}
+
+export function splitAntigravityAPIEndpointInput(value?: string | null) {
+  return splitEndpointInput(value, ANTIGRAVITY_API_ENDPOINT_OPTIONS)
+}
+
+function splitEndpointInput(value: string | null | undefined, options: Array<{ value: string }>) {
+  const allowed = new Set(options.map((option) => option.value))
   const selected: string[] = []
   const seen = new Set<string>()
   for (const part of String(value || '').split(PLAN_TYPE_SPLIT_RE)) {
@@ -335,25 +351,35 @@ export function splitGeminiBaseURLInput(value?: string | null) {
     seen.add(endpoint)
     selected.push(endpoint)
   }
-  return selected.length ? selected : [GEMINI_BASE_URL_OPTIONS[0]!.value]
+  return selected.length ? selected : [options[0]!.value]
 }
 
 export function joinGeminiBaseURLInput(values: string[]) {
   return splitGeminiBaseURLInput(values.join(',')).join(',')
 }
 
+export function joinAntigravityAPIEndpointInput(values: string[]) {
+  return splitAntigravityAPIEndpointInput(values.join(',')).join(',')
+}
+
 export function geminiBaseURLText(value: string) {
   return GEMINI_BASE_URL_OPTIONS.find((option) => option.value === value)?.title || value
 }
 
+export function antigravityAPIEndpointText(value: string) {
+  return ANTIGRAVITY_API_ENDPOINT_OPTIONS.find((option) => option.value === value)?.title || value
+}
+
 export function settingsToForm(data: SettingsSnapshot): SettingsForm {
-  return {
+  const form: SettingsForm = {
     global_proxy: data.global_proxy,
     codex_proxy: data.codex_proxy,
     gemini_proxy: data.gemini_proxy,
+    antigravity_proxy: data.antigravity_proxy,
     gemini_base_urls: joinGeminiBaseURLInput([data.gemini_base_urls]),
     codex_preferred_plan_types: data.codex_preferred_plan_types.trim(),
     gemini_preferred_plan_types: data.gemini_preferred_plan_types.trim(),
+    antigravity_preferred_plan_types: data.antigravity_preferred_plan_types.trim(),
     refresh_before_seconds: String(data.refresh_before_seconds),
     poll_interval_milliseconds: String(data.poll_interval_milliseconds),
     quota_sync_interval_seconds: String(data.quota_sync_interval_seconds),
@@ -363,16 +389,25 @@ export function settingsToForm(data: SettingsSnapshot): SettingsForm {
     logs_retention_seconds: String(data.logs_retention_seconds),
     relay_max_retries: String(data.relay_max_retries),
   }
+  if (typeof data.antigravity_api_endpoint === 'string') {
+    form.antigravity_api_endpoint = joinAntigravityAPIEndpointInput([data.antigravity_api_endpoint])
+  }
+  if (typeof data.antigravity_use_credits === 'boolean') {
+    form.antigravity_use_credits = data.antigravity_use_credits
+  }
+  return form
 }
 
 export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
-  return {
+  const payload: SettingsSnapshot = {
     global_proxy: form.global_proxy.trim(),
     codex_proxy: form.codex_proxy.trim(),
     gemini_proxy: form.gemini_proxy.trim(),
+    antigravity_proxy: form.antigravity_proxy.trim(),
     gemini_base_urls: joinGeminiBaseURLInput([form.gemini_base_urls]),
     codex_preferred_plan_types: form.codex_preferred_plan_types.trim(),
     gemini_preferred_plan_types: form.gemini_preferred_plan_types.trim(),
+    antigravity_preferred_plan_types: form.antigravity_preferred_plan_types.trim(),
     refresh_before_seconds: Number(form.refresh_before_seconds),
     poll_interval_milliseconds: Number(form.poll_interval_milliseconds),
     quota_sync_interval_seconds: Number(form.quota_sync_interval_seconds),
@@ -382,4 +417,11 @@ export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
     logs_retention_seconds: Number(form.logs_retention_seconds),
     relay_max_retries: Number(form.relay_max_retries),
   }
+  if (typeof form.antigravity_api_endpoint === 'string') {
+    payload.antigravity_api_endpoint = joinAntigravityAPIEndpointInput([form.antigravity_api_endpoint])
+  }
+  if (typeof form.antigravity_use_credits === 'boolean') {
+    payload.antigravity_use_credits = form.antigravity_use_credits
+  }
+  return payload
 }

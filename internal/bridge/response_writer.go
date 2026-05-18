@@ -22,7 +22,7 @@ func (h *Handler) writeUpstreamResponse(c *gin.Context, resp *http.Response, bac
 	if replaceModel {
 		responseAlias = alias
 	}
-	normalizeGemini := backend.HandlerType() == utils.HandlerGemini
+	normalizeGemini := backend.HandlerType() == utils.HandlerGemini || backend.HandlerType() == utils.HandlerAntigravity
 
 	if streamRequest {
 		err := h.streamSSE(c, resp, backend, responseAlias)
@@ -63,7 +63,7 @@ func (h *Handler) streamSSE(c *gin.Context, resp *http.Response, backend api.Bac
 		_ = Body.Close()
 	}(resp.Body)
 
-	normalizePayload := alias != "" || backend.HandlerType() == utils.HandlerGemini
+	normalizePayload := alias != "" || backend.HandlerType() == utils.HandlerGemini || backend.HandlerType() == utils.HandlerAntigravity
 	if !normalizePayload {
 		buf := make([]byte, 32*1024)
 		for {

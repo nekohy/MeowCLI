@@ -12,7 +12,7 @@ type codexSchedulingMetric struct {
 	Weight    float64   `json:"weight"`
 }
 
-type geminiSchedulingMetric struct {
+type quotaSchedulingMetric struct {
 	Available bool      `json:"available"`
 	Quota     float64   `json:"quota"`
 	Reset     time.Time `json:"reset"`

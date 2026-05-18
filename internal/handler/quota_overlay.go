@@ -51,8 +51,8 @@ func overlayGeminiQuotaCache(items []geminiListItem, overlay quotaCacheOverlay) 
 	}
 }
 
-func geminiMetricFromCache(metric coregemini.CachedQuotaMetric) geminiSchedulingMetric {
-	return geminiSchedulingMetric{
+func geminiMetricFromCache(metric coregemini.CachedQuotaMetric) quotaSchedulingMetric {
+	return quotaSchedulingMetric{
 		Available: metric.Available,
 		Quota:     metric.Quota,
 		Reset:     metric.Reset,

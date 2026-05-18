@@ -9,27 +9,36 @@ export function usePlanOrderModal(
   const draft = ref<string[]>([])
   const dragIdx = ref<number | null>(null)
 
+  function planTypes() {
+    return splitPlanTypeInput(allPlanTypes().join(','))
+  }
+
+  function selectedPlanTypes() {
+    return splitPlanTypeInput(getValue(), planTypes())
+  }
+
   function openModal() {
-    const selected = splitPlanTypeInput(getValue())
-    const unselected = allPlanTypes().filter(t => !selected.includes(t))
+    const selected = selectedPlanTypes()
+    const unselected = planTypes().filter(t => !selected.includes(t))
     draft.value = [...selected, ...unselected]
     open.value = true
   }
 
   function isSelected(planType: string) {
-    return splitPlanTypeInput(getValue()).includes(planType)
+    return selectedPlanTypes().includes(planType)
   }
 
   function toggle(planType: string) {
-    const selected = splitPlanTypeInput(getValue())
+    const allowed = planTypes()
+    const selected = selectedPlanTypes()
     const idx = selected.indexOf(planType)
     if (idx >= 0) {
       selected.splice(idx, 1)
     } else {
       selected.push(planType)
     }
-    setValue(joinPlanTypeInput(selected))
-    const newSelected = splitPlanTypeInput(getValue())
+    setValue(joinPlanTypeInput(selected, allowed))
+    const newSelected = selectedPlanTypes()
     const remaining = draft.value.filter(t => !newSelected.includes(t))
     draft.value = [...newSelected, ...remaining]
   }
@@ -51,19 +60,19 @@ export function usePlanOrderModal(
 
   function onDragEnd() {
     dragIdx.value = null
-    const selected = new Set(splitPlanTypeInput(getValue()))
+    const selected = new Set(selectedPlanTypes())
     const ordered = draft.value.filter(t => selected.has(t))
-    setValue(joinPlanTypeInput(ordered))
+    setValue(joinPlanTypeInput(ordered, planTypes()))
   }
 
   function closeModal() {
     open.value = false
   }
 
-  const preview = computed(() => splitPlanTypeInput(getValue()))
+  const preview = computed(() => selectedPlanTypes())
 
   function rankOf(planType: string) {
-    return splitPlanTypeInput(getValue()).indexOf(planType) + 1
+    return selectedPlanTypes().indexOf(planType) + 1
   }
 
   return {

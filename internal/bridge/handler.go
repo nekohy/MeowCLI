@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nekohy/MeowCLI/api"
+	coreantigravity "github.com/nekohy/MeowCLI/core/antigravity"
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
 	coreGemini "github.com/nekohy/MeowCLI/core/gemini"
 	"github.com/nekohy/MeowCLI/core/scheduling"
@@ -54,6 +55,10 @@ type CredentialScheduler interface {
 
 type ProjectIDProvider interface {
 	ProjectID(ctx context.Context, credentialID string) (string, error)
+}
+
+type CreditTypesProvider interface {
+	CreditTypes(ctx context.Context, credentialID string) ([]string, error)
 }
 
 type relayTarget struct {
@@ -179,6 +184,8 @@ func modelTier(info *ResolvedModel) string {
 		return corecodex.ResolveModelTier(info.Origin)
 	case utils.HandlerGemini:
 		return coreGemini.ResolveModelTier(info.Origin)
+	case utils.HandlerAntigravity:
+		return coreantigravity.ResolveModelTier(info.Origin)
 	default:
 		return ""
 	}

@@ -1,4 +1,4 @@
-package gemini
+package antigravity
 
 import (
 	"context"
@@ -9,8 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
-	"github.com/nekohy/MeowCLI/core/scheduling"
+	antigravityapi "github.com/nekohy/MeowCLI/api/antigravity"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	db "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
@@ -26,43 +25,40 @@ const (
 	pruneEntryIdleAfter    = 5 * time.Minute
 )
 
-var _ scheduling.CredentialManager = (*Manager)(nil)
-
-type Store interface {
-	GetGeminiCLI(ctx context.Context, id string) (db.GeminiCredential, error)
-	UpdateGeminiTokens(ctx context.Context, arg db.UpdateGeminiTokensParams) (db.GeminiCredential, error)
+type ManagerStore interface {
+	GetAntigravity(ctx context.Context, id string) (db.AntigravityCredential, error)
+	UpdateAntigravityTokens(ctx context.Context, arg db.UpdateAntigravityTokensParams) (db.AntigravityCredential, error)
 }
 
 type Client interface {
-	RefreshAccessToken(ctx context.Context, refreshToken string) (*geminiapi.TokenData, error)
-	ResolveProjectID(ctx context.Context, accessToken string) (string, error)
+	RefreshAccessToken(ctx context.Context, refreshToken string) (*antigravityapi.TokenData, error)
 }
 
 type Manager struct {
-	store      Store
+	store      ManagerStore
 	client     Client
 	settings   settings.Provider
-	cache      *otter.Cache[string, GeminiCache]
+	cache      *otter.Cache[string, CredentialCache]
 	entries    sync.Map
 	loadGroup  singleflight.Group
 	refreshSem chan struct{}
 }
 
 type ManagerConfig struct {
-	Store    Store
+	Store    ManagerStore
 	Client   Client
 	Settings settings.Provider
-	Cache    *otter.Cache[string, GeminiCache]
+	Cache    *otter.Cache[string, CredentialCache]
 }
 
-type GeminiCache struct {
+type CredentialCache struct {
 	ID          string
 	AccessToken string
 	ProjectID   string
 	Expired     time.Time
 }
 
-type GeminiEntry struct {
+type credentialEntry struct {
 	refreshing atomic.Bool
 	mu         sync.Mutex
 	done       chan struct{}
@@ -72,10 +68,10 @@ type GeminiEntry struct {
 
 func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if cfg.Store == nil {
-		return nil, fmt.Errorf("gemini manager store is required")
+		return nil, fmt.Errorf("antigravity manager store is required")
 	}
 	if cfg.Client == nil {
-		return nil, fmt.Errorf("gemini manager client is required")
+		return nil, fmt.Errorf("antigravity manager client is required")
 	}
 	m := &Manager{
 		store:      cfg.Store,
@@ -87,9 +83,9 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	cache := cfg.Cache
 	if cache == nil {
 		var err error
-		cache, err = otter.New[string, GeminiCache](&otter.Options[string, GeminiCache]{
-			ExpiryCalculator: otter.ExpiryWriting[string, GeminiCache](defaultCacheExpiration),
-			OnDeletion: func(e otter.DeletionEvent[string, GeminiCache]) {
+		cache, err = otter.New[string, CredentialCache](&otter.Options[string, CredentialCache]{
+			ExpiryCalculator: otter.ExpiryWriting[string, CredentialCache](defaultCacheExpiration),
+			OnDeletion: func(e otter.DeletionEvent[string, CredentialCache]) {
 				if e.Cause != otter.CauseExpiration {
 					return
 				}
@@ -97,7 +93,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 			},
 		})
 		if err != nil {
-			return nil, fmt.Errorf("create gemini otter cache: %w", err)
+			return nil, fmt.Errorf("create antigravity otter cache: %w", err)
 		}
 	}
 	m.cache = cache
@@ -105,31 +101,19 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 }
 
 func (m *Manager) GetAccessToken(ctx context.Context, credentialID string) (string, error) {
-	return m.AccessToken(ctx, credentialID, scheduling.UseCached)
+	return m.AccessToken(ctx, credentialID)
 }
 
-func (m *Manager) GetProjectID(ctx context.Context, credentialID string) (string, error) {
-	row, err := m.credential(ctx, credentialID, scheduling.UseCached)
-	if err != nil {
-		return "", err
-	}
-	return row.ProjectID, nil
-}
-
-func (m *Manager) GetAuthHeaders(ctx context.Context, credentialID string) (http.Header, error) {
-	return m.AuthHeaders(ctx, credentialID, scheduling.UseCached)
-}
-
-func (m *Manager) AccessToken(ctx context.Context, credentialID string, mode scheduling.RefreshMode) (string, error) {
-	row, err := m.credential(ctx, credentialID, mode)
+func (m *Manager) AccessToken(ctx context.Context, credentialID string) (string, error) {
+	row, err := m.cachedCredential(ctx, credentialID)
 	if err != nil {
 		return "", err
 	}
 	return row.AccessToken, nil
 }
 
-func (m *Manager) AuthHeaders(ctx context.Context, credentialID string, mode scheduling.RefreshMode) (http.Header, error) {
-	row, err := m.credential(ctx, credentialID, mode)
+func (m *Manager) AuthHeaders(ctx context.Context, credentialID string) (http.Header, error) {
+	row, err := m.cachedCredential(ctx, credentialID)
 	if err != nil {
 		return nil, err
 	}
@@ -139,14 +123,25 @@ func (m *Manager) AuthHeaders(ctx context.Context, credentialID string, mode sch
 	return headers, nil
 }
 
-func (m *Manager) credential(ctx context.Context, credentialID string, mode scheduling.RefreshMode) (db.GeminiCredential, error) {
-	if mode == scheduling.ForceRefresh {
-		return m.forceRefreshCredential(ctx, credentialID)
-	}
-	return m.cachedCredential(ctx, credentialID)
+func (m *Manager) RefreshCredential(ctx context.Context, credentialID string) error {
+	_, err := m.forceRefreshCredential(ctx, credentialID)
+	return err
 }
 
-func (m *Manager) cachedCredential(ctx context.Context, credentialID string) (db.GeminiCredential, error) {
+func (m *Manager) InvalidateCredential(credentialID string) {
+	m.invalidateCache(credentialID)
+	m.entries.Delete(credentialID)
+}
+
+func (m *Manager) ProjectID(ctx context.Context, credentialID string) (string, error) {
+	row, err := m.cachedCredential(ctx, credentialID)
+	if err != nil {
+		return "", err
+	}
+	return row.ProjectID, nil
+}
+
+func (m *Manager) cachedCredential(ctx context.Context, credentialID string) (db.AntigravityCredential, error) {
 	entry := m.entry(credentialID)
 	if snapshot, ok := m.readCache(credentialID); ok {
 		return m.credentialFromCache(snapshot), nil
@@ -155,9 +150,9 @@ func (m *Manager) cachedCredential(ctx context.Context, credentialID string) (db
 		return m.waitForCachedCredential(ctx, entry, credentialID)
 	}
 
-	row, err := m.loadGemini(ctx, credentialID)
+	row, err := m.loadAntigravity(ctx, credentialID)
 	if err != nil {
-		return db.GeminiCredential{}, err
+		return db.AntigravityCredential{}, err
 	}
 	if strings.TrimSpace(row.ProjectID) == "" {
 		row.ProjectID = utils.ProjectIDFromCredentialID(row.ID)
@@ -188,12 +183,7 @@ func (m *Manager) cachedCredential(ctx context.Context, credentialID string) (db
 	return m.waitForCredential(ctx, entry, credentialID)
 }
 
-func (m *Manager) RefreshCredential(ctx context.Context, credentialID string) error {
-	_, err := m.forceRefreshCredential(ctx, credentialID)
-	return err
-}
-
-func (m *Manager) forceRefreshCredential(ctx context.Context, credentialID string) (db.GeminiCredential, error) {
+func (m *Manager) forceRefreshCredential(ctx context.Context, credentialID string) (db.AntigravityCredential, error) {
 	entry := m.entry(credentialID)
 	if !entry.refreshing.CompareAndSwap(false, true) {
 		return m.waitForCachedCredential(ctx, entry, credentialID)
@@ -206,10 +196,10 @@ func (m *Manager) forceRefreshCredential(ctx context.Context, credentialID strin
 	}()
 	m.invalidateCache(credentialID)
 
-	row, err := m.loadGemini(ctx, credentialID)
+	row, err := m.loadAntigravity(ctx, credentialID)
 	if err != nil {
 		refreshErr = err
-		return db.GeminiCredential{}, err
+		return db.AntigravityCredential{}, err
 	}
 
 	row.AccessToken = ""
@@ -221,7 +211,7 @@ func (m *Manager) forceRefreshCredential(ctx context.Context, credentialID strin
 	return refreshed, err
 }
 
-func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.GeminiCredential) (db.GeminiCredential, error) {
+func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.AntigravityCredential) (db.AntigravityCredential, error) {
 	accessToken := strings.TrimSpace(row.AccessToken)
 	refreshToken := strings.TrimSpace(row.RefreshToken)
 	expiry := row.Expired
@@ -229,40 +219,37 @@ func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.GeminiCredenti
 	if projectID == "" {
 		projectID = utils.ProjectIDFromCredentialID(row.ID)
 	}
-	if strings.TrimSpace(accessToken) == "" || m.shouldRefresh(expiry) {
+	if accessToken == "" || m.shouldRefresh(expiry) {
 		if refreshToken == "" {
-			return db.GeminiCredential{}, fmt.Errorf("gemini credential %s has no refresh token", row.ID)
+			return db.AntigravityCredential{}, fmt.Errorf("antigravity credential %s has no refresh token", row.ID)
 		}
 
 		tokenData, err := m.client.RefreshAccessToken(ctx, refreshToken)
 		if err != nil {
-			return db.GeminiCredential{}, err
+			return db.AntigravityCredential{}, err
 		}
 		if tokenData == nil {
-			return db.GeminiCredential{}, fmt.Errorf("refresh tokens for %s: empty token response", row.ID)
+			return db.AntigravityCredential{}, fmt.Errorf("refresh antigravity tokens for %s: empty token response", row.ID)
 		}
 		accessToken = strings.TrimSpace(tokenData.AccessToken)
 		refreshToken = strings.TrimSpace(tokenData.RefreshToken)
 		expiry = tokenData.Expiry
 		if accessToken == "" {
-			return db.GeminiCredential{}, fmt.Errorf("refresh tokens for %s: empty access token", row.ID)
+			return db.AntigravityCredential{}, fmt.Errorf("refresh antigravity tokens for %s: empty access token", row.ID)
 		}
 		if refreshToken == "" {
-			return db.GeminiCredential{}, fmt.Errorf("refresh tokens for %s: empty refresh token", row.ID)
+			return db.AntigravityCredential{}, fmt.Errorf("refresh antigravity tokens for %s: empty refresh token", row.ID)
 		}
 		if expiry.IsZero() {
-			return db.GeminiCredential{}, fmt.Errorf("refresh tokens for %s: zero expiry", row.ID)
+			return db.AntigravityCredential{}, fmt.Errorf("refresh antigravity tokens for %s: zero expiry", row.ID)
 		}
 	}
 
-	if projectID == "" && accessToken != "" {
-		resolvedProjectID, err := m.client.ResolveProjectID(ctx, accessToken)
-		if err == nil && strings.TrimSpace(resolvedProjectID) != "" {
-			projectID = strings.TrimSpace(resolvedProjectID)
-		}
+	if projectID == "" {
+		return db.AntigravityCredential{}, fmt.Errorf("antigravity credential %s has no project_id", row.ID)
 	}
 
-	updated, err := m.store.UpdateGeminiTokens(ctx, db.UpdateGeminiTokensParams{
+	updated, err := m.store.UpdateAntigravityTokens(ctx, db.UpdateAntigravityTokensParams{
 		ID:           row.ID,
 		Status:       "enabled",
 		AccessToken:  accessToken,
@@ -273,82 +260,82 @@ func (m *Manager) refreshAndWriteBack(ctx context.Context, row db.GeminiCredenti
 		PlanType:     row.PlanType,
 	})
 	if err != nil {
-		return db.GeminiCredential{}, err
+		return db.AntigravityCredential{}, err
 	}
 	m.writeCache(updated)
 	return updated, nil
 }
 
-func (m *Manager) waitForCredential(ctx context.Context, entry *GeminiEntry, credentialID string) (db.GeminiCredential, error) {
+func (m *Manager) waitForCredential(ctx context.Context, entry *credentialEntry, credentialID string) (db.AntigravityCredential, error) {
 	for {
 		done, _ := entry.refreshState()
 		if done == nil {
 			if err := sleepUntilRefreshStarts(ctx); err != nil {
-				return db.GeminiCredential{}, fmt.Errorf("waiting for gemini token refresh: %w", err)
+				return db.AntigravityCredential{}, fmt.Errorf("waiting for antigravity token refresh: %w", err)
 			}
 			continue
 		}
 		select {
 		case <-ctx.Done():
-			return db.GeminiCredential{}, fmt.Errorf("waiting for gemini token refresh: %w", ctx.Err())
+			return db.AntigravityCredential{}, fmt.Errorf("waiting for antigravity token refresh: %w", ctx.Err())
 		case <-done:
 			if snapshot, ok := m.readCache(credentialID); ok {
 				return m.credentialFromCache(snapshot), nil
 			}
 			_, refreshErr := entry.refreshState()
 			if refreshErr != nil {
-				return db.GeminiCredential{}, fmt.Errorf("waiting for gemini token refresh: %w", refreshErr)
+				return db.AntigravityCredential{}, fmt.Errorf("waiting for antigravity token refresh: %w", refreshErr)
 			}
-			return db.GeminiCredential{}, fmt.Errorf("waiting for gemini token refresh: refresh finished without cached credential")
+			return db.AntigravityCredential{}, fmt.Errorf("waiting for antigravity token refresh: refresh finished without cached credential")
 		}
 	}
 }
 
-func (m *Manager) waitForCachedCredential(ctx context.Context, entry *GeminiEntry, credentialID string) (db.GeminiCredential, error) {
+func (m *Manager) waitForCachedCredential(ctx context.Context, entry *credentialEntry, credentialID string) (db.AntigravityCredential, error) {
 	for {
 		done, _ := entry.refreshState()
 		if done == nil {
 			if err := sleepUntilRefreshStarts(ctx); err != nil {
-				return db.GeminiCredential{}, fmt.Errorf("waiting for forced gemini token refresh: %w", err)
+				return db.AntigravityCredential{}, fmt.Errorf("waiting for forced antigravity token refresh: %w", err)
 			}
 			continue
 		}
 		select {
 		case <-ctx.Done():
-			return db.GeminiCredential{}, fmt.Errorf("waiting for forced gemini token refresh: %w", ctx.Err())
+			return db.AntigravityCredential{}, fmt.Errorf("waiting for forced antigravity token refresh: %w", ctx.Err())
 		case <-done:
 			if snapshot, ok := m.readCache(credentialID); ok {
 				return m.credentialFromCache(snapshot), nil
 			}
 			_, refreshErr := entry.refreshState()
 			if refreshErr != nil {
-				return db.GeminiCredential{}, fmt.Errorf("waiting for forced gemini token refresh: %w", refreshErr)
+				return db.AntigravityCredential{}, fmt.Errorf("waiting for forced antigravity token refresh: %w", refreshErr)
 			}
-			return db.GeminiCredential{}, fmt.Errorf("waiting for forced gemini token refresh: refresh finished without cached credential")
+			return db.AntigravityCredential{}, fmt.Errorf("waiting for forced antigravity token refresh: refresh finished without cached credential")
 		}
 	}
 }
 
-func (m *Manager) readCache(id string) (GeminiCache, bool) {
-	if m == nil || m.cache == nil {
-		return GeminiCache{}, false
+func (m *Manager) readCache(id string) (CredentialCache, bool) {
+	if m.cache == nil {
+		return CredentialCache{}, false
 	}
 	return m.cache.GetIfPresent(id)
 }
 
-func (m *Manager) writeCache(row db.GeminiCredential) {
+func (m *Manager) writeCache(row db.AntigravityCredential) {
 	projectID := strings.TrimSpace(row.ProjectID)
 	if projectID == "" {
 		projectID = utils.ProjectIDFromCredentialID(row.ID)
 	}
-	if m == nil || m.cache == nil || strings.TrimSpace(row.AccessToken) == "" || projectID == "" {
+	if m.cache == nil || strings.TrimSpace(row.AccessToken) == "" || projectID == "" {
 		return
 	}
 	ttl := time.Until(row.Expired.Add(-m.settingsSnapshot().RefreshBefore()))
 	if ttl <= 0 {
 		return
 	}
-	snapshot := GeminiCache{
+	snapshot := CredentialCache{
 		ID:          row.ID,
 		AccessToken: strings.TrimSpace(row.AccessToken),
 		ProjectID:   projectID,
@@ -358,12 +345,12 @@ func (m *Manager) writeCache(row db.GeminiCredential) {
 	m.cache.SetExpiresAfter(row.ID, ttl)
 }
 
-func (m *Manager) credentialFromCache(snapshot GeminiCache) db.GeminiCredential {
+func (m *Manager) credentialFromCache(snapshot CredentialCache) db.AntigravityCredential {
 	projectID := strings.TrimSpace(snapshot.ProjectID)
 	if projectID == "" {
 		projectID = utils.ProjectIDFromCredentialID(snapshot.ID)
 	}
-	return db.GeminiCredential{
+	return db.AntigravityCredential{
 		ID:          snapshot.ID,
 		AccessToken: snapshot.AccessToken,
 		ProjectID:   projectID,
@@ -371,21 +358,21 @@ func (m *Manager) credentialFromCache(snapshot GeminiCache) db.GeminiCredential 
 	}
 }
 
-func (m *Manager) entry(id string) *GeminiEntry {
+func (m *Manager) entry(id string) *credentialEntry {
 	if actual, ok := m.entries.Load(id); ok {
-		entry := actual.(*GeminiEntry)
+		entry := actual.(*credentialEntry)
 		entry.touch()
 		return entry
 	}
-	created := &GeminiEntry{}
+	created := &credentialEntry{}
 	created.touch()
 	actual, _ := m.entries.LoadOrStore(id, created)
-	entry := actual.(*GeminiEntry)
+	entry := actual.(*credentialEntry)
 	entry.touch()
 	return entry
 }
 
-func (e *GeminiEntry) beginRefresh() {
+func (e *credentialEntry) beginRefresh() {
 	e.touch()
 	e.mu.Lock()
 	e.done = make(chan struct{})
@@ -393,7 +380,7 @@ func (e *GeminiEntry) beginRefresh() {
 	e.mu.Unlock()
 }
 
-func (e *GeminiEntry) finishRefresh(err error) {
+func (e *credentialEntry) finishRefresh(err error) {
 	e.touch()
 	e.mu.Lock()
 	if e.done != nil {
@@ -403,33 +390,24 @@ func (e *GeminiEntry) finishRefresh(err error) {
 	e.mu.Unlock()
 }
 
-func (e *GeminiEntry) refreshState() (<-chan struct{}, error) {
+func (e *credentialEntry) refreshState() (<-chan struct{}, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.done, e.lastErr
 }
 
-func (e *GeminiEntry) touch() {
+func (e *credentialEntry) touch() {
 	e.lastUsed.Store(time.Now().UnixNano())
 }
 
-func (m *Manager) InvalidateCredential(id string) {
-	if m == nil {
-		return
-	}
-	m.invalidateCache(id)
-	m.entries.Delete(id)
-}
-
-// PruneStaleEntries removes coordination entries whose credentials are no longer in the otter cache.
 func (m *Manager) PruneStaleEntries() {
-	if m == nil || m.cache == nil {
+	if m.cache == nil {
 		return
 	}
 	m.entries.Range(func(key, value any) bool {
 		id := key.(string)
 		if _, ok := m.cache.GetIfPresent(id); !ok {
-			entry := value.(*GeminiEntry)
+			entry := value.(*credentialEntry)
 			lastUsed := time.Unix(0, entry.lastUsed.Load())
 			if !entry.refreshing.Load() && time.Since(lastUsed) > pruneEntryIdleAfter {
 				m.entries.Delete(id)
@@ -440,29 +418,26 @@ func (m *Manager) PruneStaleEntries() {
 }
 
 func (m *Manager) invalidateCache(id string) {
-	if m == nil {
-		return
-	}
 	if m.cache != nil {
 		m.cache.Invalidate(id)
 	}
 }
 
-func (m *Manager) loadGemini(ctx context.Context, id string) (db.GeminiCredential, error) {
+func (m *Manager) loadAntigravity(ctx context.Context, id string) (db.AntigravityCredential, error) {
 	result := m.loadGroup.DoChan(id, func() (any, error) {
 		loadCtx, cancel := context.WithTimeout(context.Background(), defaultLoadTimeout)
 		defer cancel()
-		return m.store.GetGeminiCLI(loadCtx, id)
+		return m.store.GetAntigravity(loadCtx, id)
 	})
 
 	select {
 	case <-ctx.Done():
-		return db.GeminiCredential{}, ctx.Err()
+		return db.AntigravityCredential{}, ctx.Err()
 	case res := <-result:
 		if res.Err != nil {
-			return db.GeminiCredential{}, res.Err
+			return db.AntigravityCredential{}, res.Err
 		}
-		return res.Val.(db.GeminiCredential), nil
+		return res.Val.(db.AntigravityCredential), nil
 	}
 }
 
@@ -500,15 +475,15 @@ func (m *Manager) proactiveRefresh(id string) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultLoadTimeout)
 	defer cancel()
 
-	row, err := m.store.GetGeminiCLI(ctx, id)
+	row, err := m.store.GetAntigravity(ctx, id)
 	if err != nil {
 		refreshErr = err
-		log.Error().Err(err).Str("credential", id).Msg("gemini proactive-refresh: get credential")
+		log.Error().Err(err).Str("credential", id).Msg("antigravity proactive-refresh: get credential")
 		return
 	}
 	if _, err := m.refreshAndWriteBack(ctx, row); err != nil {
 		refreshErr = err
-		log.Error().Err(err).Str("credential", id).Msg("gemini proactive-refresh: failed")
+		log.Error().Err(err).Str("credential", id).Msg("antigravity proactive-refresh: failed")
 	}
 }
 
@@ -520,7 +495,7 @@ func (m *Manager) shouldRefresh(expiry time.Time) bool {
 }
 
 func (m *Manager) settingsSnapshot() settings.Snapshot {
-	if m == nil || m.settings == nil {
+	if m.settings == nil {
 		return settings.DefaultSnapshot()
 	}
 	return m.settings.Snapshot()

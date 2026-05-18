@@ -30,6 +30,19 @@ type GeminiCredential struct {
 	SyncedAt     time.Time `json:"synced_at"`
 }
 
+type AntigravityCredential struct {
+	ID           string    `json:"id"`
+	Status       string    `json:"status"`
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	Expired      time.Time `json:"expired"`
+	Email        string    `json:"email"`
+	ProjectID    string    `json:"project_id"`
+	PlanType     string    `json:"plan_type"`
+	Reason       string    `json:"reason"`
+	SyncedAt     time.Time `json:"synced_at"`
+}
+
 type UpdateCodexTokensParams struct {
 	ID           string
 	Status       string
@@ -40,6 +53,17 @@ type UpdateCodexTokensParams struct {
 }
 
 type UpdateGeminiTokensParams struct {
+	ID           string
+	Status       string
+	AccessToken  string
+	RefreshToken string
+	Expired      time.Time
+	Email        string
+	ProjectID    string
+	PlanType     string
+}
+
+type UpdateAntigravityTokensParams struct {
 	ID           string
 	Status       string
 	AccessToken  string
@@ -120,6 +144,25 @@ type UpsertGeminiQuotaParams struct {
 	ResetFlash     time.Time
 	QuotaFlashlite float64
 	ResetFlashlite time.Time
+}
+
+type UpsertAntigravityQuotaParams struct {
+	CredentialID   string
+	QuotaClaude    float64
+	ResetClaude    time.Time
+	QuotaPro       float64
+	ResetPro       time.Time
+	QuotaFlash     float64
+	ResetFlash     time.Time
+	QuotaFlashlite float64
+	ResetFlashlite time.Time
+	QuotaTab       float64
+	ResetTab       time.Time
+	QuotaImage     float64
+	ResetImage     time.Time
+	CreditsAmount  float64
+	CreditTypes    string
+	CreditsSynced  bool
 }
 
 type ReverseInfoFromModelRow struct {
@@ -203,6 +246,63 @@ type ListGeminiCLIRow struct {
 	SyncedAt       time.Time `json:"synced_at"`
 }
 
+type ListAvailableAntigravityRow struct {
+	ID                      string    `json:"id"`
+	Email                   string    `json:"email"`
+	ProjectID               string    `json:"project_id"`
+	PlanType                string    `json:"plan_type"`
+	QuotaClaude             float64   `json:"quota_claude"`
+	ResetClaude             time.Time `json:"reset_claude"`
+	QuotaPro                float64   `json:"quota_pro"`
+	ResetPro                time.Time `json:"reset_pro"`
+	QuotaFlash              float64   `json:"quota_flash"`
+	ResetFlash              time.Time `json:"reset_flash"`
+	QuotaFlashlite          float64   `json:"quota_flashlite"`
+	ResetFlashlite          time.Time `json:"reset_flashlite"`
+	QuotaTab                float64   `json:"quota_tab"`
+	ResetTab                time.Time `json:"reset_tab"`
+	QuotaImage              float64   `json:"quota_image"`
+	ResetImage              time.Time `json:"reset_image"`
+	CreditsAmount           float64   `json:"credits_amount"`
+	CreditTypes             string    `json:"credit_types"`
+	ThrottledUntilClaude    time.Time `json:"throttled_until_claude"`
+	ThrottledUntilPro       time.Time `json:"throttled_until_pro"`
+	ThrottledUntilFlash     time.Time `json:"throttled_until_flash"`
+	ThrottledUntilFlashlite time.Time `json:"throttled_until_flashlite"`
+	ThrottledUntilTab       time.Time `json:"throttled_until_tab"`
+	ThrottledUntilImage     time.Time `json:"throttled_until_image"`
+	ThrottledUntil          time.Time `json:"throttled_until"`
+	SyncedAt                time.Time `json:"synced_at"`
+}
+
+type ListAntigravityRow struct {
+	ID             string    `json:"id"`
+	Status         string    `json:"status"`
+	AccessToken    string    `json:"-"`
+	RefreshToken   string    `json:"-"`
+	Expired        time.Time `json:"expired"`
+	Email          string    `json:"email"`
+	ProjectID      string    `json:"project_id"`
+	PlanType       string    `json:"plan_type"`
+	Reason         string    `json:"reason"`
+	QuotaClaude    float64   `json:"quota_claude"`
+	ResetClaude    time.Time `json:"reset_claude"`
+	QuotaPro       float64   `json:"quota_pro"`
+	ResetPro       time.Time `json:"reset_pro"`
+	QuotaFlash     float64   `json:"quota_flash"`
+	ResetFlash     time.Time `json:"reset_flash"`
+	QuotaFlashlite float64   `json:"quota_flashlite"`
+	ResetFlashlite time.Time `json:"reset_flashlite"`
+	QuotaTab       float64   `json:"quota_tab"`
+	ResetTab       time.Time `json:"reset_tab"`
+	QuotaImage     float64   `json:"quota_image"`
+	ResetImage     time.Time `json:"reset_image"`
+	CreditsAmount  float64   `json:"credits_amount"`
+	CreditTypes    string    `json:"credit_types"`
+	ThrottledUntil time.Time `json:"throttled_until"`
+	SyncedAt       time.Time `json:"synced_at"`
+}
+
 type CreateCodexParams struct {
 	ID           string
 	Status       string
@@ -213,6 +313,18 @@ type CreateCodexParams struct {
 }
 
 type UpsertGeminiCLIParams struct {
+	ID           string
+	Status       string
+	AccessToken  string
+	RefreshToken string
+	Expired      time.Time
+	Email        string
+	ProjectID    string
+	PlanType     string
+	Reason       string
+}
+
+type UpsertAntigravityParams struct {
 	ID           string
 	Status       string
 	AccessToken  string
@@ -342,6 +454,9 @@ type Store interface {
 	CountEnabledGeminiCLI(ctx context.Context) (int64, error)
 	CountGeminiCLI(ctx context.Context) (int64, error)
 	CountGeminiCLIFiltered(ctx context.Context, filter CredentialFilterParams) (int64, error)
+	CountEnabledAntigravity(ctx context.Context) (int64, error)
+	CountAntigravity(ctx context.Context) (int64, error)
+	CountAntigravityFiltered(ctx context.Context, filter CredentialFilterParams) (int64, error)
 	CountModels(ctx context.Context) (int64, error)
 	CountModelsByHandler(ctx context.Context, handler string) (int64, error)
 	CountAuthKeys(ctx context.Context) (int64, error)
@@ -365,6 +480,12 @@ type Store interface {
 	DeleteGeminiCLI(ctx context.Context, id string) error
 	UpdateGeminiCLIStatus(ctx context.Context, id string, status string, reason string) (GeminiCredential, error)
 	RestoreExpiredThrottledGeminiCLI(ctx context.Context) error
+	GetAntigravity(ctx context.Context, id string) (AntigravityCredential, error)
+	UpdateAntigravityTokens(ctx context.Context, arg UpdateAntigravityTokensParams) (AntigravityCredential, error)
+	ListAntigravityPaged(ctx context.Context, arg ListCredentialPagedParams) ([]ListAntigravityRow, error)
+	UpsertAntigravity(ctx context.Context, arg UpsertAntigravityParams) (AntigravityCredential, error)
+	DeleteAntigravity(ctx context.Context, id string) error
+	UpdateAntigravityStatus(ctx context.Context, id string, status string, reason string) (AntigravityCredential, error)
 
 	ReverseInfoFromModel(ctx context.Context, alias string) (ReverseInfoFromModelRow, error)
 	ListModels(ctx context.Context) ([]ModelRow, error)
@@ -378,11 +499,14 @@ type Store interface {
 	DeleteQuota(ctx context.Context, credentialID string) error
 	ListAvailableCodex(ctx context.Context) ([]ListAvailableCodexRow, error)
 	ListAvailableGeminiCLI(ctx context.Context) ([]ListAvailableGeminiCLIRow, error)
+	ListAvailableAntigravity(ctx context.Context) ([]ListAvailableAntigravityRow, error)
 
 	UpsertGeminiQuota(ctx context.Context, arg UpsertGeminiQuotaParams) error
 	SetGeminiQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
 	DeleteGeminiQuota(ctx context.Context, credentialID string) error
-
+	UpsertAntigravityQuota(ctx context.Context, arg UpsertAntigravityQuotaParams) error
+	SetAntigravityQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
+	DeleteAntigravityQuota(ctx context.Context, credentialID string) error
 	ListAuthKeys(ctx context.Context) ([]AuthKey, error)
 	GetAuthKey(ctx context.Context, key string) (AuthKey, error)
 	CreateAuthKey(ctx context.Context, arg CreateAuthKeyParams) (AuthKey, error)

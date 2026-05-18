@@ -10,28 +10,32 @@ import (
 
 	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
-	coregemini "github.com/nekohy/MeowCLI/core/gemini"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	db "github.com/nekohy/MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
 type settingsUpdateRequest struct {
-	GlobalProxy                 *string `json:"global_proxy"`
-	CodexProxy                  *string `json:"codex_proxy"`
-	GeminiProxy                 *string `json:"gemini_proxy"`
-	GeminiBaseURLs              *string `json:"gemini_base_urls"`
-	CodexPreferredPlanTypes     *string `json:"codex_preferred_plan_types"`
-	GeminiPreferredPlanTypes    *string `json:"gemini_preferred_plan_types"`
-	RefreshBeforeSeconds        *int    `json:"refresh_before_seconds"`
-	PollIntervalMilliseconds    *int    `json:"poll_interval_milliseconds"`
-	QuotaSyncIntervalSeconds    *int    `json:"quota_sync_interval_seconds"`
-	ScoreRefreshIntervalSeconds *int    `json:"score_refresh_interval_seconds"`
-	ThrottleBaseSeconds         *int    `json:"throttle_base_seconds"`
-	ThrottleMaxSeconds          *int    `json:"throttle_max_seconds"`
-	RelayMaxRetries             *int    `json:"relay_max_retries"`
-	LogsRetentionSeconds        *int    `json:"logs_retention_seconds"`
+	GlobalProxy                   *string `json:"global_proxy"`
+	CodexProxy                    *string `json:"codex_proxy"`
+	GeminiProxy                   *string `json:"gemini_proxy"`
+	AntigravityProxy              *string `json:"antigravity_proxy"`
+	GeminiBaseURLs                *string `json:"gemini_base_urls"`
+	CodexPreferredPlanTypes       *string `json:"codex_preferred_plan_types"`
+	GeminiPreferredPlanTypes      *string `json:"gemini_preferred_plan_types"`
+	AntigravityPreferredPlanTypes *string `json:"antigravity_preferred_plan_types"`
+	AntigravityAPIEndpoint        *string `json:"antigravity_api_endpoint"`
+	AntigravityUseCredits         *bool   `json:"antigravity_use_credits"`
+	RefreshBeforeSeconds          *int    `json:"refresh_before_seconds"`
+	PollIntervalMilliseconds      *int    `json:"poll_interval_milliseconds"`
+	QuotaSyncIntervalSeconds      *int    `json:"quota_sync_interval_seconds"`
+	ScoreRefreshIntervalSeconds   *int    `json:"score_refresh_interval_seconds"`
+	ThrottleBaseSeconds           *int    `json:"throttle_base_seconds"`
+	ThrottleMaxSeconds            *int    `json:"throttle_max_seconds"`
+	RelayMaxRetries               *int    `json:"relay_max_retries"`
+	LogsRetentionSeconds          *int    `json:"logs_retention_seconds"`
 }
 
 func (a *AdminHandler) GetSettings(c *gin.Context) {
@@ -87,6 +91,9 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 	if req.GeminiProxy != nil {
 		next.GeminiProxy = strings.TrimSpace(*req.GeminiProxy)
 	}
+	if req.AntigravityProxy != nil {
+		next.AntigravityProxy = strings.TrimSpace(*req.AntigravityProxy)
+	}
 	if req.GeminiBaseURLs != nil {
 		next.GeminiBaseURLsRaw = *req.GeminiBaseURLs
 	}
@@ -94,7 +101,16 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 		next.CodexPreferredPlanTypes = corecodex.NormalizePlanTypeList(*req.CodexPreferredPlanTypes)
 	}
 	if req.GeminiPreferredPlanTypes != nil {
-		next.GeminiPreferredPlanTypes = coregemini.NormalizePlanTypeList(*req.GeminiPreferredPlanTypes)
+		next.GeminiPreferredPlanTypes = utils.NormalizeCodeAssistPlanTypeList(*req.GeminiPreferredPlanTypes)
+	}
+	if req.AntigravityPreferredPlanTypes != nil {
+		next.AntigravityPreferredPlanTypes = utils.NormalizeCodeAssistPlanTypeList(*req.AntigravityPreferredPlanTypes)
+	}
+	if req.AntigravityAPIEndpoint != nil {
+		next.AntigravityAPIEndpoint = settings.NormalizeAntigravityAPIEndpoint(*req.AntigravityAPIEndpoint)
+	}
+	if req.AntigravityUseCredits != nil {
+		next.AntigravityUseCredits = *req.AntigravityUseCredits
 	}
 	if err := applyPositiveSetting("refresh_before_seconds", req.RefreshBeforeSeconds, &next.RefreshBeforeSeconds); err != nil {
 		return settings.Snapshot{}, err
@@ -127,36 +143,42 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 	if err := validateProxyURL(next.CodexProxy, "codex_proxy"); err != nil {
 		return settings.Snapshot{}, err
 	}
-	if req.GeminiProxy != nil {
-		if err := validateProxyURL(*req.GeminiProxy, "gemini_proxy"); err != nil {
-			return settings.Snapshot{}, err
-		}
+	if err := validateProxyURL(next.GeminiProxy, "gemini_proxy"); err != nil {
+		return settings.Snapshot{}, err
+	}
+	if err := validateProxyURL(next.AntigravityProxy, "antigravity_proxy"); err != nil {
+		return settings.Snapshot{}, err
 	}
 	if next.ThrottleMaxSeconds < next.ThrottleBaseSeconds {
 		return settings.Snapshot{}, fmt.Errorf("throttle_max_seconds must be greater than or equal to throttle_base_seconds")
 	}
 	next.CodexPreferredPlanTypes = corecodex.NormalizePlanTypeList(next.CodexPreferredPlanTypes)
-	next.GeminiPreferredPlanTypes = coregemini.NormalizePlanTypeList(next.GeminiPreferredPlanTypes)
+	next.GeminiPreferredPlanTypes = utils.NormalizeCodeAssistPlanTypeList(next.GeminiPreferredPlanTypes)
+	next.AntigravityPreferredPlanTypes = utils.NormalizeCodeAssistPlanTypeList(next.AntigravityPreferredPlanTypes)
 
 	return next.Normalize(), nil
 }
 
 func buildSettingsResponse(snapshot settings.Snapshot) gin.H {
 	return gin.H{
-		"global_proxy":                   snapshot.GlobalProxy,
-		"codex_proxy":                    snapshot.CodexProxy,
-		"gemini_proxy":                   strings.TrimSpace(snapshot.GeminiProxy),
-		"gemini_base_urls":               strings.Join(geminiapi.NormalizeCodeAssistEndpointKeys(snapshot.GeminiBaseURLsRaw), ","),
-		"codex_preferred_plan_types":     snapshot.CodexPreferredPlanTypes,
-		"gemini_preferred_plan_types":    snapshot.GeminiPreferredPlanTypes,
-		"refresh_before_seconds":         snapshot.RefreshBeforeSeconds,
-		"poll_interval_milliseconds":     snapshot.PollIntervalMilliseconds,
-		"quota_sync_interval_seconds":    snapshot.QuotaSyncIntervalSeconds,
-		"score_refresh_interval_seconds": snapshot.ScoreRefreshIntervalSeconds,
-		"throttle_base_seconds":          snapshot.ThrottleBaseSeconds,
-		"throttle_max_seconds":           snapshot.ThrottleMaxSeconds,
-		"relay_max_retries":              snapshot.RelayMaxRetries,
-		"logs_retention_seconds":         snapshot.LogsRetentionSeconds,
+		"global_proxy":                     snapshot.GlobalProxy,
+		"codex_proxy":                      snapshot.CodexProxy,
+		"gemini_proxy":                     strings.TrimSpace(snapshot.GeminiProxy),
+		"antigravity_proxy":                strings.TrimSpace(snapshot.AntigravityProxy),
+		"gemini_base_urls":                 strings.Join(geminiapi.NormalizeCodeAssistEndpointKeys(snapshot.GeminiBaseURLsRaw), ","),
+		"codex_preferred_plan_types":       snapshot.CodexPreferredPlanTypes,
+		"gemini_preferred_plan_types":      snapshot.GeminiPreferredPlanTypes,
+		"antigravity_preferred_plan_types": snapshot.AntigravityPreferredPlanTypes,
+		"antigravity_api_endpoint":         snapshot.AntigravityAPIEndpoint,
+		"antigravity_use_credits":          snapshot.AntigravityUseCredits,
+		"refresh_before_seconds":           snapshot.RefreshBeforeSeconds,
+		"poll_interval_milliseconds":       snapshot.PollIntervalMilliseconds,
+		"quota_sync_interval_seconds":      snapshot.QuotaSyncIntervalSeconds,
+		"score_refresh_interval_seconds":   snapshot.ScoreRefreshIntervalSeconds,
+		"throttle_base_seconds":            snapshot.ThrottleBaseSeconds,
+		"throttle_max_seconds":             snapshot.ThrottleMaxSeconds,
+		"relay_max_retries":                snapshot.RelayMaxRetries,
+		"logs_retention_seconds":           snapshot.LogsRetentionSeconds,
 	}
 }
 
@@ -191,9 +213,13 @@ func snapshotToSettingParams(snapshot settings.Snapshot) []db.UpsertSettingParam
 		{Key: settings.KeyGlobalProxy, Value: snapshot.GlobalProxy},
 		{Key: settings.KeyCodexProxy, Value: snapshot.CodexProxy},
 		{Key: settings.KeyGeminiProxy, Value: snapshot.GeminiProxy},
+		{Key: settings.KeyAntigravityProxy, Value: snapshot.AntigravityProxy},
 		{Key: settings.KeyGeminiBaseURLs, Value: strings.Join(geminiapi.NormalizeCodeAssistEndpointKeys(snapshot.GeminiBaseURLsRaw), ",")},
 		{Key: settings.KeyCodexPreferredPlanTypes, Value: snapshot.CodexPreferredPlanTypes},
 		{Key: settings.KeyGeminiPreferredPlanTypes, Value: snapshot.GeminiPreferredPlanTypes},
+		{Key: settings.KeyAntigravityPreferredPlanTypes, Value: snapshot.AntigravityPreferredPlanTypes},
+		{Key: settings.KeyAntigravityAPIEndpoint, Value: snapshot.AntigravityAPIEndpoint},
+		{Key: settings.KeyAntigravityUseCredits, Value: fmt.Sprintf("%t", snapshot.AntigravityUseCredits)},
 		{Key: settings.KeyRefreshBeforeSeconds, Value: fmt.Sprintf("%d", snapshot.RefreshBeforeSeconds)},
 		{Key: settings.KeyPollIntervalMilliseconds, Value: fmt.Sprintf("%d", snapshot.PollIntervalMilliseconds)},
 		{Key: settings.KeyQuotaSyncIntervalSeconds, Value: fmt.Sprintf("%d", snapshot.QuotaSyncIntervalSeconds)},

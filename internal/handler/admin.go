@@ -11,6 +11,7 @@ import (
 
 	"github.com/bytedance/sonic"
 
+	antigravityapi "github.com/nekohy/MeowCLI/api/antigravity"
 	codexapi "github.com/nekohy/MeowCLI/api/codex"
 	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
 	oauthcore "github.com/nekohy/MeowCLI/core"
@@ -46,26 +47,28 @@ type BuildInfoProvider func() BuildInfo
 
 // AdminHandler 管理后台 API
 type AdminHandler struct {
-	store       db.Store
-	logStore    LogStore
-	codexAPI    *codexapi.Client
-	geminiAPI   *geminiapi.Client
-	oauthFlows  map[utils.HandlerType]oauthcore.OAuthFlow
-	authCache   *auth.KeyCache
-	credRefresh CredentialRefresher
-	modelCache  ModelCache
-	settingsSvc *settings.Service
-	importJobs  *importJobManager
-	buildInfo   BuildInfoProvider
-	mu          sync.Mutex
+	store          db.Store
+	logStore       LogStore
+	codexAPI       *codexapi.Client
+	geminiAPI      *geminiapi.Client
+	antigravityAPI *antigravityapi.Client
+	oauthFlows     map[utils.HandlerType]oauthcore.OAuthFlow
+	authCache      *auth.KeyCache
+	credRefresh    CredentialRefresher
+	modelCache     ModelCache
+	settingsSvc    *settings.Service
+	importJobs     *importJobManager
+	buildInfo      BuildInfoProvider
+	mu             sync.Mutex
 }
 
-func NewAdminHandler(store db.Store, codexAPI *codexapi.Client, geminiAPI *geminiapi.Client) *AdminHandler {
+func NewAdminHandler(store db.Store, codexAPI *codexapi.Client, geminiAPI *geminiapi.Client, antigravityAPI *antigravityapi.Client) *AdminHandler {
 	return &AdminHandler{
-		store:      store,
-		codexAPI:   codexAPI,
-		geminiAPI:  geminiAPI,
-		importJobs: newImportJobManager(defaultImportConcurrency),
+		store:          store,
+		codexAPI:       codexAPI,
+		geminiAPI:      geminiAPI,
+		antigravityAPI: antigravityAPI,
+		importJobs:     newImportJobManager(defaultImportConcurrency),
 	}
 }
 
@@ -177,7 +180,9 @@ func normalizeModelInput(alias, origin, handler string, planTypes string, extra 
 	}
 	switch parsedHandler {
 	case utils.HandlerGemini:
-		planTypes = coregemini.NormalizePlanTypeList(planTypes)
+		planTypes = utils.NormalizeCodeAssistPlanTypeList(planTypes)
+	case utils.HandlerAntigravity:
+		planTypes = utils.NormalizeCodeAssistPlanTypeList(planTypes)
 	case utils.HandlerCodex:
 		planTypes = corecodex.NormalizePlanTypeList(planTypes)
 	default:

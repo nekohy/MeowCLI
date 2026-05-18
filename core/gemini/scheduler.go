@@ -569,7 +569,7 @@ func (s *Scheduler) preferredPlanTypeCodes() []int {
 	snapshot := s.settingsSnapshot()
 	codec := s.planTypeCodec()
 
-	return codec.codesFor(ParsePlanTypeList(snapshot.GeminiPreferredPlanTypes))
+	return codec.codesFor(utils.ParseCodeAssistPlanTypeList(snapshot.GeminiPreferredPlanTypes))
 }
 
 // CalcScore computes a priority score for a specific model tier.
@@ -754,17 +754,17 @@ func (s *Scheduler) refreshPlanType(ctx context.Context, credentialID, accessTok
 	if s == nil || s.planAPI == nil || s.store == nil || credentialID == "" {
 		return
 	}
-	current := NormalizePlanType(fallback)
+	current := utils.NormalizeCodeAssistPlanType(fallback)
 	currentKnown := current != ""
 	if current == "" {
-		current = PlanTypeFree
+		current = utils.CodeAssistPlanTypeFree
 	}
 	loaded, err := s.planAPI.LoadCodeAssistPlan(ctx, accessToken, projectID)
 	if err != nil {
 		log.Warn().Err(err).Str("credential", credentialID).Msg("gemini quota-sync: load plan")
 		return
 	}
-	planType := NormalizePlanType(loaded)
+	planType := utils.NormalizeCodeAssistPlanType(loaded)
 	if planType == "" || (currentKnown && planType == current) {
 		return
 	}
@@ -1093,10 +1093,10 @@ func (s *Scheduler) RetryDecision(statusCode int32, text string, headers http.He
 	if statusCode != http.StatusTooManyRequests {
 		return scheduling.RetryDecision{}
 	}
-	if retryAfter := geminiapi.ParseRetryAfterHeader(headers); retryAfter > 0 {
+	if retryAfter := utils.ParseRetryAfterHeader(headers); retryAfter > 0 {
 		return geminiRetryDecision(retryAfter)
 	}
-	return geminiRetryDecision(geminiapi.ParseRetryDelayText(text))
+	return geminiRetryDecision(utils.ParseGoogleRetryDelayText(text))
 }
 
 func geminiRetryDecision(delay time.Duration) scheduling.RetryDecision {
