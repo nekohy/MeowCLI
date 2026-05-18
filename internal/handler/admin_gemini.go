@@ -18,9 +18,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const defaultGeminiPageSize = 6
+const defaultCredentialPageSize = 6
 
-type batchCreateGeminiReq struct {
+type batchCreateCredentialReq struct {
 	Tokens []string `json:"tokens" binding:"required,min=1"`
 }
 
@@ -29,29 +29,29 @@ type geminiCodeAssistPlanLoader interface {
 }
 
 type geminiListItem struct {
-	Handler        string                 `json:"handler"`
-	ID             string                 `json:"id"`
-	Status         string                 `json:"status"`
-	Email          string                 `json:"email"`
-	ProjectID      string                 `json:"project_id"`
-	PlanType       string                 `json:"plan_type"`
-	Expired        time.Time              `json:"expired"`
-	Reason         string                 `json:"reason"`
-	ThrottledUntil time.Time              `json:"throttled_until"`
-	SyncedAt       time.Time              `json:"synced_at"`
-	Pro            geminiSchedulingMetric `json:"pro"`
-	Flash          geminiSchedulingMetric `json:"flash"`
-	Flashlite      geminiSchedulingMetric `json:"flashlite"`
+	Handler        string                `json:"handler"`
+	ID             string                `json:"id"`
+	Status         string                `json:"status"`
+	Email          string                `json:"email"`
+	ProjectID      string                `json:"project_id"`
+	PlanType       string                `json:"plan_type"`
+	Expired        time.Time             `json:"expired"`
+	Reason         string                `json:"reason"`
+	ThrottledUntil time.Time             `json:"throttled_until"`
+	SyncedAt       time.Time             `json:"synced_at"`
+	Pro            quotaSchedulingMetric `json:"pro"`
+	Flash          quotaSchedulingMetric `json:"flash"`
+	Flashlite      quotaSchedulingMetric `json:"flashlite"`
 }
 
 func (a *AdminHandler) ListGemini(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", strconv.Itoa(defaultGeminiPageSize)))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", strconv.Itoa(defaultCredentialPageSize)))
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 200 {
-		pageSize = defaultGeminiPageSize
+		pageSize = defaultCredentialPageSize
 	}
 
 	filters := geminiCredentialFiltersFromRequest(c)
@@ -85,7 +85,7 @@ func geminiCredentialFiltersFromRequest(c *gin.Context) db.CredentialFilterParam
 	return db.CredentialFilterParams{
 		Search:   strings.TrimSpace(c.Query("search")),
 		Status:   status,
-		PlanType: coregemini.NormalizePlanType(c.Query("plan_type")),
+		PlanType: utils.NormalizeCodeAssistPlanType(c.Query("plan_type")),
 	}
 }
 
@@ -95,7 +95,7 @@ func (a *AdminHandler) BatchCreateGemini(c *gin.Context) {
 		return
 	}
 
-	var req batchCreateGeminiReq
+	var req batchCreateCredentialReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -263,21 +263,21 @@ func (a *AdminHandler) listGeminiCredentials(ctx context.Context, page, pageSize
 			Reason:         row.Reason,
 			ThrottledUntil: row.ThrottledUntil,
 			SyncedAt:       row.SyncedAt,
-			Pro: geminiSchedulingMetric{
+			Pro: quotaSchedulingMetric{
 				Available: scorePro >= 0,
 				Quota:     row.QuotaPro,
 				Reset:     row.ResetPro,
 				Score:     scorePro,
 				Weight:    wPro,
 			},
-			Flash: geminiSchedulingMetric{
+			Flash: quotaSchedulingMetric{
 				Available: scoreFlash >= 0,
 				Quota:     row.QuotaFlash,
 				Reset:     row.ResetFlash,
 				Score:     scoreFlash,
 				Weight:    wFlash,
 			},
-			Flashlite: geminiSchedulingMetric{
+			Flashlite: quotaSchedulingMetric{
 				Available: scoreFlashlite >= 0,
 				Quota:     row.QuotaFlashlite,
 				Reset:     row.ResetFlashlite,
@@ -324,16 +324,16 @@ func (a *AdminHandler) upsertGeminiCredentialFromTokenData(ctx context.Context, 
 	if projectID == "" {
 		return db.GeminiCredential{}, fmt.Errorf("resolve gemini project_id: empty project_id")
 	}
-	credentialID := coregemini.DefaultCredentialID(email, projectID)
+	credentialID := utils.DefaultProjectCredentialID(email, projectID)
 	if credentialID == "" {
 		return db.GeminiCredential{}, fmt.Errorf("gemini credential id is required")
 	}
-	planType := coregemini.PlanTypeFree
+	planType := utils.CodeAssistPlanTypeFree
 	if current, getErr := a.store.GetGeminiCLI(ctx, credentialID); getErr == nil {
 		if projectID == "" {
-			projectID = coregemini.CredentialProjectID(current.ID)
+			projectID = utils.ProjectIDFromCredentialID(current.ID)
 		}
-		if normalized := coregemini.NormalizePlanType(current.PlanType); normalized != "" {
+		if normalized := utils.NormalizeCodeAssistPlanType(current.PlanType); normalized != "" {
 			planType = normalized
 		}
 	} else if !isStoreNotFound(getErr) {
@@ -364,7 +364,7 @@ func loadGeminiImportPlanType(ctx context.Context, loader geminiCodeAssistPlanLo
 	if err != nil {
 		return "", false
 	}
-	planType := coregemini.NormalizePlanType(loaded)
+	planType := utils.NormalizeCodeAssistPlanType(loaded)
 	if planType == "" {
 		return "", false
 	}

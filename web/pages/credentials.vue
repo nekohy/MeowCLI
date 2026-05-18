@@ -24,6 +24,7 @@ import {
 } from '~/lib/admin'
 import type {
   CredentialHandlerKey,
+  AntigravityCredentialItem,
   CodexItem,
   CredentialItem,
   GeminiCredentialItem,
@@ -62,6 +63,7 @@ const oauthBusy = ref(false)
 const oauthCodeInput = ref('')
 const oauthError = ref('')
 const oauthFlow = ref<{ provider: string; state: string; authorizeUrl: string } | null>(null)
+const creditsDialogItem = ref<AntigravityCredentialItem | null>(null)
 
 const credentialHandlerKey = computed<CredentialHandlerKey>(() => admin.activeHandler.value?.key || '')
 const credentialEndpoint = computed(() => admin.activeHandler.value?.credential_endpoint || '')
@@ -73,11 +75,13 @@ const activeCredentialField = computed(() => (
 ))
 const isCodexHandler = computed(() => credentialHandlerKey.value === 'codex')
 const isGeminiHandler = computed(() => credentialHandlerKey.value === 'gemini')
-const supportsOAuth = computed(() => isCodexHandler.value || isGeminiHandler.value)
+const isAntigravityHandler = computed(() => credentialHandlerKey.value === 'antigravity')
+const supportsOAuth = computed(() => isCodexHandler.value || isGeminiHandler.value || isAntigravityHandler.value)
 
 const codexRows = computed(() => rows.value.filter(isCodexItem))
 const geminiRows = computed(() => rows.value.filter(isGeminiItem))
-const genericRows = computed(() => rows.value.filter((item) => !isCodexItem(item) && !isGeminiItem(item)))
+const antigravityRows = computed(() => rows.value.filter(isAntigravityItem))
+const genericRows = computed(() => rows.value.filter((item) => !isCodexItem(item) && !isGeminiItem(item) && !isAntigravityItem(item)))
 const rowsMatchActiveHandler = computed(() => rowsHandlerKey.value === credentialHandlerKey.value)
 const showHandlerLoadingState = computed(() => (
   Boolean(admin.activeHandler.value?.supports_credentials)
@@ -95,6 +99,10 @@ const importInputPlaceholder = computed(() => activeCredentialField.value?.place
 const oauthModalTitle = computed(() => `${activeHandlerLabel.value} OAuth`)
 const oauthCallbackPlaceholder = '粘贴回调链接'
 const oauthSubmitDisabled = computed(() => !oauthFlow.value || !oauthCodeInput.value.trim())
+const creditsDialogOpen = computed(() => Boolean(creditsDialogItem.value))
+const creditsDialogTypes = computed(() => (
+  creditsDialogItem.value ? antigravityCreditTypes(creditsDialogItem.value) : []
+))
 
 const availablePlanTypes = computed(() => {
   const sourcePlanTypes = planTypes.value.length
@@ -170,6 +178,28 @@ const geminiSortOptions = [
   { title: '退避截止', value: 'throttled_until' },
 ]
 
+const antigravitySortOptions = [
+  { title: 'Claude Score', value: 'claude_score' },
+  { title: 'Claude错误率', value: 'claude_error_rate' },
+  { title: 'Claude额度', value: 'claude_quota' },
+  { title: 'Pro Score', value: 'pro_score' },
+  { title: 'Pro错误率', value: 'pro_error_rate' },
+  { title: 'Pro额度', value: 'pro_quota' },
+  { title: 'Flash Score', value: 'flash_score' },
+  { title: 'Flash错误率', value: 'flash_error_rate' },
+  { title: 'Flash额度', value: 'flash_quota' },
+  { title: 'Lite Score', value: 'flashlite_score' },
+  { title: 'Lite错误率', value: 'flashlite_error_rate' },
+  { title: 'Lite额度', value: 'flashlite_quota' },
+  { title: 'Tab Score', value: 'tab_score' },
+  { title: 'Tab错误率', value: 'tab_error_rate' },
+  { title: 'Tab额度', value: 'tab_quota' },
+  { title: 'Image Score', value: 'image_score' },
+  { title: 'Image错误率', value: 'image_error_rate' },
+  { title: 'Image额度', value: 'image_quota' },
+  { title: '退避截止', value: 'throttled_until' },
+]
+
 const sortOrderOptions = [
   { title: '降序', value: 'desc' },
   { title: '升序', value: 'asc' },
@@ -177,7 +207,7 @@ const sortOrderOptions = [
 
 const credentialSortOptions = computed(() => [
   defaultSortOption,
-  ...(isGeminiHandler.value ? geminiSortOptions : codexSortOptions),
+  ...(isAntigravityHandler.value ? antigravitySortOptions : isGeminiHandler.value ? geminiSortOptions : isCodexHandler.value ? codexSortOptions : []),
 ])
 
 const hasActiveFilters = computed(() => (
@@ -220,9 +250,16 @@ function isGeminiItem(item: CredentialItem): item is GeminiCredentialItem {
   return item.handler === 'gemini'
 }
 
+function isAntigravityItem(item: CredentialItem): item is AntigravityCredentialItem {
+  return item.handler === 'antigravity'
+}
+
 function genericDetailEntries(item: CredentialItem) {
+  const raw = item as Record<string, unknown>
   return [
     { label: '凭据 ID', value: item.id },
+    { label: '邮箱', value: typeof raw.email === 'string' ? raw.email : '' },
+    { label: 'Project ID', value: typeof raw.project_id === 'string' ? raw.project_id : '' },
     { label: '套餐类型', value: planTypeText(item.plan_type || '') },
     { label: 'AT到期', value: item.expired ? formatTime(String(item.expired)) : '-' },
     { label: '最近同步', value: item.synced_at ? formatTime(String(item.synced_at)) : '-' },
@@ -457,6 +494,17 @@ function geminiQuotaCards(item: GeminiCredentialItem) {
   ]
 }
 
+function antigravityQuotaCards(item: AntigravityCredentialItem) {
+  return [
+    geminiQuotaCard('Claude 额度', item.claude),
+    geminiQuotaCard('Pro 额度', item.pro),
+    geminiQuotaCard('Flash 额度', item.flash),
+    geminiQuotaCard('Lite 额度', item.flashlite),
+    geminiQuotaCard('Tab 额度', item.tab),
+    geminiQuotaCard('Image 额度', item.image),
+  ]
+}
+
 function isSparkAvailable(item: CodexItem) {
   return item.spark.available
 }
@@ -480,6 +528,31 @@ function formatScore(value: number) {
 
 function scoreBadgeLabel(metric: { score: number; weight: number }) {
   return `Score: ${formatScore(metric.score)}(${formatPercent(errorRateFromWeight(metric))})`
+}
+
+function formatCreditsAmount(value: number) {
+  if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) {
+    return '0'
+  }
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: value >= 100 ? 0 : 2,
+  }).format(value)
+}
+
+function antigravityCreditsTone(item: AntigravityCredentialItem): UiTone {
+  return item.credits?.available ? 'accent' : 'secondary'
+}
+
+function antigravityCreditTypes(item: AntigravityCredentialItem) {
+  return Array.isArray(item.credits?.types) ? item.credits.types.filter(Boolean) : []
+}
+
+function openCreditsDialog(item: AntigravityCredentialItem) {
+  creditsDialogItem.value = item
+}
+
+function closeCreditsDialog() {
+  creditsDialogItem.value = null
 }
 
 function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.value) {
@@ -774,7 +847,7 @@ onBeforeUnmount(() => {
                 v-model="searchInput"
                 class="filter-grow"
                 label="搜索"
-                :placeholder="isGeminiHandler ? '凭据 ID / 邮箱 / 状态' : isCodexHandler ? '邮箱 / Account ID / 状态 / 套餐' : '凭据 ID / 状态 / 套餐'"
+                :placeholder="isGeminiHandler || isAntigravityHandler ? '凭据 ID / 邮箱 / Project ID / 状态' : isCodexHandler ? '邮箱 / Account ID / 状态 / 套餐' : '凭据 ID / 状态 / 套餐'"
                 prepend-inner-icon="mdi-magnify"
                 clearable
               />
@@ -1013,6 +1086,115 @@ onBeforeUnmount(() => {
                 </VCard>
               </template>
 
+              <template v-else-if="isAntigravityHandler">
+                <VCard
+                  v-for="item in antigravityRows"
+                  :key="item.id"
+                  color="surface-container"
+                  variant="flat"
+                >
+                  <VCardText class="stack-card-body">
+                    <div class="stack-card-top">
+                      <div class="d-flex align-start ga-3" style="min-width: 0">
+                        <VCheckboxBtn
+                          :model-value="selectedSet.has(item.id)"
+                          @update:model-value="() => toggleSelectOne(item.id)"
+                        />
+                        <div class="stack-card-copy">
+                          <div class="stack-card-title">{{ item.email || item.id }}</div>
+                          <div class="stack-card-meta">
+                            <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
+                              {{ planTypeText(item.plan_type) }}
+                            </AdminBadge>
+                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="credentialStatusIcon(item.status)">
+                              {{ statusText(item.status) }}
+                            </AdminBadge>
+                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.claude))" subtle icon="mdi-chart-line">
+                              Claude {{ scoreBadgeLabel(item.claude) }}
+                            </AdminBadge>
+                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.pro))" subtle icon="mdi-chart-line">
+                              Pro {{ scoreBadgeLabel(item.pro) }}
+                            </AdminBadge>
+                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.flash))" subtle icon="mdi-chart-line">
+                              Flash {{ scoreBadgeLabel(item.flash) }}
+                            </AdminBadge>
+                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.flashlite))" subtle icon="mdi-chart-line">
+                              Lite {{ scoreBadgeLabel(item.flashlite) }}
+                            </AdminBadge>
+                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.tab))" subtle icon="mdi-chart-line">
+                              Tab {{ scoreBadgeLabel(item.tab) }}
+                            </AdminBadge>
+                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.image))" subtle icon="mdi-chart-line">
+                              Image {{ scoreBadgeLabel(item.image) }}
+                            </AdminBadge>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="quota-grid">
+                      <div
+                        class="quota-card"
+                        role="button"
+                        tabindex="0"
+                        style="cursor: pointer"
+                        @click="openCreditsDialog(item)"
+                        @keydown.enter="openCreditsDialog(item)"
+                        @keydown.space.prevent="openCreditsDialog(item)"
+                      >
+                        <div class="quota-row">
+                          <div class="quota-label text-medium-emphasis">Credits</div>
+                          <span :class="'text-' + antigravityCreditsTone(item)" class="quota-value font-weight-bold">
+                            {{ formatCreditsAmount(item.credits?.amount || 0) }}
+                          </span>
+                        </div>
+                      </div>
+                      <div v-for="quota in antigravityQuotaCards(item)" :key="quota.label" class="quota-card">
+                        <div class="quota-row">
+                          <div class="quota-label text-medium-emphasis">{{ quota.label }}</div>
+                          <span :class="'text-' + quota.tone" class="quota-value font-weight-bold">
+                            {{ quota.value }}
+                          </span>
+                        </div>
+                        <VProgressLinear
+                          :model-value="quota.percent ?? 0"
+                          :color="quota.tone"
+                          rounded
+                          height="8"
+                        />
+                        <div class="quota-caption text-medium-emphasis">
+                          重置 {{ formatTime(quota.reset) }}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="detail-grid">
+                      <div class="detail-block">
+                        <div class="detail-label text-medium-emphasis">项目 ID</div>
+                        <div class="detail-value">{{ item.project_id || '-' }}</div>
+                      </div>
+                      <div class="detail-block">
+                        <div class="detail-label text-medium-emphasis">AT到期</div>
+                        <div class="detail-value">{{ formatTime(item.expired) }}</div>
+                      </div>
+                      <div class="detail-block">
+                        <div class="detail-label text-medium-emphasis">最近同步</div>
+                        <div class="detail-value">{{ item.synced_at ? formatTime(item.synced_at) : '-' }}</div>
+                      </div>
+                      <div class="detail-block">
+                        <div class="detail-label text-medium-emphasis">退避截止</div>
+                        <div class="detail-value">{{ item.throttled_until && !isPastTime(item.throttled_until) ? formatTime(item.throttled_until) : '-' }}</div>
+                      </div>
+                    </div>
+
+                    <div v-if="item.status === 'disabled' && item.reason" class="reason-block">
+                      <div class="reason-label">停用原因</div>
+                      <div class="reason-value">{{ item.reason }}</div>
+                    </div>
+                  </VCardText>
+                </VCard>
+              </template>
+
               <template v-else>
                 <VCard
                   v-for="item in genericRows"
@@ -1153,6 +1335,50 @@ onBeforeUnmount(() => {
         >
           开始导入
         </AdminButton>
+      </template>
+    </ModalDialog>
+
+    <ModalDialog
+      :open="creditsDialogOpen"
+      title="Credits 类型"
+      icon="mdi-tag-outline"
+      max-width="560"
+      @close="closeCreditsDialog"
+    >
+      <div class="d-grid ga-4">
+        <div class="detail-grid">
+          <div class="detail-block">
+            <div class="detail-label text-medium-emphasis">Credits</div>
+            <div class="detail-value">{{ formatCreditsAmount(creditsDialogItem?.credits?.amount || 0) }}</div>
+          </div>
+          <div class="detail-block">
+            <div class="detail-label text-medium-emphasis">凭据</div>
+            <div class="detail-value">{{ creditsDialogItem?.email || creditsDialogItem?.id || '-' }}</div>
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap ga-2">
+          <AdminBadge
+            v-if="!creditsDialogTypes.length"
+            tone="secondary"
+            subtle
+            icon="mdi-alert-circle-outline"
+          >
+            无可用类型
+          </AdminBadge>
+          <AdminBadge
+            v-for="creditType in creditsDialogTypes"
+            :key="creditType"
+            tone="accent"
+            subtle
+            icon="mdi-tag-outline"
+          >
+            {{ creditType }}
+          </AdminBadge>
+        </div>
+      </div>
+      <template #footer>
+        <AdminButton variant="ghost" @click="closeCreditsDialog">关闭</AdminButton>
       </template>
     </ModalDialog>
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/nekohy/MeowCLI/api"
+	"github.com/nekohy/MeowCLI/api/antigravity"
 	"github.com/nekohy/MeowCLI/api/gemini"
 	"github.com/nekohy/MeowCLI/utils"
 
@@ -37,7 +38,7 @@ func (h *Handler) handleGemini(c *gin.Context) {
 		return
 	}
 
-	alias, action, err := parseGeminiModelAction(c.Param("target"))
+	alias, action, err := parseGenerateContentTarget(c.Param("target"))
 	if err != nil {
 		writeRelayError(c, errModelRequired)
 		return
@@ -48,71 +49,100 @@ func (h *Handler) handleGemini(c *gin.Context) {
 		writeRelayError(c, relayErr)
 		return
 	}
-	if target.info.Handler != utils.HandlerGemini {
+	if target.info.Handler != utils.HandlerGemini && target.info.Handler != utils.HandlerAntigravity {
 		writeRelayError(c, errUnsupportedAPIType)
 		return
 	}
+	backendOptions := generateContentBackendOptions(target.info.Handler, target.info.Origin, action, c.Request.URL.RawQuery)
 
 	h.relayUpstream(c, upstreamRelay{
-		ctx:                  ctx,
-		scheduler:            target.sched,
-		requestHeaders:       c.Request.Header,
-		allowedPlans:         target.info.AllowedPlanTypes,
-		streamRequest:        action == "streamGenerateContent",
-		modelAlias:           alias,
-		modelTier:            modelTier(target.info),
-		apiType:              utils.APIGemini,
-		backend:              target.backend,
-		replaceResponseModel: alias != target.info.Origin,
-		responseModel:        alias,
-		requestBody:          body,
-		backendOptions: &gemini.Options{
-			ModelName: target.info.Origin,
-			Action:    action,
-			RawQuery:  c.Request.URL.RawQuery,
-		},
-		prepareBackendOptions: prepareGeminiBackendOptions(target.sched),
+		ctx:                   ctx,
+		scheduler:             target.sched,
+		requestHeaders:        c.Request.Header,
+		allowedPlans:          target.info.AllowedPlanTypes,
+		streamRequest:         action == "streamGenerateContent",
+		modelAlias:            alias,
+		modelTier:             modelTier(target.info),
+		apiType:               utils.APIGemini,
+		backend:               target.backend,
+		replaceResponseModel:  alias != target.info.Origin,
+		responseModel:         alias,
+		requestBody:           body,
+		backendOptions:        backendOptions,
+		prepareBackendOptions: prepareGenerateContentBackendOptions(target.sched),
 	})
 }
 
-func prepareGeminiBackendOptions(scheduler CredentialScheduler) func(context.Context, string, api.BackendOpts) (api.BackendOpts, error) {
+func generateContentBackendOptions(handler utils.HandlerType, modelName string, action string, rawQuery string) api.BackendOpts {
+	if handler == utils.HandlerAntigravity {
+		return &antigravity.Options{
+			ModelName: modelName,
+			Action:    action,
+			RawQuery:  rawQuery,
+		}
+	}
+	return &gemini.Options{
+		ModelName: modelName,
+		Action:    action,
+		RawQuery:  rawQuery,
+	}
+}
+
+func prepareGenerateContentBackendOptions(scheduler CredentialScheduler) func(context.Context, string, api.BackendOpts) (api.BackendOpts, error) {
 	resolver, ok := scheduler.(ProjectIDProvider)
 	if !ok {
 		return nil
 	}
+	creditTypesProvider, _ := scheduler.(CreditTypesProvider)
 	return func(ctx context.Context, credentialID string, opts api.BackendOpts) (api.BackendOpts, error) {
-		geminiOpts, ok := opts.(*gemini.Options)
-		if !ok {
+		switch typed := opts.(type) {
+		case *gemini.Options:
+			projectID, err := resolver.ProjectID(ctx, credentialID)
+			if err != nil {
+				return nil, fmt.Errorf("resolve gemini project id: %w", err)
+			}
+			cloned := *typed
+			cloned.ProjectID = projectID
+			return &cloned, nil
+		case *antigravity.Options:
+			projectID, err := resolver.ProjectID(ctx, credentialID)
+			if err != nil {
+				return nil, fmt.Errorf("resolve antigravity project id: %w", err)
+			}
+			cloned := *typed
+			cloned.ProjectID = projectID
+			if creditTypesProvider != nil {
+				creditTypes, err := creditTypesProvider.CreditTypes(ctx, credentialID)
+				if err != nil {
+					return nil, fmt.Errorf("resolve antigravity credit types: %w", err)
+				}
+				cloned.CreditTypes = creditTypes
+			}
+			return &cloned, nil
+		default:
 			return opts, nil
 		}
-		projectID, err := resolver.ProjectID(ctx, credentialID)
-		if err != nil {
-			return nil, fmt.Errorf("resolve gemini project id: %w", err)
-		}
-		cloned := *geminiOpts
-		cloned.ProjectID = projectID
-		return &cloned, nil
 	}
 }
 
-func parseGeminiModelAction(rawTarget string) (string, string, error) {
+func parseGenerateContentTarget(rawTarget string) (string, string, error) {
 	target := strings.TrimSpace(rawTarget)
 	target = strings.TrimPrefix(target, "/")
 	if target == "" {
-		return "", "", errors.New("empty gemini target")
+		return "", "", errors.New("empty generateContent target")
 	}
 
 	modelPart, action, ok := strings.Cut(target, ":")
 	if !ok {
-		return "", "", errors.New("invalid gemini target")
+		return "", "", errors.New("invalid generateContent target")
 	}
 	modelPart = strings.TrimSpace(modelPart)
 	action = strings.TrimSpace(action)
 	if modelPart == "" || action == "" {
-		return "", "", errors.New("invalid gemini target")
+		return "", "", errors.New("invalid generateContent target")
 	}
 	if action != "generateContent" && action != "streamGenerateContent" {
-		return "", "", errors.New("unsupported gemini action")
+		return "", "", errors.New("unsupported generateContent action")
 	}
 	modelName, err := url.PathUnescape(modelPart)
 	if err != nil {
@@ -135,7 +165,7 @@ func (h *Handler) handleGeminiModels(c *gin.Context) {
 	}
 	models := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		if item.Handler != utils.HandlerGemini {
+		if item.Handler != utils.HandlerGemini && item.Handler != utils.HandlerAntigravity {
 			continue
 		}
 		models = append(models, map[string]any{

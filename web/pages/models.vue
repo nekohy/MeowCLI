@@ -33,16 +33,25 @@ const modalError = ref('')
 const handlerIconByKey: Record<string, string> = {
   codex: 'mdi-console',
   gemini: 'mdi-google-circles-communities',
+  antigravity: 'mdi-compass-outline',
 }
 
 const modalHandlerConfig = computed(() => (
   admin.handlers.value.find((handler) => handler.key === modalHandler.value) || null
 ))
 const modalAvailablePlanTypes = computed(() => modalHandlerConfig.value?.plan_list || [])
-const modalSelectedPlanTypes = computed(() => splitPlanTypeInput(modalPlanTypes.value))
+const modalSelectedPlanTypes = computed(() => splitPlanTypeInput(modalPlanTypes.value, modalAvailablePlanTypes.value))
 
 function defaultPlanTypesForHandler(_handlerKey: string) {
   return ''
+}
+
+function planTypesForHandler(handlerKey: string) {
+  return admin.handlers.value.find((handler) => handler.key === handlerKey)?.plan_list || []
+}
+
+function modelPlanTypes(item: ModelItem) {
+  return splitPlanTypeInput(item.plan_types, planTypesForHandler(item.handler))
 }
 
 const hintNoPlanTypes = computed(() => {
@@ -119,7 +128,7 @@ function openEditModal(item: ModelItem) {
   modalAlias.value = item.alias
   modalOrigin.value = item.origin
   modalHandler.value = item.handler
-  modalPlanTypes.value = item.plan_types || defaultPlanTypesForHandler(item.handler)
+  modalPlanTypes.value = joinPlanTypeInput(modelPlanTypes(item), planTypesForHandler(item.handler)) || defaultPlanTypesForHandler(item.handler)
   modalExtra.value = safeStringify(item.extra)
   modalError.value = ''
   modalOpen.value = true
@@ -146,7 +155,7 @@ async function saveModel() {
     const payload = {
       origin: modalOrigin.value.trim(),
       handler: modalHandler.value,
-      plan_types: joinPlanTypeInput(splitPlanTypeInput(modalPlanTypes.value)),
+      plan_types: joinPlanTypeInput(splitPlanTypeInput(modalPlanTypes.value, modalAvailablePlanTypes.value), modalAvailablePlanTypes.value),
       extra,
     }
 
@@ -221,6 +230,7 @@ watch(
     } else {
       modalPlanTypes.value = joinPlanTypeInput(
         modalSelectedPlanTypes.value.filter((planType) => modalAvailablePlanTypes.value.includes(planType)),
+        modalAvailablePlanTypes.value,
       )
     }
   },
@@ -293,9 +303,9 @@ watch(
             </div>
 
             <div class="d-flex flex-wrap ga-2 align-center">
-              <template v-if="item.plan_types">
+              <template v-if="modelPlanTypes(item).length">
                 <AdminBadge
-                  v-for="(pt, idx) in splitPlanTypeInput(item.plan_types)"
+                  v-for="(pt, idx) in modelPlanTypes(item)"
                   :key="pt"
                   tone="secondary"
                   subtle

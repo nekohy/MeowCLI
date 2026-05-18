@@ -8,6 +8,49 @@ import (
 	"database/sql"
 )
 
+type Antigravity struct {
+	ID           string `json:"id"`
+	Status       string `json:"status"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	Expired      string `json:"expired"`
+	Email        string `json:"email"`
+	ProjectID    string `json:"project_id"`
+	PlanType     string `json:"plan_type"`
+	Reason       string `json:"reason"`
+	SyncedAt     string `json:"synced_at"`
+}
+
+type AntigravityCredit struct {
+	CredentialID  string  `json:"credential_id"`
+	CreditsAmount float64 `json:"credits_amount"`
+	CreditTypes   string  `json:"credit_types"`
+	SyncedAt      string  `json:"synced_at"`
+}
+
+type AntigravityQuotum struct {
+	CredentialID            string  `json:"credential_id"`
+	QuotaClaude             float64 `json:"quota_claude"`
+	ResetClaude             string  `json:"reset_claude"`
+	QuotaPro                float64 `json:"quota_pro"`
+	ResetPro                string  `json:"reset_pro"`
+	QuotaFlash              float64 `json:"quota_flash"`
+	ResetFlash              string  `json:"reset_flash"`
+	QuotaFlashlite          float64 `json:"quota_flashlite"`
+	ResetFlashlite          string  `json:"reset_flashlite"`
+	QuotaTab                float64 `json:"quota_tab"`
+	ResetTab                string  `json:"reset_tab"`
+	QuotaImage              float64 `json:"quota_image"`
+	ResetImage              string  `json:"reset_image"`
+	ThrottledUntilClaude    string  `json:"throttled_until_claude"`
+	ThrottledUntilPro       string  `json:"throttled_until_pro"`
+	ThrottledUntilFlash     string  `json:"throttled_until_flash"`
+	ThrottledUntilFlashlite string  `json:"throttled_until_flashlite"`
+	ThrottledUntilTab       string  `json:"throttled_until_tab"`
+	ThrottledUntilImage     string  `json:"throttled_until_image"`
+	SyncedAt                string  `json:"synced_at"`
+}
+
 type AuthKey struct {
 	Key       string `json:"key"`
 	Role      string `json:"role"`

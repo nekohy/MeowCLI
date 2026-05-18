@@ -4,19 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nekohy/MeowCLI/api/codex"
-	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
-	"github.com/nekohy/MeowCLI/api/gemini"
-	runtimelogs "github.com/nekohy/MeowCLI/internal/logs"
-	"github.com/nekohy/MeowCLI/internal/settings"
-	db "github.com/nekohy/MeowCLI/internal/store"
-	"github.com/nekohy/MeowCLI/utils"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/nekohy/MeowCLI/api/antigravity"
+	"github.com/nekohy/MeowCLI/api/codex"
+	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
+	"github.com/nekohy/MeowCLI/api/gemini"
 	oauthcore "github.com/nekohy/MeowCLI/core"
+	coreAntigravity "github.com/nekohy/MeowCLI/core/antigravity"
 	coreCodex "github.com/nekohy/MeowCLI/core/codex"
 	coreGemini "github.com/nekohy/MeowCLI/core/gemini"
 	"github.com/nekohy/MeowCLI/db/postgres"
@@ -24,7 +22,11 @@ import (
 	"github.com/nekohy/MeowCLI/internal/auth"
 	"github.com/nekohy/MeowCLI/internal/bridge"
 	"github.com/nekohy/MeowCLI/internal/handler"
+	runtimelogs "github.com/nekohy/MeowCLI/internal/logs"
 	"github.com/nekohy/MeowCLI/internal/router"
+	"github.com/nekohy/MeowCLI/internal/settings"
+	db "github.com/nekohy/MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
@@ -102,19 +104,40 @@ func Run(ctx context.Context, cfg Config) error {
 	geminiScheduler.SetQuotaFetcher(geminiClient)
 	geminiScheduler.StartQuotaSyncer(ctx)
 
+	antigravityClient := antigravity.NewClient()
+	antigravityClient.SetSettingsProvider(settingsSvc)
+	antigravityManager, err := coreAntigravity.NewManager(coreAntigravity.ManagerConfig{
+		Store:    store,
+		Client:   antigravityClient,
+		Settings: settingsSvc,
+	})
+	if err != nil {
+		return fmt.Errorf("init antigravity manager: %w", err)
+	}
+	antigravityScheduler := coreAntigravity.NewScheduler(store, antigravityManager)
+	antigravityScheduler.SetQuotaFetcher(antigravityClient)
+	antigravityScheduler.SetSettingsProvider(settingsSvc)
+	antigravityScheduler.SetLogStore(logStore)
+	antigravityScheduler.StartQuotaSyncer(ctx)
+	if _, err := antigravityScheduler.RefreshAvailable(ctx); err != nil {
+		log.Warn().Err(err).Msg("warm antigravity scheduler")
+	}
+
 	modelCache := &modelCacheResolver{store: store}
 	h := bridge.NewHandler(
 		modelCache,
 		map[utils.HandlerType]bridge.CredentialScheduler{
-			utils.HandlerCodex:  codexScheduler,
-			utils.HandlerGemini: geminiScheduler,
+			utils.HandlerCodex:       codexScheduler,
+			utils.HandlerGemini:      geminiScheduler,
+			utils.HandlerAntigravity: antigravityScheduler,
 		},
 		codexClient,
 		geminiClient,
+		antigravityClient,
 	)
 	h.SetSettingsProvider(settingsSvc)
 
-	adminHandler := handler.NewAdminHandler(store, codexClient, geminiClient)
+	adminHandler := handler.NewAdminHandler(store, codexClient, geminiClient, antigravityClient)
 	oauthFlows, err := newOAuthFlows()
 	if err != nil {
 		return err
@@ -123,8 +146,9 @@ func Run(ctx context.Context, cfg Config) error {
 	adminHandler.SetAuthCache(authCache)
 	adminHandler.SetModelCache(modelCache)
 	adminHandler.SetCredentialRefresher(&credentialRefreshDispatcher{
-		codex:  codexScheduler,
-		gemini: geminiScheduler,
+		codex:       codexScheduler,
+		gemini:      geminiScheduler,
+		antigravity: antigravityScheduler,
 	})
 	adminHandler.SetLogStore(logStore)
 	adminHandler.SetSettingsService(settingsSvc)
@@ -182,9 +206,14 @@ func newOAuthFlows() (map[utils.HandlerType]oauthcore.OAuthFlow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init gemini oauth flow: %w", err)
 	}
+	antigravityOAuth, err := coreAntigravity.NewOAuthFlow(nil)
+	if err != nil {
+		return nil, fmt.Errorf("init antigravity oauth flow: %w", err)
+	}
 	return map[utils.HandlerType]oauthcore.OAuthFlow{
-		utils.HandlerCodex:  codexOAuth,
-		utils.HandlerGemini: geminiOAuth,
+		utils.HandlerCodex:       codexOAuth,
+		utils.HandlerGemini:      geminiOAuth,
+		utils.HandlerAntigravity: antigravityOAuth,
 	}, nil
 }
 
@@ -364,7 +393,9 @@ func cloneResolvedModel(info bridge.ResolvedModel) *bridge.ResolvedModel {
 func parseModelPlanTypes(handler utils.HandlerType, raw string) []string {
 	switch handler {
 	case utils.HandlerGemini:
-		return coreGemini.ParsePlanTypeList(raw)
+		return utils.ParseCodeAssistPlanTypeList(raw)
+	case utils.HandlerAntigravity:
+		return utils.ParseCodeAssistPlanTypeList(raw)
 	case utils.HandlerCodex:
 		return coreCodex.ParsePlanTypeList(raw)
 	default:
@@ -373,14 +404,18 @@ func parseModelPlanTypes(handler utils.HandlerType, raw string) []string {
 }
 
 type credentialRefreshDispatcher struct {
-	codex  *coreCodex.Scheduler
-	gemini *coreGemini.Scheduler
+	codex       *coreCodex.Scheduler
+	gemini      *coreGemini.Scheduler
+	antigravity *coreAntigravity.Scheduler
 }
 
 func (d *credentialRefreshDispatcher) RefreshAvailable(ctx context.Context, handler utils.HandlerType) error {
 	switch handler {
 	case utils.HandlerGemini:
 		_, err := d.gemini.RefreshAvailable(ctx)
+		return err
+	case utils.HandlerAntigravity:
+		_, err := d.antigravity.RefreshAvailable(ctx)
 		return err
 	case utils.HandlerCodex:
 		_, err := d.codex.RefreshAvailable(ctx)
@@ -394,6 +429,8 @@ func (d *credentialRefreshDispatcher) SyncQuotas(ctx context.Context, handler ut
 	switch handler {
 	case utils.HandlerGemini:
 		d.gemini.SyncCredentials(ctx, ids)
+	case utils.HandlerAntigravity:
+		d.antigravity.SyncCredentials(ctx, ids)
 	case utils.HandlerCodex:
 		d.codex.SyncCredentials(ctx, ids)
 	}
@@ -412,6 +449,10 @@ func (d *credentialRefreshDispatcher) InvalidateCredentials(handler utils.Handle
 		case utils.HandlerGemini:
 			if d.gemini != nil {
 				d.gemini.InvalidateCredential(id)
+			}
+		case utils.HandlerAntigravity:
+			if d.antigravity != nil {
+				d.antigravity.InvalidateCredential(id)
 			}
 		case utils.HandlerCodex:
 			if d.codex != nil {

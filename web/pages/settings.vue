@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
 import {
+  ANTIGRAVITY_API_ENDPOINT_OPTIONS,
   DEFAULT_SETTINGS_FORM,
+  antigravityAPIEndpointText,
   geminiBaseURLText,
+  joinAntigravityAPIEndpointInput,
   joinGeminiBaseURLInput,
   joinPlanTypeInput,
   settingsToForm,
   settingsToPayload,
+  splitAntigravityAPIEndpointInput,
   splitGeminiBaseURLInput,
   splitPlanTypeInput,
 } from '~/lib/admin'
@@ -21,6 +25,7 @@ const admin = useAdminApp()
 const loading = ref(false)
 const actionBusy = ref(false)
 const geminiEndpointOpen = ref(false)
+const antigravityEndpointOpen = ref(false)
 const form = ref<SettingsForm>({ ...DEFAULT_SETTINGS_FORM })
 
 const fallbackCodexPlanTypes = ['free', 'plus', 'edu', 'prolite', 'pro', 'team', 'enterprise', 'unknown']
@@ -28,6 +33,7 @@ const fallbackGeminiPlanTypes = ['ultra', 'pro', 'free', 'unknown']
 
 const codexPlanTypes = computed(() => admin.handlerLookup.value.get('codex')?.plan_list || fallbackCodexPlanTypes)
 const geminiPlanTypes = computed(() => admin.handlerLookup.value.get('gemini')?.plan_list || fallbackGeminiPlanTypes)
+const antigravityPlanTypes = computed(() => admin.handlerLookup.value.get('antigravity')?.plan_list || fallbackGeminiPlanTypes)
 
 const codexPlanOrder = usePlanOrderModal(
   () => form.value.codex_preferred_plan_types,
@@ -41,8 +47,20 @@ const geminiPlanOrder = usePlanOrderModal(
   () => geminiPlanTypes.value,
 )
 
+const antigravityPlanOrder = usePlanOrderModal(
+  () => form.value.antigravity_preferred_plan_types,
+  (v) => { form.value.antigravity_preferred_plan_types = v },
+  () => antigravityPlanTypes.value,
+)
+
+const hasAntigravityCreditsOverageSetting = computed(() => (
+  typeof form.value.antigravity_use_credits === 'boolean'
+))
+
 const geminiEndpointSelection = computed(() => splitGeminiBaseURLInput(form.value.gemini_base_urls))
 const geminiEndpointPreview = computed(() => geminiEndpointSelection.value.map(geminiBaseURLText).join(' / '))
+const antigravityEndpointSelection = computed(() => splitAntigravityAPIEndpointInput(form.value.antigravity_api_endpoint))
+const antigravityEndpointPreview = computed(() => antigravityEndpointSelection.value.map(antigravityAPIEndpointText).join(' / '))
 
 function isGeminiEndpointSelected(value: string) {
   return geminiEndpointSelection.value.includes(value)
@@ -57,6 +75,21 @@ function toggleGeminiEndpoint(value: string) {
     selected.push(value)
   }
   form.value.gemini_base_urls = joinGeminiBaseURLInput(selected)
+}
+
+function isAntigravityEndpointSelected(value: string) {
+  return antigravityEndpointSelection.value.includes(value)
+}
+
+function toggleAntigravityEndpoint(value: string) {
+  const selected = splitAntigravityAPIEndpointInput(form.value.antigravity_api_endpoint)
+  const idx = selected.indexOf(value)
+  if (idx >= 0) {
+    selected.splice(idx, 1)
+  } else {
+    selected.push(value)
+  }
+  form.value.antigravity_api_endpoint = joinAntigravityAPIEndpointInput(selected)
 }
 
 const numericFields = [
@@ -156,9 +189,12 @@ function normalizeSettingsForm(source: SettingsForm): SettingsForm {
     global_proxy: source.global_proxy.trim(),
     codex_proxy: source.codex_proxy.trim(),
     gemini_proxy: source.gemini_proxy.trim(),
+    antigravity_proxy: source.antigravity_proxy.trim(),
+    antigravity_api_endpoint: joinAntigravityAPIEndpointInput(splitAntigravityAPIEndpointInput(source.antigravity_api_endpoint)),
+    codex_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.codex_preferred_plan_types, codexPlanTypes.value), codexPlanTypes.value),
     gemini_base_urls: joinGeminiBaseURLInput(splitGeminiBaseURLInput(source.gemini_base_urls)),
-    codex_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.codex_preferred_plan_types)),
-    gemini_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.gemini_preferred_plan_types)),
+    gemini_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.gemini_preferred_plan_types, geminiPlanTypes.value), geminiPlanTypes.value),
+    antigravity_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.antigravity_preferred_plan_types, antigravityPlanTypes.value), antigravityPlanTypes.value),
   }
 
   for (const field of numericFields) {
@@ -278,7 +314,7 @@ watch(
       <div class="setting-field-stack">
         <div class="settings-item">
           <div class="settings-item-copy">
-            <div class="settings-item-title">Codex代理</div>
+            <div class="settings-item-title">Codex 代理</div>
             <div class="settings-item-description text-medium-emphasis">仅 Codex 上游使用的 HTTP 代理，覆盖全局代理</div>
           </div>
           <VTextField
@@ -340,6 +376,55 @@ watch(
       </div>
     </SectionCard>
 
+    <SectionCard
+      v-if="hasAntigravityCreditsOverageSetting"
+      title="Antigravity"
+      icon="mdi-compass-outline"
+    >
+      <div class="setting-field-stack">
+        <div class="settings-item">
+          <div class="settings-item-copy">
+            <div class="settings-item-title">Antigravity 代理</div>
+            <div class="settings-item-description text-medium-emphasis">仅 Antigravity 上游请求使用，未设置时回退到全局代理</div>
+          </div>
+          <VTextField
+            v-model="form.antigravity_proxy"
+            placeholder="http://127.0.0.1:7890"
+            hide-details
+            class="settings-item-control"
+          />
+        </div>
+
+        <div class="settings-item settings-item--toggle" style="cursor: pointer" @click="antigravityEndpointOpen = true">
+          <div class="settings-item-copy">
+            <div class="settings-item-title">API 端点</div>
+            <div class="settings-item-description text-medium-emphasis">
+              已启用：{{ antigravityEndpointPreview }}
+            </div>
+          </div>
+          <VIcon icon="mdi-chevron-right" />
+        </div>
+
+        <div class="settings-item settings-item--toggle">
+          <div class="settings-item-copy">
+            <div class="settings-item-title">配额耗尽后使用 Credits</div>
+            <div class="settings-item-description text-medium-emphasis">仅作为 Antigravity 配额兜底，不会作为套餐类型参与调度筛选</div>
+          </div>
+          <VSwitch v-model="form.antigravity_use_credits" />
+        </div>
+
+        <div class="settings-item settings-item--toggle" style="cursor: pointer" @click="antigravityPlanOrder.openModal()">
+          <div class="settings-item-copy">
+            <div class="settings-item-title">调用套餐顺序</div>
+            <div class="settings-item-description text-medium-emphasis">
+              优先使用的套餐类型及顺序：{{ antigravityPlanOrder.preview.value.length ? antigravityPlanOrder.preview.value.join(' → ') : '未配置' }}
+            </div>
+          </div>
+          <VIcon icon="mdi-chevron-right" />
+        </div>
+      </div>
+    </SectionCard>
+
     <!-- Plan Order Modals -->
     <PlanOrderModal
       :open="codexPlanOrder.open.value"
@@ -357,7 +442,7 @@ watch(
 
     <PlanOrderModal
       :open="geminiPlanOrder.open.value"
-      title="Gemini 调用套餐顺序"
+      title="调用套餐顺序"
       :draft="geminiPlanOrder.draft.value"
       :drag-idx="geminiPlanOrder.dragIdx.value"
       :is-selected="geminiPlanOrder.isSelected"
@@ -369,12 +454,37 @@ watch(
       @close="geminiPlanOrder.closeModal()"
     />
 
-    <GeminiEndpointModal
+    <PlanOrderModal
+      :open="antigravityPlanOrder.open.value"
+      title="套餐顺序"
+      :draft="antigravityPlanOrder.draft.value"
+      :drag-idx="antigravityPlanOrder.dragIdx.value"
+      :is-selected="antigravityPlanOrder.isSelected"
+      :rank-of="antigravityPlanOrder.rankOf"
+      :toggle="antigravityPlanOrder.toggle"
+      :on-drag-start="antigravityPlanOrder.onDragStart"
+      :on-drag-over="antigravityPlanOrder.onDragOver"
+      :on-drag-end="antigravityPlanOrder.onDragEnd"
+      @close="antigravityPlanOrder.closeModal()"
+    />
+
+    <EndpointSelectionModal
       :open="geminiEndpointOpen"
+      title="Gemini CLI 接口"
       :selected="geminiEndpointSelection"
       :is-selected="isGeminiEndpointSelected"
       :toggle="toggleGeminiEndpoint"
       @close="geminiEndpointOpen = false"
+    />
+
+    <EndpointSelectionModal
+      :open="antigravityEndpointOpen"
+      title="Antigravity API 端点"
+      :options="ANTIGRAVITY_API_ENDPOINT_OPTIONS"
+      :selected="antigravityEndpointSelection"
+      :is-selected="isAntigravityEndpointSelected"
+      :toggle="toggleAntigravityEndpoint"
+      @close="antigravityEndpointOpen = false"
     />
   </div>
 </template>

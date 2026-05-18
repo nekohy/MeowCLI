@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	antigravityapi "github.com/nekohy/MeowCLI/api/antigravity"
 	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
 	oauthcore "github.com/nekohy/MeowCLI/core"
 	"github.com/nekohy/MeowCLI/utils"
@@ -99,7 +100,7 @@ func (a *AdminHandler) oauthFlow(c *gin.Context) (utils.HandlerType, oauthcore.O
 		flow = a.oauthFlows[provider]
 	}
 	switch provider {
-	case utils.HandlerCodex, utils.HandlerGemini:
+	case utils.HandlerCodex, utils.HandlerGemini, utils.HandlerAntigravity:
 		if flow == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": string(provider) + " oauth backend is unavailable"})
 			return provider, nil, false
@@ -117,6 +118,16 @@ func (a *AdminHandler) upsertOAuthCredential(ctx context.Context, provider utils
 		return a.upsertCodexFromTokenData(ctx, token.AccessToken, token.RefreshToken, token.IDToken)
 	case utils.HandlerGemini:
 		credential, err := a.upsertGeminiCredentialFromTokenData(ctx, &geminiapi.TokenData{
+			AccessToken:  token.AccessToken,
+			RefreshToken: token.RefreshToken,
+			Expiry:       token.Expiry,
+		})
+		if err != nil {
+			return "", err
+		}
+		return credential.ID, nil
+	case utils.HandlerAntigravity:
+		credential, err := a.upsertAntigravityCredentialFromTokenData(ctx, &antigravityapi.TokenData{
 			AccessToken:  token.AccessToken,
 			RefreshToken: token.RefreshToken,
 			Expiry:       token.Expiry,

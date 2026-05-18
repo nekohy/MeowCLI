@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
-	coregemini "github.com/nekohy/MeowCLI/core/gemini"
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
@@ -96,6 +95,10 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 	if err != nil {
 		return overviewResponse{}, err
 	}
+	antigravityTotal, antigravityEnabled, err := a.antigravityCounts(ctx)
+	if err != nil {
+		return overviewResponse{}, err
+	}
 
 	for i := range handlers {
 		count, countErr := a.store.CountModelsByHandler(ctx, string(handlers[i].Key))
@@ -115,13 +118,16 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 				handlers[i].CredentialsTotal = int(geminiTotal)
 				handlers[i].CredentialsEnabled = geminiEnabled
 			}
+		case utils.HandlerAntigravity:
+			handlers[i].CredentialsTotal = int(antigravityTotal)
+			handlers[i].CredentialsEnabled = antigravityEnabled
 		}
 	}
 
 	return overviewResponse{
 		Summary: overviewSummary{
-			CredentialsEnabled: codexEnabled + geminiEnabled,
-			CredentialsTotal:   int(codexTotal + geminiTotal),
+			CredentialsEnabled: codexEnabled + geminiEnabled + antigravityEnabled,
+			CredentialsTotal:   int(codexTotal + geminiTotal + antigravityTotal),
 			ModelsTotal:        int(modelsTotal),
 			LogsTotal:          logs.TotalStats.Total,
 			AuthKeysTotal:      authKeysTotal,
@@ -161,7 +167,7 @@ func defaultHandlerOverview() []handlerOverview {
 			Label:               "Gemini CLI",
 			Status:              "available",
 			SupportedAPI:        []utils.APIType{utils.APIGemini},
-			PlanList:            coregemini.PlanList(),
+			PlanList:            utils.CodeAssistPlanList(),
 			SupportsCredentials: true,
 			CredentialEndpoint:  credentialsEndpointForHandler(utils.HandlerGemini),
 			CredentialFields: []credentialField{
@@ -174,6 +180,25 @@ func defaultHandlerOverview() []handlerOverview {
 				},
 			},
 			CredentialStatusOptions: []string{"enabled", "disabled", "throttled"},
+		},
+		{
+			Key:                 utils.HandlerAntigravity,
+			Label:               "Antigravity",
+			Status:              "available",
+			SupportedAPI:        []utils.APIType{utils.APIGemini},
+			PlanList:            utils.CodeAssistPlanList(),
+			SupportsCredentials: true,
+			CredentialEndpoint:  credentialsEndpointForHandler(utils.HandlerAntigravity),
+			CredentialFields: []credentialField{
+				{
+					Key:         "tokens",
+					Label:       "Refresh Tokens",
+					Kind:        "textarea",
+					Placeholder: "一行一个 Antigravity Refresh Token",
+					Preferred:   true,
+				},
+			},
+			CredentialStatusOptions: []string{"enabled", "disabled"},
 		},
 	}
 }

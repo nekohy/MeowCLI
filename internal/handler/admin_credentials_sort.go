@@ -44,6 +44,34 @@ var geminiCredentialSortKeys = map[string]struct{}{
 	"throttled_until":      {},
 }
 
+var antigravityCredentialSortKeys = map[string]struct{}{
+	"score":                {},
+	"claude_score":         {},
+	"pro_score":            {},
+	"flash_score":          {},
+	"flashlite_score":      {},
+	"lite_score":           {},
+	"tab_score":            {},
+	"image_score":          {},
+	"error_rate":           {},
+	"claude_error_rate":    {},
+	"pro_error_rate":       {},
+	"flash_error_rate":     {},
+	"flashlite_error_rate": {},
+	"lite_error_rate":      {},
+	"tab_error_rate":       {},
+	"image_error_rate":     {},
+	"quota":                {},
+	"claude_quota":         {},
+	"pro_quota":            {},
+	"flash_quota":          {},
+	"flashlite_quota":      {},
+	"lite_quota":           {},
+	"tab_quota":            {},
+	"image_quota":          {},
+	"throttled_until":      {},
+}
+
 func credentialSortOptionsFromRequest(query func(string) string, supported map[string]struct{}) credentialSortOptions {
 	by := strings.ToLower(strings.TrimSpace(query("sort_by")))
 	if by != "" {
@@ -69,9 +97,9 @@ func sortCodexListItems(items []codexListItem, options credentialSortOptions) {
 	value := func(item codexListItem) (float64, bool) {
 		switch options.By {
 		case "default_score":
-			return adjustedMetricScore(item.Default), true
+			return adjustedMetricScore(item.Default.Score, item.Default.Weight), true
 		case "spark_score":
-			return adjustedMetricScore(item.Spark), true
+			return adjustedMetricScore(item.Spark.Score, item.Spark.Weight), true
 		case "default_error_rate":
 			return errorRateFromMetricWeight(item.Default.Weight), true
 		case "spark_error_rate":
@@ -110,11 +138,11 @@ func sortGeminiListItems(items []geminiListItem, options credentialSortOptions) 
 	value := func(item geminiListItem) (float64, bool) {
 		switch options.By {
 		case "score", "pro_score":
-			return adjustedMetricScore(item.Pro), true
+			return adjustedMetricScore(item.Pro.Score, item.Pro.Weight), true
 		case "flash_score":
-			return adjustedMetricScore(item.Flash), true
+			return adjustedMetricScore(item.Flash.Score, item.Flash.Weight), true
 		case "flashlite_score", "lite_score":
-			return adjustedMetricScore(item.Flashlite), true
+			return adjustedMetricScore(item.Flashlite.Score, item.Flashlite.Weight), true
 		case "error_rate", "pro_error_rate":
 			return errorRateFromMetricWeight(item.Pro.Weight), true
 		case "flash_error_rate":
@@ -149,20 +177,69 @@ func sortGeminiListItems(items []geminiListItem, options credentialSortOptions) 
 	})
 }
 
-type schedulingMetric interface {
-	scoreValue() float64
-	weightValue() float64
+func sortAntigravityListItems(items []antigravityListItem, options credentialSortOptions) {
+	value := func(item antigravityListItem) (float64, bool) {
+		switch options.By {
+		case "score", "claude_score":
+			return adjustedMetricScore(item.Claude.Score, item.Claude.Weight), true
+		case "pro_score":
+			return adjustedMetricScore(item.Pro.Score, item.Pro.Weight), true
+		case "flash_score":
+			return adjustedMetricScore(item.Flash.Score, item.Flash.Weight), true
+		case "flashlite_score", "lite_score":
+			return adjustedMetricScore(item.Flashlite.Score, item.Flashlite.Weight), true
+		case "tab_score":
+			return adjustedMetricScore(item.Tab.Score, item.Tab.Weight), true
+		case "image_score":
+			return adjustedMetricScore(item.Image.Score, item.Image.Weight), true
+		case "error_rate", "claude_error_rate":
+			return errorRateFromMetricWeight(item.Claude.Weight), true
+		case "pro_error_rate":
+			return errorRateFromMetricWeight(item.Pro.Weight), true
+		case "flash_error_rate":
+			return errorRateFromMetricWeight(item.Flash.Weight), true
+		case "flashlite_error_rate", "lite_error_rate":
+			return errorRateFromMetricWeight(item.Flashlite.Weight), true
+		case "tab_error_rate":
+			return errorRateFromMetricWeight(item.Tab.Weight), true
+		case "image_error_rate":
+			return errorRateFromMetricWeight(item.Image.Weight), true
+		case "quota", "claude_quota":
+			return item.Claude.Quota, true
+		case "pro_quota":
+			return item.Pro.Quota, true
+		case "flash_quota":
+			return item.Flash.Quota, true
+		case "flashlite_quota", "lite_quota":
+			return item.Flashlite.Quota, true
+		case "tab_quota":
+			return item.Tab.Quota, true
+		case "image_quota":
+			return item.Image.Quota, true
+		case "throttled_until":
+			return timeSortValue(item.ThrottledUntil), true
+		default:
+			return 0, false
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		left, ok := value(items[i])
+		right, _ := value(items[j])
+		if !ok {
+			return items[i].ID < items[j].ID
+		}
+		if left == right {
+			return items[i].ID < items[j].ID
+		}
+		if options.Order == "asc" {
+			return left < right
+		}
+		return left > right
+	})
 }
 
-func adjustedMetricScore(metric schedulingMetric) float64 {
-	return scheduling.AdjustedScore(metric.scoreValue(), metric.weightValue())
-}
-
-func (m codexSchedulingMetric) scoreValue() float64  { return m.Score }
-func (m codexSchedulingMetric) weightValue() float64 { return m.Weight }
-func (m geminiSchedulingMetric) scoreValue() float64 { return m.Score }
-func (m geminiSchedulingMetric) weightValue() float64 {
-	return m.Weight
+func adjustedMetricScore(score, weight float64) float64 {
+	return scheduling.AdjustedScore(score, weight)
 }
 
 func errorRateFromMetricWeight(weight float64) float64 {
@@ -189,6 +266,11 @@ func paginateCodexListItems(items []codexListItem, page, pageSize int) []codexLi
 }
 
 func paginateGeminiListItems(items []geminiListItem, page, pageSize int) []geminiListItem {
+	start, end := paginationBounds(len(items), page, pageSize)
+	return items[start:end]
+}
+
+func paginateAntigravityListItems(items []antigravityListItem, page, pageSize int) []antigravityListItem {
 	start, end := paginationBounds(len(items), page, pageSize)
 	return items[start:end]
 }

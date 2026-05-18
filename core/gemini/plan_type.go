@@ -7,38 +7,6 @@ import (
 	"github.com/nekohy/MeowCLI/utils"
 )
 
-const (
-	PlanTypeUltra   = "ultra"
-	PlanTypePro     = "pro"
-	PlanTypeFree    = "free"
-	PlanTypeUnknown = "unknown"
-)
-
-func NormalizePlanType(planType string) string {
-	normalized := strings.ToLower(strings.TrimSpace(planType))
-	if normalized == "-" {
-		return PlanTypeUnknown
-	}
-	switch normalized {
-	case PlanTypeUltra, PlanTypePro, PlanTypeFree, PlanTypeUnknown:
-		return normalized
-	default:
-		return ""
-	}
-}
-
-func NormalizePlanTypeList(raw string) string {
-	return utils.JoinNormalizedList(utils.ParseDelimitedList(raw, NormalizePlanType), NormalizePlanType)
-}
-
-func ParsePlanTypeList(raw string) []string {
-	return utils.ParseDelimitedList(raw, NormalizePlanType)
-}
-
-func PlanList() []string {
-	return []string{PlanTypeUltra, PlanTypePro, PlanTypeFree, PlanTypeUnknown}
-}
-
 // Model tier constants — these represent different Gemini model families
 // with separate quota limits, NOT subscription plan types.
 // Re-exported from api/gemini to avoid duplication.
@@ -74,10 +42,10 @@ const (
 const planTypeCodeUnknown = 999
 
 var planTypeCodes = map[string]int{
-	PlanTypeFree:    planTypeCodeFree,
-	PlanTypePro:     planTypeCodePro,
-	PlanTypeUltra:   planTypeCodeUltra,
-	PlanTypeUnknown: planTypeCodeUnknown,
+	utils.CodeAssistPlanTypeFree:    planTypeCodeFree,
+	utils.CodeAssistPlanTypePro:     planTypeCodePro,
+	utils.CodeAssistPlanTypeUltra:   planTypeCodeUltra,
+	utils.CodeAssistPlanTypeUnknown: planTypeCodeUnknown,
 }
 
 type planTypeCodec struct{}
@@ -85,7 +53,7 @@ type planTypeCodec struct{}
 func newPlanTypeCodec() *planTypeCodec { return &planTypeCodec{} }
 
 func (c *planTypeCodec) code(planType string) int {
-	if code, ok := planTypeCodes[NormalizePlanType(planType)]; ok {
+	if code, ok := planTypeCodes[utils.NormalizeCodeAssistPlanType(planType)]; ok {
 		return code
 	}
 	return planTypeCodeUnknown
