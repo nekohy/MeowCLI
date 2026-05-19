@@ -12,6 +12,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/nekohy/MeowCLI/api"
+	"github.com/nekohy/MeowCLI/utils"
 	"github.com/tidwall/gjson"
 )
 
@@ -79,7 +80,7 @@ func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*
 	}
 	defer resp.Body.Close()
 
-	body, err := readLimitedBody(resp.Body, 1<<20)
+	body, err := utils.ReadLimitedBody(resp.Body, 1<<20)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +125,7 @@ func (c *Client) FetchUserEmail(ctx context.Context, accessToken string) (string
 	}
 	defer resp.Body.Close()
 
-	body, err := readLimitedBody(resp.Body, 1<<20)
+	body, err := utils.ReadLimitedBody(resp.Body, 1<<20)
 	if err != nil {
 		return "", err
 	}
@@ -244,7 +245,7 @@ func (c *Client) doCodeAssistControlRequest(ctx context.Context, accessToken str
 	}
 	defer resp.Body.Close()
 
-	respBody, err := readLimitedBody(resp.Body, readBodyLimit)
+	respBody, err := utils.ReadLimitedBody(resp.Body, readBodyLimit)
 	if err != nil {
 		return nil, fmt.Errorf("read antigravity %s response: %w", action, err)
 	}

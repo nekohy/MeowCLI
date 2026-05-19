@@ -475,3 +475,10 @@ func (d *credentialRefreshDispatcher) CachedGeminiQuota(id string) (coreGemini.C
 	}
 	return d.gemini.CachedQuota(id)
 }
+
+func (d *credentialRefreshDispatcher) CachedAntigravityQuota(id string) (coreAntigravity.CachedQuotaSnapshot, bool) {
+	if d == nil || d.antigravity == nil {
+		return coreAntigravity.CachedQuotaSnapshot{}, false
+	}
+	return d.antigravity.CachedQuota(id)
+}

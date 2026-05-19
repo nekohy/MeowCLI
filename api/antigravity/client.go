@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -38,15 +37,9 @@ type Client struct {
 
 func NewClient() *Client {
 	c := &Client{}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.ResponseHeaderTimeout = utils.DefaultUpstreamTimeout
-	transport.IdleConnTimeout = utils.DefaultUpstreamTimeout
-	transport.MaxIdleConns = 100
-	transport.MaxIdleConnsPerHost = 20
-	transport.Proxy = func(*http.Request) (*url.URL, error) {
+	c.client = utils.NewProxyHTTPClient(utils.DefaultUpstreamTimeout, func(*http.Request) (*url.URL, error) {
 		return c.proxyURL()
-	}
-	c.client = &http.Client{Transport: transport}
+	})
 	return c
 }
 
@@ -93,10 +86,7 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	}
 
 	targetURL := c.baseURL() + "/" + codeAssistVersion + ":" + action
-	query := strings.TrimSpace(opts.RawQuery)
-	if action == "streamGenerateContent" && query == "" {
-		query = "alt=sse"
-	}
+	query := utils.TransformSSEQuery(action, opts.RawQuery)
 	if query != "" {
 		targetURL += "?" + query
 	}
@@ -107,7 +97,7 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	copyHeaders(httpReq.Header, req.Headers)
+	utils.CopyHeadersExcept(httpReq.Header, req.Headers, "Accept", "Accept-Encoding", "Content-Length", "User-Agent")
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("User-Agent", antigravityUserAgent())
 	if action == "streamGenerateContent" {
@@ -226,23 +216,6 @@ func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte 
 		body, _ = sjson.DeleteBytes(body, "generationConfig.maxOutputTokens")
 	}
 	return body
-}
-
-func copyHeaders(dst, src http.Header) {
-	for key, values := range src {
-		switch http.CanonicalHeaderKey(key) {
-		case "Accept", "Accept-Encoding", "Content-Length", "User-Agent":
-			continue
-		}
-		if len(values) == 0 {
-			continue
-		}
-		dst[key] = append([]string(nil), values...)
-	}
-}
-
-func readLimitedBody(r io.Reader, limit int64) ([]byte, error) {
-	return io.ReadAll(io.LimitReader(r, limit))
 }
 
 func (c *Client) proxyURL() (*url.URL, error) {

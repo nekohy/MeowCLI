@@ -15,6 +15,7 @@ import (
 	codexapi "github.com/nekohy/MeowCLI/api/codex"
 	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
 	oauthcore "github.com/nekohy/MeowCLI/core"
+	coreantigravity "github.com/nekohy/MeowCLI/core/antigravity"
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
 	coregemini "github.com/nekohy/MeowCLI/core/gemini"
 	"github.com/nekohy/MeowCLI/internal/auth"
@@ -32,6 +33,7 @@ type CredentialRefresher interface {
 	InvalidateCredentials(handler utils.HandlerType, ids []string)
 	CachedCodexQuota(id string) (corecodex.CachedQuotaSnapshot, bool)
 	CachedGeminiQuota(id string) (coregemini.CachedQuotaSnapshot, bool)
+	CachedAntigravityQuota(id string) (coreantigravity.CachedQuotaSnapshot, bool)
 }
 
 type ModelCache interface {

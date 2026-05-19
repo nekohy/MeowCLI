@@ -11,6 +11,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/nekohy/MeowCLI/api"
+	"github.com/nekohy/MeowCLI/utils"
 )
 
 type TokenData struct {
@@ -65,7 +66,7 @@ func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*
 	}
 	defer resp.Body.Close()
 
-	body, err := readLimitedBody(resp.Body, 1<<20)
+	body, err := utils.ReadLimitedBody(resp.Body, 1<<20)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +111,7 @@ func (c *Client) FetchUserEmail(ctx context.Context, accessToken string) (string
 	}
 	defer resp.Body.Close()
 
-	body, err := readLimitedBody(resp.Body, 1<<20)
+	body, err := utils.ReadLimitedBody(resp.Body, 1<<20)
 	if err != nil {
 		return "", err
 	}
@@ -143,7 +144,7 @@ func (c *Client) ResolveProjectID(ctx context.Context, accessToken string) (stri
 	}
 	defer resp.Body.Close()
 
-	body, err := readLimitedBody(resp.Body, 2<<20)
+	body, err := utils.ReadLimitedBody(resp.Body, 2<<20)
 	if err != nil {
 		return "", err
 	}

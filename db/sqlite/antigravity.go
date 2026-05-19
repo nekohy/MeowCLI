@@ -70,6 +70,14 @@ func (s *Store) ListAntigravityPaged(ctx context.Context, arg db.ListCredentialP
 	return resolved, nil
 }
 
+func (s *Store) ListAntigravityPlanTypes(ctx context.Context, filter db.CredentialFilterParams) ([]string, error) {
+	return s.queries.ListAntigravityPlanTypes(ctx, sqlcsqlite.ListAntigravityPlanTypesParams{
+		Search:       sqliteCodexSearchPattern(filter.Search),
+		Status:       strings.TrimSpace(filter.Status),
+		UnsyncedOnly: sqliteBool(filter.UnsyncedOnly),
+	})
+}
+
 func (s *Store) UpsertAntigravity(ctx context.Context, arg db.UpsertAntigravityParams) (db.AntigravityCredential, error) {
 	row, err := s.queries.UpsertAntigravity(ctx, sqlcsqlite.UpsertAntigravityParams{
 		ID:           arg.ID,
@@ -109,6 +117,10 @@ func (s *Store) UpdateAntigravityStatus(ctx context.Context, id string, status s
 		return db.AntigravityCredential{}, wrapError(err)
 	}
 	return antigravityCredentialTo(row), nil
+}
+
+func (s *Store) RestoreExpiredThrottledAntigravity(ctx context.Context) error {
+	return wrapError(s.queries.RestoreExpiredThrottledAntigravity(ctx))
 }
 
 func (s *Store) ListAvailableAntigravity(ctx context.Context) ([]db.ListAvailableAntigravityRow, error) {

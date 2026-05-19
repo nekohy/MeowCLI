@@ -73,6 +73,7 @@ type Scheduler struct {
 	failures        map[string]int
 	quotaRefreshing map[string]struct{}
 	quotaRefreshSem chan struct{}
+	planTypes       *planTypeCodec
 }
 
 type SchedulerStore interface {
@@ -80,6 +81,7 @@ type SchedulerStore interface {
 	UpsertAntigravityQuota(ctx context.Context, arg db.UpsertAntigravityQuotaParams) error
 	SetAntigravityQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
 	UpdateAntigravityStatus(ctx context.Context, id string, status string, reason string) (db.AntigravityCredential, error)
+	RestoreExpiredThrottledAntigravity(ctx context.Context) error
 }
 
 func NewScheduler(store SchedulerStore, manager *Manager) *Scheduler {
@@ -90,6 +92,7 @@ func NewScheduler(store SchedulerStore, manager *Manager) *Scheduler {
 		failures:        make(map[string]int),
 		quotaRefreshing: make(map[string]struct{}),
 		quotaRefreshSem: make(chan struct{}, 8),
+		planTypes:       newPlanTypeCodec(),
 	}
 }
 
@@ -150,7 +153,7 @@ func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableAntigr
 	if s.fetcher == nil {
 		return
 	}
-	token, err := s.manager.AccessToken(ctx, row.ID)
+	token, err := s.manager.AccessToken(ctx, row.ID, scheduling.UseCached)
 	if err != nil {
 		log.Error().Err(err).Str("credential", row.ID).Msg("antigravity quota-sync: get token")
 		return
@@ -182,6 +185,9 @@ func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableAntigr
 }
 
 func (s *Scheduler) RefreshAvailable(ctx context.Context) ([]availableRow, error) {
+	if err := s.store.RestoreExpiredThrottledAntigravity(ctx); err != nil {
+		log.Error().Err(err).Msg("antigravity scheduler: restore expired throttled credentials")
+	}
 	rows, err := s.store.ListAvailableAntigravity(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list available antigravity: %w", err)
@@ -282,8 +288,9 @@ func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.C
 	if err != nil {
 		return "", err
 	}
-	allowedPlans := planSet(selection.AllowedPlanTypes)
-	preferredPlans := s.preferredPlanTypes()
+	codec := s.planTypeCodec()
+	allowedPlans := scheduling.PlanTypeCodeSet(codec.codesFor(selection.AllowedPlanTypes))
+	preferredPlans := s.preferredPlanTypeCodes()
 	modelTier := normalizeModelTier(selection.ModelTier)
 	now := time.Now()
 	if preferred := strings.TrimSpace(selection.PreferredCredentialID); preferred != "" {
@@ -301,12 +308,12 @@ func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.C
 		}
 		return "", ErrNoAvailableCredential
 	}
-	for _, planType := range preferredPlans {
-		if !planAllowed(planType, allowedPlans) {
+	for _, planCode := range preferredPlans {
+		if !scheduling.PlanTypeAllowed(planCode, allowedPlans) {
 			continue
 		}
 		if row, ok := scheduling.PickWeightedFromBest(rows, scheduling.DefaultWeightedBestCount, func(row availableRow) float64 {
-			if utils.NormalizeCodeAssistPlanType(row.PlanType) != planType || !s.credentialUsable(row, modelTier, allowedPlans, now) {
+			if codec.code(row.PlanType) != planCode || !s.credentialUsable(row, modelTier, allowedPlans, now) {
 				return -1
 			}
 			return weightedTierScore(row, modelTier)
@@ -323,12 +330,12 @@ func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.C
 		return row.ID, nil
 	}
 	if s.creditsFallbackEnabled() {
-		for _, planType := range preferredPlans {
-			if !planAllowed(planType, allowedPlans) {
+		for _, planCode := range preferredPlans {
+			if !scheduling.PlanTypeAllowed(planCode, allowedPlans) {
 				continue
 			}
 			if row, ok := scheduling.PickWeightedFromBest(rows, scheduling.DefaultWeightedBestCount, func(row availableRow) float64 {
-				if utils.NormalizeCodeAssistPlanType(row.PlanType) != planType || !s.credentialCreditsFallbackUsable(row, modelTier, allowedPlans, now) {
+				if codec.code(row.PlanType) != planCode || !s.credentialCreditsFallbackUsable(row, modelTier, allowedPlans, now) {
 					return -1
 				}
 				return creditsFallbackScore(row, modelTier)
@@ -348,12 +355,19 @@ func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.C
 	return "", ErrNoAvailableCredential
 }
 
-func (s *Scheduler) preferredPlanTypes() []string {
-	return utils.ParseCodeAssistPlanTypeList(s.settingsSnapshot().AntigravityPreferredPlanTypes)
+func (s *Scheduler) planTypeCodec() *planTypeCodec {
+	if s.planTypes == nil {
+		s.planTypes = newPlanTypeCodec()
+	}
+	return s.planTypes
+}
+
+func (s *Scheduler) preferredPlanTypeCodes() []int {
+	return s.planTypeCodec().codesFor(utils.ParseCodeAssistPlanTypeList(s.settingsSnapshot().AntigravityPreferredPlanTypes))
 }
 
 func (s *Scheduler) AuthHeaders(ctx context.Context, credentialID string) (http.Header, error) {
-	return s.manager.AuthHeaders(ctx, credentialID)
+	return s.manager.AuthHeaders(ctx, credentialID, scheduling.UseCached)
 }
 
 func (s *Scheduler) ProjectID(ctx context.Context, credentialID string) (string, error) {
@@ -413,12 +427,15 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 	if err := s.store.SetAntigravityQuotaThrottled(context.Background(), credentialID, throttleTier, throttledUntil); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("antigravity scheduler: set throttled")
 	}
+	if _, err := s.store.UpdateAntigravityStatus(context.Background(), credentialID, string(utils.StatusThrottled), utils.TemporaryThrottleReason(decision.Reason)); err != nil {
+		log.Error().Err(err).Str("credential", credentialID).Msg("antigravity scheduler: update throttled credential status")
+	}
+	s.rememberThrottleUntil(credentialID, throttledUntil)
 	if throttleTier != "" {
 		s.suspendCredentialTier(credentialID, throttleTier)
 		log.Warn().Str("credential", credentialID).Str("model_tier", throttleTier).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Msg("antigravity credential tier throttled")
 		return
 	}
-	s.rememberThrottleUntil(credentialID, throttledUntil)
 	s.evictCredential(credentialID)
 	log.Warn().Str("credential", credentialID).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Msg("antigravity credential throttled")
 }
@@ -460,7 +477,7 @@ func (s *Scheduler) QueueQuotaRefresh(_ context.Context, credentialID string, mo
 
 		refreshCtx, cancel := context.WithTimeout(context.Background(), s.settingsSnapshot().ImportedCheckTimeout())
 		defer cancel()
-		token, err := s.manager.AccessToken(refreshCtx, credentialID)
+		token, err := s.manager.AccessToken(refreshCtx, credentialID, scheduling.UseCached)
 		if err != nil {
 			s.rememberThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
 			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", tier).Msg("antigravity scheduler: quota refresh get token")
@@ -540,11 +557,11 @@ func (s *Scheduler) listAvailable(ctx context.Context) ([]availableRow, error) {
 	return s.RefreshAvailable(ctx)
 }
 
-func (s *Scheduler) credentialUsable(row availableRow, modelTier string, allowedPlans map[string]struct{}, now time.Time) bool {
+func (s *Scheduler) credentialUsable(row availableRow, modelTier string, allowedPlans map[int]struct{}, now time.Time) bool {
 	if strings.TrimSpace(row.ID) == "" {
 		return false
 	}
-	if !planAllowed(row.PlanType, allowedPlans) {
+	if !scheduling.PlanTypeAllowed(s.planTypeCodec().code(row.PlanType), allowedPlans) {
 		return false
 	}
 	if weightedTierScore(row, modelTier) < 0 {
@@ -556,11 +573,11 @@ func (s *Scheduler) credentialUsable(row availableRow, modelTier string, allowed
 	return until.IsZero() || !now.Before(until)
 }
 
-func (s *Scheduler) credentialCreditsFallbackUsable(row availableRow, modelTier string, allowedPlans map[string]struct{}, now time.Time) bool {
+func (s *Scheduler) credentialCreditsFallbackUsable(row availableRow, modelTier string, allowedPlans map[int]struct{}, now time.Time) bool {
 	if strings.TrimSpace(row.ID) == "" {
 		return false
 	}
-	if !planAllowed(row.PlanType, allowedPlans) {
+	if !scheduling.PlanTypeAllowed(s.planTypeCodec().code(row.PlanType), allowedPlans) {
 		return false
 	}
 	if tierQuota(row, modelTier) > 0 {
@@ -737,7 +754,7 @@ func (s *Scheduler) disableCredential(ctx context.Context, id string, reason str
 }
 
 func (s *Scheduler) syncImportedCredential(ctx context.Context, credentialID string) {
-	token, err := s.manager.AccessToken(ctx, credentialID)
+	token, err := s.manager.AccessToken(ctx, credentialID, scheduling.UseCached)
 	if err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("antigravity sync-credentials: get token")
 		return
@@ -901,26 +918,51 @@ func retryDecision(delay time.Duration) scheduling.RetryDecision {
 	return scheduling.RetryDecision{Delay: delay + 100*time.Millisecond, SameCredential: true}
 }
 
-func planSet(values []string) map[string]struct{} {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		value = utils.NormalizeCodeAssistPlanType(value)
-		if value != "" {
-			out[value] = struct{}{}
-		}
-	}
-	return out
+const (
+	planTypeCodeFree = iota
+	planTypeCodePro
+	planTypeCodeUltra
+)
+
+const planTypeCodeUnknown = 999
+
+var planTypeCodes = map[string]int{
+	utils.CodeAssistPlanTypeFree:    planTypeCodeFree,
+	utils.CodeAssistPlanTypePro:     planTypeCodePro,
+	utils.CodeAssistPlanTypeUltra:   planTypeCodeUltra,
+	utils.CodeAssistPlanTypeUnknown: planTypeCodeUnknown,
 }
 
-func planAllowed(planType string, allowed map[string]struct{}) bool {
-	if len(allowed) == 0 {
-		return true
+type planTypeCodec struct{}
+
+func newPlanTypeCodec() *planTypeCodec { return &planTypeCodec{} }
+
+func (c *planTypeCodec) code(planType string) int {
+	if code, ok := planTypeCodes[utils.NormalizeCodeAssistPlanType(planType)]; ok {
+		return code
 	}
-	_, ok := allowed[utils.NormalizeCodeAssistPlanType(planType)]
-	return ok
+	return planTypeCodeUnknown
+}
+
+func (c *planTypeCodec) codesFor(planTypes []string) []int {
+	if len(planTypes) == 0 {
+		return nil
+	}
+
+	codes := make([]int, 0, len(planTypes))
+	seen := make(map[int]struct{}, len(planTypes))
+	for _, planType := range planTypes {
+		code := c.code(planType)
+		if code == planTypeCodeUnknown {
+			continue
+		}
+		if _, ok := seen[code]; ok {
+			continue
+		}
+		seen[code] = struct{}{}
+		codes = append(codes, code)
+	}
+	return codes
 }
 
 func isCredentialRejectedStatus(statusCode int) bool {

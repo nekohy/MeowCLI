@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -33,15 +32,9 @@ type Client struct {
 
 func NewClient() *Client {
 	c := &Client{}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.ResponseHeaderTimeout = utils.DefaultUpstreamTimeout
-	transport.IdleConnTimeout = utils.DefaultUpstreamTimeout
-	transport.MaxIdleConns = 100
-	transport.MaxIdleConnsPerHost = 20
-	transport.Proxy = func(*http.Request) (*url.URL, error) {
+	c.client = utils.NewProxyHTTPClient(utils.DefaultUpstreamTimeout, func(*http.Request) (*url.URL, error) {
 		return c.proxyURL()
-	}
-	c.client = &http.Client{Transport: transport}
+	})
 	return c
 }
 
@@ -102,7 +95,7 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	}
 
 	targetURL := fmt.Sprintf("%s/%s:%s", c.codeAssistEndpoint(), codeAssistVersion, action)
-	query := transformCodeAssistQuery(action, rawQuery)
+	query := utils.TransformSSEQuery(action, rawQuery)
 	if query != "" {
 		targetURL += "?" + query
 	}
@@ -111,7 +104,7 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	copyHeaders(httpReq.Header, headers)
+	utils.CopyHeadersExcept(httpReq.Header, headers, "Accept", "Accept-Encoding")
 	if strings.TrimSpace(httpReq.Header.Get("Content-Type")) == "" {
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
@@ -150,31 +143,6 @@ func wrapCodeAssistBody(body []byte, modelName, projectID string) []byte {
 		return body
 	}
 	return wrapped
-}
-
-func transformCodeAssistQuery(action, rawQuery string) string {
-	query := strings.TrimSpace(rawQuery)
-	if action == "streamGenerateContent" && query == "" {
-		return "alt=sse"
-	}
-	return query
-}
-
-func copyHeaders(dst, src http.Header) {
-	for key, values := range src {
-		switch http.CanonicalHeaderKey(key) {
-		case "Accept", "Accept-Encoding":
-			continue
-		}
-		if len(values) == 0 {
-			continue
-		}
-		dst[key] = append([]string(nil), values...)
-	}
-}
-
-func readLimitedBody(r io.Reader, limit int64) ([]byte, error) {
-	return io.ReadAll(io.LimitReader(r, limit))
 }
 
 func (c *Client) proxyURL() (*url.URL, error) {
@@ -230,26 +198,11 @@ func NormalizeCodeAssistEndpoints(raw string) []string {
 }
 
 func NormalizeCodeAssistEndpointKeys(raw string) []string {
-	allowed := make(map[string]bool, len(codeAssistEndpointOptions))
+	allowed := make([]string, 0, len(codeAssistEndpointOptions))
 	for _, option := range codeAssistEndpointOptions {
-		allowed[option.key] = true
+		allowed = append(allowed, option.key)
 	}
-	parts := strings.Split(raw, ",")
-
-	values := make([]string, 0, len(parts))
-	seen := make(map[string]bool, len(parts))
-	for _, part := range parts {
-		key := strings.TrimSpace(part)
-		if !allowed[key] || seen[key] {
-			continue
-		}
-		seen[key] = true
-		values = append(values, key)
-	}
-	if len(values) == 0 {
-		return []string{codeAssistEndpointKeyProd}
-	}
-	return values
+	return utils.NormalizeAllowedKeys(raw, allowed, codeAssistEndpointKeyProd)
 }
 
 // FetchQuota fetches the real remaining quota from the retrieveUserQuota API.
@@ -287,7 +240,7 @@ func (c *Client) FetchQuota(ctx context.Context, _ string, accessToken string, p
 	}
 	defer resp.Body.Close()
 
-	body, err := readLimitedBody(resp.Body, readBodyLimit)
+	body, err := utils.ReadLimitedBody(resp.Body, readBodyLimit)
 	if err != nil {
 		return nil, fmt.Errorf("read gemini quota response: %w", err)
 	}
