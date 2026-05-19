@@ -109,12 +109,13 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 }
 
 type wrappedRequest struct {
-	Project     string                 `json:"project"`
-	Request     sonic.NoCopyRawMessage `json:"request"`
-	Model       string                 `json:"model"`
-	UserAgent   string                 `json:"userAgent"`
-	RequestType string                 `json:"requestType"`
-	RequestID   string                 `json:"requestId"`
+	Project            string                 `json:"project"`
+	Request            sonic.NoCopyRawMessage `json:"request"`
+	Model              string                 `json:"model"`
+	UserAgent          string                 `json:"userAgent"`
+	RequestType        string                 `json:"requestType"`
+	RequestID          string                 `json:"requestId"`
+	EnabledCreditTypes []string               `json:"enabledCreditTypes,omitempty"`
 }
 
 func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes []string, useCredits bool) []byte {
@@ -123,9 +124,13 @@ func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes [
 		request = []byte(nested.Raw)
 	}
 	request = normalizeGeminiRequestForAntigravity(request, modelName)
+	if strings.Contains(strings.ToLower(modelName), "claude") {
+		request, _ = sjson.SetBytes(request, "toolConfig.functionCallingConfig.mode", "VALIDATED")
+	}
+	var enabledCreditTypes []string
 	if useCredits {
 		if normalized := normalizeCreditTypes(creditTypes); len(normalized) > 0 {
-			request, _ = sjson.SetBytes(request, "enabledCreditTypes", normalized)
+			enabledCreditTypes = normalized
 		}
 	}
 
@@ -142,12 +147,13 @@ func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes [
 		projectID = defaultProjectID
 	}
 	wrapped, err := sonic.Marshal(wrappedRequest{
-		Project:     projectID,
-		Request:     sonic.NoCopyRawMessage(request),
-		Model:       modelName,
-		UserAgent:   "antigravity",
-		RequestType: requestType,
-		RequestID:   requestID,
+		Project:            projectID,
+		Request:            sonic.NoCopyRawMessage(request),
+		Model:              modelName,
+		UserAgent:          "antigravity",
+		RequestType:        requestType,
+		RequestID:          requestID,
+		EnabledCreditTypes: enabledCreditTypes,
 	})
 	if err != nil {
 		return body
