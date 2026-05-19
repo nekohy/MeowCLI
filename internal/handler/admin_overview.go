@@ -198,7 +198,7 @@ func defaultHandlerOverview() []handlerOverview {
 					Preferred:   true,
 				},
 			},
-			CredentialStatusOptions: []string{"enabled", "disabled"},
+			CredentialStatusOptions: []string{"enabled", "disabled", "throttled"},
 		},
 	}
 }

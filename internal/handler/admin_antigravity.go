@@ -56,22 +56,28 @@ func (a *AdminHandler) ListAntigravity(c *gin.Context) {
 
 	filters := antigravityCredentialFiltersFromRequest(c)
 	sortOptions := credentialSortOptionsFromRequest(c.Query, antigravityCredentialSortKeys)
+	planTypes, err := a.store.ListAntigravityPlanTypes(c.Request.Context(), credentialPlanTypeFilter(filters))
+	if err != nil {
+		writeInternalError(c, err)
+		return
+	}
 	total, rows, err := a.listAntigravityCredentials(c.Request.Context(), page, pageSize, filters, sortOptions)
 	if err != nil {
 		writeInternalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
-		"data":      rows,
+		"total":      total,
+		"page":       page,
+		"page_size":  pageSize,
+		"plan_types": planTypes,
+		"data":       rows,
 	})
 }
 
 func antigravityCredentialFiltersFromRequest(c *gin.Context) db.CredentialFilterParams {
 	status := strings.TrimSpace(c.Query("status"))
-	if status != "enabled" && status != "disabled" {
+	if status != "enabled" && status != "disabled" && status != "throttled" {
 		status = ""
 	}
 	return db.CredentialFilterParams{
@@ -314,6 +320,7 @@ func (a *AdminHandler) listAntigravityCredentials(ctx context.Context, page, pag
 			},
 		}
 	}
+	overlayAntigravityQuotaCache(items, a.credRefresh)
 	if sortOptions.enabled() {
 		sortAntigravityListItems(items, sortOptions)
 		items = paginateAntigravityListItems(items, page, pageSize)

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -715,7 +714,7 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 	if err := s.store.SetQuotaThrottled(bgCtx, credentialID, throttleTier, throttledUntil); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: set throttled")
 	}
-	if _, err := s.store.UpdateCodexStatus(bgCtx, credentialID, string(utils.StatusThrottled), temporaryThrottleReason(decision.Reason)); err != nil {
+	if _, err := s.store.UpdateCodexStatus(bgCtx, credentialID, string(utils.StatusThrottled), utils.TemporaryThrottleReason(decision.Reason)); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: update throttled credential status")
 	}
 	s.rememberThrottleUntil(credentialID, throttledUntil)
@@ -1148,14 +1147,6 @@ func (s *Scheduler) recordAuthRejection(ctx context.Context, credentialID string
 	if err := s.recordResponse(ctx, credentialID, statusCode, modelTier, metrics); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: insert auth rejection log")
 	}
-}
-
-func temporaryThrottleReason(reason string) string {
-	reason = strings.TrimSpace(reason)
-	if reason == "" {
-		return "temporary throttle"
-	}
-	return "temporary throttle: " + reason
 }
 
 func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) {

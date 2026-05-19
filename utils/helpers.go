@@ -1,8 +1,10 @@
 package utils
 
 import (
+	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +26,71 @@ func ParseRetryAfterHeader(headers http.Header) time.Duration {
 		return 0
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+func ReadLimitedBody(r io.Reader, limit int64) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(r, limit))
+}
+
+func CopyHeadersExcept(dst, src http.Header, excluded ...string) {
+	if dst == nil || src == nil {
+		return
+	}
+	skip := make(map[string]struct{}, len(excluded))
+	for _, key := range excluded {
+		skip[http.CanonicalHeaderKey(key)] = struct{}{}
+	}
+	for key, values := range src {
+		if _, ok := skip[http.CanonicalHeaderKey(key)]; ok {
+			continue
+		}
+		if len(values) == 0 {
+			continue
+		}
+		dst[key] = append([]string(nil), values...)
+	}
+}
+
+func TransformSSEQuery(action, rawQuery string) string {
+	query := strings.TrimSpace(rawQuery)
+	if action == "streamGenerateContent" && query == "" {
+		return "alt=sse"
+	}
+	return query
+}
+
+func NormalizeAllowedKeys(raw string, allowed []string, fallback string) []string {
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, key := range allowed {
+		key = strings.ToLower(strings.TrimSpace(key))
+		if key != "" {
+			allowedSet[key] = struct{}{}
+		}
+	}
+	keys := ParseDelimitedList(raw, func(value string) string {
+		key := strings.ToLower(strings.TrimSpace(value))
+		if _, ok := allowedSet[key]; !ok {
+			return ""
+		}
+		return key
+	})
+	if len(keys) == 0 {
+		fallback = strings.ToLower(strings.TrimSpace(fallback))
+		if _, ok := allowedSet[fallback]; ok {
+			return []string{fallback}
+		}
+	}
+	return keys
+}
+
+func NewProxyHTTPClient(timeout time.Duration, proxy func(*http.Request) (*url.URL, error)) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = timeout
+	transport.IdleConnTimeout = timeout
+	transport.MaxIdleConns = 100
+	transport.MaxIdleConnsPerHost = 20
+	transport.Proxy = proxy
+	return &http.Client{Transport: transport}
 }
 
 // CalcBackoff returns base × 2^(consecutive-1), capped at max.
@@ -98,4 +165,12 @@ func JoinNormalizedList(items []string, normalize func(string) string) string {
 		normalized = append(normalized, n)
 	}
 	return strings.Join(normalized, ",")
+}
+
+func TemporaryThrottleReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "temporary throttle"
+	}
+	return "temporary throttle: " + reason
 }

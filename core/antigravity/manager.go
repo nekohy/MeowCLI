@@ -10,6 +10,7 @@ import (
 	"time"
 
 	antigravityapi "github.com/nekohy/MeowCLI/api/antigravity"
+	"github.com/nekohy/MeowCLI/core/scheduling"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	db "github.com/nekohy/MeowCLI/internal/store"
 	"github.com/nekohy/MeowCLI/utils"
@@ -18,6 +19,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/singleflight"
 )
+
+var _ scheduling.CredentialManager = (*Manager)(nil)
 
 const (
 	defaultCacheExpiration = 24 * time.Hour
@@ -101,19 +104,19 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 }
 
 func (m *Manager) GetAccessToken(ctx context.Context, credentialID string) (string, error) {
-	return m.AccessToken(ctx, credentialID)
+	return m.AccessToken(ctx, credentialID, scheduling.UseCached)
 }
 
-func (m *Manager) AccessToken(ctx context.Context, credentialID string) (string, error) {
-	row, err := m.cachedCredential(ctx, credentialID)
+func (m *Manager) AccessToken(ctx context.Context, credentialID string, mode scheduling.RefreshMode) (string, error) {
+	row, err := m.credential(ctx, credentialID, mode)
 	if err != nil {
 		return "", err
 	}
 	return row.AccessToken, nil
 }
 
-func (m *Manager) AuthHeaders(ctx context.Context, credentialID string) (http.Header, error) {
-	row, err := m.cachedCredential(ctx, credentialID)
+func (m *Manager) AuthHeaders(ctx context.Context, credentialID string, mode scheduling.RefreshMode) (http.Header, error) {
+	row, err := m.credential(ctx, credentialID, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +124,13 @@ func (m *Manager) AuthHeaders(ctx context.Context, credentialID string) (http.He
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer "+row.AccessToken)
 	return headers, nil
+}
+
+func (m *Manager) credential(ctx context.Context, credentialID string, mode scheduling.RefreshMode) (db.AntigravityCredential, error) {
+	if mode == scheduling.ForceRefresh {
+		return m.forceRefreshCredential(ctx, credentialID)
+	}
+	return m.cachedCredential(ctx, credentialID)
 }
 
 func (m *Manager) RefreshCredential(ctx context.Context, credentialID string) error {
@@ -134,7 +144,7 @@ func (m *Manager) InvalidateCredential(credentialID string) {
 }
 
 func (m *Manager) ProjectID(ctx context.Context, credentialID string) (string, error) {
-	row, err := m.cachedCredential(ctx, credentialID)
+	row, err := m.credential(ctx, credentialID, scheduling.UseCached)
 	if err != nil {
 		return "", err
 	}

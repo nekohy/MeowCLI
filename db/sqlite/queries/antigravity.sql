@@ -22,6 +22,17 @@ WHERE
     AND (sqlc.arg(plan_type) = '' OR LOWER(a.plan_type) = LOWER(sqlc.arg(plan_type)))
     AND (sqlc.arg(unsynced_only) = 0 OR q.synced_at IS NULL OR q.synced_at = '');
 
+-- name: ListAntigravityPlanTypes :many
+SELECT DISTINCT LOWER(TRIM(a.plan_type)) AS plan_type
+FROM antigravity a
+LEFT JOIN antigravity_quota q ON q.credential_id = a.id
+WHERE
+    (sqlc.arg(search) = '' OR LOWER(a.id) LIKE sqlc.arg(search) OR LOWER(a.email) LIKE sqlc.arg(search) OR LOWER(a.status) LIKE sqlc.arg(search) OR LOWER(a.plan_type) LIKE sqlc.arg(search))
+    AND (sqlc.arg(status) = '' OR a.status = sqlc.arg(status))
+    AND (sqlc.arg(unsynced_only) = 0 OR q.synced_at IS NULL OR q.synced_at = '')
+    AND TRIM(a.plan_type) <> ''
+ORDER BY plan_type;
+
 -- name: ListAntigravityPaged :many
 SELECT
     a.id, a.status, a.access_token, a.refresh_token, a.expired,
@@ -99,3 +110,20 @@ UPDATE antigravity
 SET status = ?, reason = ?
 WHERE id = ?
 RETURNING *;
+
+-- name: RestoreExpiredThrottledAntigravity :exec
+UPDATE antigravity
+SET status = 'enabled', reason = ''
+WHERE status = 'throttled'
+  AND id IN (
+    SELECT a.id
+    FROM antigravity a
+    LEFT JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled'
+      AND COALESCE(q.throttled_until_claude, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_pro, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_flash, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_flashlite, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_tab, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_image, datetime('now')) <= datetime('now')
+  );

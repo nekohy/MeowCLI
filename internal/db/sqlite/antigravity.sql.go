@@ -232,6 +232,70 @@ func (q *Queries) ListAntigravityPaged(ctx context.Context, arg ListAntigravityP
 	return items, nil
 }
 
+const listAntigravityPlanTypes = `-- name: ListAntigravityPlanTypes :many
+SELECT DISTINCT LOWER(TRIM(a.plan_type)) AS plan_type
+FROM antigravity a
+LEFT JOIN antigravity_quota q ON q.credential_id = a.id
+WHERE
+    (?1 = '' OR LOWER(a.id) LIKE ?1 OR LOWER(a.email) LIKE ?1 OR LOWER(a.status) LIKE ?1 OR LOWER(a.plan_type) LIKE ?1)
+    AND (?2 = '' OR a.status = ?2)
+    AND (?3 = 0 OR q.synced_at IS NULL OR q.synced_at = '')
+    AND TRIM(a.plan_type) <> ''
+ORDER BY plan_type
+`
+
+type ListAntigravityPlanTypesParams struct {
+	Search       interface{} `json:"search"`
+	Status       interface{} `json:"status"`
+	UnsyncedOnly interface{} `json:"unsynced_only"`
+}
+
+func (q *Queries) ListAntigravityPlanTypes(ctx context.Context, arg ListAntigravityPlanTypesParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listAntigravityPlanTypes, arg.Search, arg.Status, arg.UnsyncedOnly)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var plan_type string
+		if err := rows.Scan(&plan_type); err != nil {
+			return nil, err
+		}
+		items = append(items, plan_type)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const restoreExpiredThrottledAntigravity = `-- name: RestoreExpiredThrottledAntigravity :exec
+UPDATE antigravity
+SET status = 'enabled', reason = ''
+WHERE status = 'throttled'
+  AND id IN (
+    SELECT a.id
+    FROM antigravity a
+    LEFT JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled'
+      AND COALESCE(q.throttled_until_claude, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_pro, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_flash, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_flashlite, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_tab, datetime('now')) <= datetime('now')
+      AND COALESCE(q.throttled_until_image, datetime('now')) <= datetime('now')
+  )
+`
+
+func (q *Queries) RestoreExpiredThrottledAntigravity(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, restoreExpiredThrottledAntigravity)
+	return err
+}
+
 const updateAntigravityStatus = `-- name: UpdateAntigravityStatus :one
 UPDATE antigravity
 SET status = ?, reason = ?

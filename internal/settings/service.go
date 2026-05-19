@@ -8,6 +8,7 @@ import (
 	"time"
 
 	db "github.com/nekohy/MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/utils"
 )
 
 const (
@@ -228,32 +229,11 @@ func NormalizeAntigravityAPIEndpoint(value string) string {
 }
 
 func NormalizeAntigravityAPIEndpointKeys(value string) []string {
-	allowed := map[string]string{}
-	for _, key := range []string{
+	return utils.NormalizeAllowedKeys(value, []string{
 		AntigravityAPIEndpointProd,
 		AntigravityAPIEndpointDaily,
 		AntigravityAPIEndpointSandboxDaily,
-	} {
-		allowed[key] = key
-	}
-
-	parts := strings.FieldsFunc(value, func(r rune) bool {
-		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
-	})
-	keys := make([]string, 0, len(parts))
-	seen := make(map[string]bool, len(parts))
-	for _, part := range parts {
-		key := allowed[strings.ToLower(strings.TrimSpace(part))]
-		if key == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		keys = append(keys, key)
-	}
-	if len(keys) == 0 {
-		return []string{AntigravityAPIEndpointProd}
-	}
-	return keys
+	}, AntigravityAPIEndpointProd)
 }
 
 func (s Snapshot) EffectiveCodexProxy() string {
