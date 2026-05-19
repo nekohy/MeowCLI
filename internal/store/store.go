@@ -483,9 +483,11 @@ type Store interface {
 	GetAntigravity(ctx context.Context, id string) (AntigravityCredential, error)
 	UpdateAntigravityTokens(ctx context.Context, arg UpdateAntigravityTokensParams) (AntigravityCredential, error)
 	ListAntigravityPaged(ctx context.Context, arg ListCredentialPagedParams) ([]ListAntigravityRow, error)
+	ListAntigravityPlanTypes(ctx context.Context, filter CredentialFilterParams) ([]string, error)
 	UpsertAntigravity(ctx context.Context, arg UpsertAntigravityParams) (AntigravityCredential, error)
 	DeleteAntigravity(ctx context.Context, id string) error
 	UpdateAntigravityStatus(ctx context.Context, id string, status string, reason string) (AntigravityCredential, error)
+	RestoreExpiredThrottledAntigravity(ctx context.Context) error
 
 	ReverseInfoFromModel(ctx context.Context, alias string) (ReverseInfoFromModelRow, error)
 	ListModels(ctx context.Context) ([]ModelRow, error)

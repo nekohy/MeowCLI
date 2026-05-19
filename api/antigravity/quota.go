@@ -80,7 +80,7 @@ func (c *Client) FetchQuota(ctx context.Context, _ string, accessToken string, p
 	}
 	defer resp.Body.Close()
 
-	body, err := readLimitedBody(resp.Body, readBodyLimit)
+	body, err := utils.ReadLimitedBody(resp.Body, readBodyLimit)
 	if err != nil {
 		return nil, fmt.Errorf("read antigravity quota response: %w", err)
 	}

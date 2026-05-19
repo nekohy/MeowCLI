@@ -9,6 +9,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/nekohy/MeowCLI/api"
+	"github.com/nekohy/MeowCLI/utils"
 )
 
 const (
@@ -110,7 +111,7 @@ func (c *Client) LoadCodeAssistPlan(ctx context.Context, accessToken string, pro
 	}
 	defer resp.Body.Close()
 
-	body, err := readLimitedBody(resp.Body, readBodyLimit)
+	body, err := utils.ReadLimitedBody(resp.Body, readBodyLimit)
 	if err != nil {
 		return "", fmt.Errorf("read load code assist response: %w", err)
 	}
