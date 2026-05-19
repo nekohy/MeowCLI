@@ -482,10 +482,3 @@ func (d *credentialRefreshDispatcher) CachedAntigravityQuota(id string) (coreAnt
 	}
 	return d.antigravity.CachedQuota(id)
 }
-
-func (d *credentialRefreshDispatcher) CachedAntigravityQuota(id string) (coreAntigravity.CachedQuotaSnapshot, bool) {
-	if d == nil || d.antigravity == nil {
-		return coreAntigravity.CachedQuotaSnapshot{}, false
-	}
-	return d.antigravity.CachedQuota(id)
-}
