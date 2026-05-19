@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bytedance/sonic"
+	"github.com/bytedance/sonic/ast"
 	"github.com/google/uuid"
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/internal/settings"
@@ -125,6 +126,7 @@ func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes [
 	}
 	request = normalizeGeminiRequestForAntigravity(request, modelName)
 	if strings.Contains(strings.ToLower(modelName), "claude") {
+		request = ensureClaudeToolUseIDs(request)
 		request, _ = sjson.SetBytes(request, "toolConfig.functionCallingConfig.mode", "VALIDATED")
 	}
 	var enabledCreditTypes []string
@@ -222,6 +224,51 @@ func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte 
 		body, _ = sjson.DeleteBytes(body, "generationConfig.maxOutputTokens")
 	}
 	return body
+}
+
+func ensureClaudeToolUseIDs(body []byte) []byte {
+	var root ast.Node
+	if err := root.UnmarshalJSON(body); err != nil {
+		return body
+	}
+
+	messages := root.Get("messages")
+	messagesLen, err := messages.Len()
+	if err != nil {
+		return body
+	}
+
+	changed := false
+	for i := 0; i < messagesLen; i++ {
+		content := messages.Index(i).Get("content")
+		contentLen, err := content.Len()
+		if err != nil {
+			continue
+		}
+		for j := 0; j < contentLen; j++ {
+			part := content.Index(j)
+			partType, err := part.Get("type").String()
+			if err != nil || partType != "tool_use" {
+				continue
+			}
+			if id, err := part.Get("id").String(); err == nil && id != "" {
+				continue
+			}
+			if _, err := part.Set("id", ast.NewString("toolu_"+uuid.NewString())); err != nil {
+				return body
+			}
+			changed = true
+		}
+	}
+
+	if !changed {
+		return body
+	}
+	out, err := root.MarshalJSON()
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 func (c *Client) proxyURL() (*url.URL, error) {
