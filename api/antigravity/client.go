@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bytedance/sonic"
+	"github.com/bytedance/sonic/ast"
 	"github.com/google/uuid"
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/internal/settings"
@@ -221,7 +222,169 @@ func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte 
 	if !strings.Contains(strings.ToLower(modelName), "claude") {
 		body, _ = sjson.DeleteBytes(body, "generationConfig.maxOutputTokens")
 	}
-	return body
+	return ensureGeminiFunctionCallIDs(body)
+}
+
+type pendingFunctionCall struct {
+	id   string
+	name string
+	used bool
+}
+
+func ensureGeminiFunctionCallIDs(body []byte) []byte {
+	root, parseErr := ast.NewParser(string(body)).Parse()
+	if parseErr != 0 {
+		return body
+	}
+
+	contents := root.Get("contents")
+	contentsLen, err := loadNodeLen(contents)
+	if err != nil {
+		return body
+	}
+
+	changed := false
+	pending := make([]pendingFunctionCall, 0)
+
+	for i := 0; i < contentsLen; i++ {
+		content := contents.Index(i)
+		contentChanged, err := ensureContentFunctionCallIDs(content, &pending)
+		if err != nil {
+			return body
+		}
+		if contentChanged {
+			if _, err := contents.SetByIndex(i, *content); err != nil {
+				return body
+			}
+			changed = true
+		}
+	}
+
+	if !changed {
+		return body
+	}
+	if _, err := root.Set("contents", *contents); err != nil {
+		return body
+	}
+	out, err := root.MarshalJSON()
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+func ensureContentFunctionCallIDs(content *ast.Node, pending *[]pendingFunctionCall) (bool, error) {
+	parts := content.Get("parts")
+	partsLen, err := loadNodeLen(parts)
+	if err != nil {
+		return false, nil
+	}
+
+	changed := false
+	for i := 0; i < partsLen; i++ {
+		part := parts.Index(i)
+		partChanged, err := ensurePartFunctionCallID(part, pending)
+		if err != nil {
+			return false, err
+		}
+		if !partChanged {
+			continue
+		}
+		if _, err := parts.SetByIndex(i, *part); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	if _, err := content.Set("parts", *parts); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func ensurePartFunctionCallID(part *ast.Node, pending *[]pendingFunctionCall) (bool, error) {
+	if functionCall := part.Get("functionCall"); functionCall.Exists() {
+		return ensureFunctionCallID(part, functionCall, pending)
+	}
+	if functionResponse := part.Get("functionResponse"); functionResponse.Exists() {
+		return ensureFunctionResponseID(part, functionResponse, *pending)
+	}
+	return false, nil
+}
+
+func ensureFunctionCallID(part, functionCall *ast.Node, pending *[]pendingFunctionCall) (bool, error) {
+	id := strings.TrimSpace(astString(functionCall.Get("id")))
+	changed := false
+	if id == "" {
+		id = "toolu_" + uuid.NewString()
+		if _, err := functionCall.Set("id", ast.NewString(id)); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	*pending = append(*pending, pendingFunctionCall{
+		id:   id,
+		name: astString(functionCall.Get("name")),
+	})
+	if !changed {
+		return false, nil
+	}
+	if _, err := part.Set("functionCall", *functionCall); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func ensureFunctionResponseID(part, functionResponse *ast.Node, pending []pendingFunctionCall) (bool, error) {
+	if id := strings.TrimSpace(astString(functionResponse.Get("id"))); id != "" {
+		return false, nil
+	}
+	id := consumePendingFunctionCallID(pending, astString(functionResponse.Get("name")))
+	if id == "" {
+		return false, nil
+	}
+	if _, err := functionResponse.Set("id", ast.NewString(id)); err != nil {
+		return false, err
+	}
+	if _, err := part.Set("functionResponse", *functionResponse); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func consumePendingFunctionCallID(pending []pendingFunctionCall, name string) string {
+	name = strings.TrimSpace(name)
+	for i := range pending {
+		if name == "" || pending[i].used || pending[i].name != name {
+			continue
+		}
+		pending[i].used = true
+		return pending[i].id
+	}
+	return ""
+}
+
+func loadNodeLen(node *ast.Node) (int, error) {
+	if node == nil {
+		return 0, ast.ErrNotExist
+	}
+	if err := node.Load(); err != nil {
+		return 0, err
+	}
+	return node.Len()
+}
+
+func astString(node *ast.Node) string {
+	if node == nil {
+		return ""
+	}
+	value, err := node.String()
+	if err != nil {
+		return ""
+	}
+	return value
 }
 
 func (c *Client) proxyURL() (*url.URL, error) {
