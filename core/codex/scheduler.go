@@ -1119,7 +1119,7 @@ func isCredentialDirectDisableStatus(statusCode int) bool {
 }
 
 func (s *Scheduler) RetryDecision(statusCode int32, _ string, headers http.Header) scheduling.RetryDecision {
-	if statusCode != http.StatusTooManyRequests {
+	if statusCode != http.StatusTooManyRequests && statusCode != http.StatusServiceUnavailable {
 		return scheduling.RetryDecision{}
 	}
 	return scheduling.RetryDecision{Delay: utils.ParseRetryAfterHeader(headers)}

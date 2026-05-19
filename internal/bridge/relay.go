@@ -153,7 +153,11 @@ func (h *Handler) handleUpstreamError(c *gin.Context, cfg upstreamRelay, credID 
 	}
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return h.handleRateLimit(cfg, credID, resp, errText, metrics, attempt, state)
+		return h.handleRetryHint(cfg, credID, resp, errText, metrics, attempt, state, true)
+	}
+
+	if decision := cfg.scheduler.RetryDecision(int32(resp.StatusCode), errText, resp.Header); decision.Delay > 0 {
+		return h.handleRetryHintDecision(cfg, credID, resp.StatusCode, decision, metrics, attempt, state, false)
 	}
 
 	state.clearGrace()
@@ -170,42 +174,50 @@ func readUpstreamError(body io.ReadCloser, started time.Time) (string, responseT
 	return string(errBytes), timedBody.timing()
 }
 
-func (h *Handler) handleRateLimit(cfg upstreamRelay, credID string, resp *http.Response, errText string, metrics db.LogRequestMetrics, attempt int, state *retryTracker) bool {
+func (h *Handler) handleRetryHint(cfg upstreamRelay, credID string, resp *http.Response, errText string, metrics db.LogRequestMetrics, attempt int, state *retryTracker, refreshQuota bool) bool {
 	decision := cfg.scheduler.RetryDecision(int32(resp.StatusCode), errText, resp.Header)
+	return h.handleRetryHintDecision(cfg, credID, resp.StatusCode, decision, metrics, attempt, state, refreshQuota)
+}
+
+func (h *Handler) handleRetryHintDecision(cfg upstreamRelay, credID string, statusCode int, decision scheduling.RetryDecision, metrics db.LogRequestMetrics, attempt int, state *retryTracker, refreshQuota bool) bool {
 	if !decision.SameCredential {
 		state.clearGrace()
-		cfg.scheduler.QueueQuotaRefresh(cfg.ctx, credID, cfg.modelTier)
-		cfg.scheduler.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, decision.Delay, metrics)
-		logRetryingUpstreamError(resp.StatusCode, credID, cfg.modelAlias, attempt)
+		if refreshQuota {
+			cfg.scheduler.QueueQuotaRefresh(cfg.ctx, credID, cfg.modelTier)
+		}
+		cfg.scheduler.RecordFailure(cfg.ctx, credID, int32(statusCode), cfg.modelTier, decision.Delay, metrics)
+		logRetryingUpstreamError(statusCode, credID, cfg.modelAlias, attempt)
 		return false
 	}
 
 	if state.graceRetriedCredentialID == credID {
 		state.clearGrace()
-		cfg.scheduler.QueueQuotaRefresh(cfg.ctx, credID, cfg.modelTier)
-		cfg.scheduler.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, decision.Delay, metrics)
+		if refreshQuota {
+			cfg.scheduler.QueueQuotaRefresh(cfg.ctx, credID, cfg.modelTier)
+		}
+		cfg.scheduler.RecordFailure(cfg.ctx, credID, int32(statusCode), cfg.modelTier, decision.Delay, metrics)
 		log.Warn().
-			Int("status", resp.StatusCode).
+			Int("status", statusCode).
 			Str("credential", credID).
 			Str("model", cfg.modelAlias).
 			Int("attempt", attempt).
-			Msg("upstream rate limited after grace retry, retrying with next credential")
+			Msg("upstream retry hint repeated after grace retry, retrying with next credential")
 		return false
 	}
 
 	state.graceCredentialID = credID
 	state.graceRetriedCredentialID = credID
-	cfg.scheduler.RecordFailure(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, 0, metrics)
+	cfg.scheduler.RecordFailure(cfg.ctx, credID, int32(statusCode), cfg.modelTier, 0, metrics)
 	if !waitForRetry(cfg.ctx, decision.Delay) {
 		return true
 	}
 	log.Warn().
-		Int("status", resp.StatusCode).
+		Int("status", statusCode).
 		Str("credential", credID).
 		Str("model", cfg.modelAlias).
 		Dur("delay", decision.Delay).
 		Int("attempt", attempt).
-		Msg("upstream rate limited, grace retrying same credential")
+		Msg("upstream retry hint, grace retrying same credential")
 	return false
 }
 

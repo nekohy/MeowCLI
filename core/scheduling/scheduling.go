@@ -184,7 +184,7 @@ func insertBestCandidate[T any](candidates []weightedCandidate[T], bestCount int
 }
 
 func DecideFailureThrottle(statusCode int32, retryAfter time.Duration, consecutive int, base time.Duration, max time.Duration) FailureThrottleDecision {
-	if statusCode == http.StatusTooManyRequests && retryAfter > 0 {
+	if (statusCode == http.StatusTooManyRequests || statusCode == http.StatusServiceUnavailable) && retryAfter > 0 {
 		return FailureThrottleDecision{
 			Throttle:           true,
 			Backoff:            retryAfter,
