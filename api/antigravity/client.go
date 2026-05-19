@@ -93,12 +93,16 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	}
 
 	targetURL := c.baseURL() + "/" + codeAssistVersion + ":" + action
-	query := transformQuery(action, opts.RawQuery)
+	query := strings.TrimSpace(opts.RawQuery)
+	if action == "streamGenerateContent" && query == "" {
+		query = "alt=sse"
+	}
 	if query != "" {
 		targetURL += "?" + query
 	}
 
-	wrappedBody := wrapAntigravityBody(req.Body, modelName, opts.ProjectID, opts.CreditTypes, c.useCreditsWhenQuotaExhausted())
+	useCredits := c.settings != nil && c.settings.Snapshot().AntigravityUseCredits
+	wrappedBody := wrapAntigravityBody(req.Body, modelName, opts.ProjectID, opts.CreditTypes, useCredits)
 	httpReq, err := http.NewRequestWithContext(req.Ctx, http.MethodPost, targetURL, bytes.NewReader(wrappedBody))
 	if err != nil {
 		return nil, err
@@ -135,6 +139,14 @@ func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes [
 		}
 	}
 
+	isImageModel := strings.Contains(strings.ToLower(modelName), "image")
+	requestType := "agent"
+	requestID := "agent-" + uuid.NewString()
+	if isImageModel {
+		requestType = "image_gen"
+		requestID = fmt.Sprintf("image_gen/%d/%s/12", time.Now().UnixMilli(), uuid.NewString())
+	}
+
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
 		projectID = defaultProjectID
@@ -144,13 +156,13 @@ func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes [
 		Request:     sonic.NoCopyRawMessage(request),
 		Model:       modelName,
 		UserAgent:   "antigravity",
-		RequestType: requestTypeForModel(modelName),
-		RequestID:   requestIDForModel(modelName),
+		RequestType: requestType,
+		RequestID:   requestID,
 	})
 	if err != nil {
 		return body
 	}
-	if !strings.Contains(strings.ToLower(modelName), "image") {
+	if !isImageModel {
 		wrapped, _ = sjson.SetBytes(wrapped, "request.sessionId", generateStableSessionID(request))
 	}
 	return wrapped
@@ -171,13 +183,6 @@ func normalizeCreditTypes(values []string) []string {
 		out = append(out, value)
 	}
 	return out
-}
-
-func (c *Client) useCreditsWhenQuotaExhausted() bool {
-	if c.settings == nil {
-		return false
-	}
-	return c.settings.Snapshot().AntigravityUseCredits
 }
 
 func (c *Client) baseURL() string {
@@ -216,37 +221,11 @@ func normalizeAntigravityBaseURLs(raw string) []string {
 }
 
 func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte {
-	if systemInstruction := gjson.GetBytes(body, "system_instruction"); systemInstruction.Exists() && !gjson.GetBytes(body, "systemInstruction").Exists() {
-		body, _ = sjson.SetRawBytes(body, "systemInstruction", []byte(systemInstruction.Raw))
-		body, _ = sjson.DeleteBytes(body, "system_instruction")
-	}
 	body, _ = sjson.DeleteBytes(body, "safetySettings")
 	if !strings.Contains(strings.ToLower(modelName), "claude") {
 		body, _ = sjson.DeleteBytes(body, "generationConfig.maxOutputTokens")
 	}
 	return body
-}
-
-func requestTypeForModel(modelName string) string {
-	if strings.Contains(strings.ToLower(modelName), "image") {
-		return "image_gen"
-	}
-	return "agent"
-}
-
-func requestIDForModel(modelName string) string {
-	if strings.Contains(strings.ToLower(modelName), "image") {
-		return fmt.Sprintf("image_gen/%d/%s/12", time.Now().UnixMilli(), uuid.NewString())
-	}
-	return "agent-" + uuid.NewString()
-}
-
-func transformQuery(action, rawQuery string) string {
-	query := strings.TrimSpace(rawQuery)
-	if action == "streamGenerateContent" && query == "" {
-		return "alt=sse"
-	}
-	return query
 }
 
 func copyHeaders(dst, src http.Header) {
