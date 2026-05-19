@@ -106,6 +106,28 @@ SET
     throttled_until_image = EXCLUDED.throttled_until_image,
     synced_at = NOW();
 
+-- name: ClearAntigravityQuotaThrottle :exec
+INSERT INTO antigravity_quota (
+    credential_id,
+    throttled_until_claude,
+    throttled_until_pro,
+    throttled_until_flash,
+    throttled_until_flashlite,
+    throttled_until_tab,
+    throttled_until_image,
+    synced_at
+)
+VALUES ($1, NOW(), NOW(), NOW(), NOW(), NOW(), NOW(), NOW())
+ON CONFLICT (credential_id) DO UPDATE
+SET
+    throttled_until_claude = NOW(),
+    throttled_until_pro = NOW(),
+    throttled_until_flash = NOW(),
+    throttled_until_flashlite = NOW(),
+    throttled_until_tab = NOW(),
+    throttled_until_image = NOW(),
+    synced_at = NOW();
+
 -- name: ListAvailableAntigravity :many
 SELECT
     a.id,

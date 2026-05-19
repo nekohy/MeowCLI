@@ -108,7 +108,19 @@ func (s *Store) DeleteAntigravity(ctx context.Context, id string) error {
 }
 
 func (s *Store) UpdateAntigravityStatus(ctx context.Context, id string, status string, reason string) (db.AntigravityCredential, error) {
-	row, err := s.queries.UpdateAntigravityStatus(ctx, sqlcpostgres.UpdateAntigravityStatusParams{
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return db.AntigravityCredential{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+
+	queries := s.queries.WithTx(tx)
+	row, err := queries.UpdateAntigravityStatus(ctx, sqlcpostgres.UpdateAntigravityStatusParams{
 		Status: status,
 		Reason: reason,
 		ID:     id,
@@ -116,6 +128,15 @@ func (s *Store) UpdateAntigravityStatus(ctx context.Context, id string, status s
 	if err != nil {
 		return db.AntigravityCredential{}, wrapError(err)
 	}
+	if shouldClearCredentialThrottle(status) {
+		if err := queries.ClearAntigravityQuotaThrottle(ctx, id); err != nil {
+			return db.AntigravityCredential{}, wrapError(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return db.AntigravityCredential{}, err
+	}
+	committed = true
 	return antigravityCredentialTo(row), nil
 }
 
