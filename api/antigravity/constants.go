@@ -13,7 +13,7 @@ const (
 	antigravityBaseURLProd         = "https://cloudcode-pa.googleapis.com"
 	codeAssistVersion              = "v1internal"
 	defaultProjectID               = "bamboo-precept-lgxtn"
-	antigravityVersion             = "1.21.9"
+	antigravityVersion             = "2.0.0"
 
 	antigravityClientID     = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
 	antigravityClientSecret = "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"
