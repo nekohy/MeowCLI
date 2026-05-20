@@ -586,9 +586,6 @@ func (s *Scheduler) credentialCreditsFallbackUsable(row availableRow, modelTier 
 	if row.CreditsAmount <= 0 || len(row.CreditTypes) == 0 {
 		return false
 	}
-	if until := tierThrottledUntil(row, modelTier); !until.IsZero() && now.Before(until) {
-		return false
-	}
 	s.mu.Lock()
 	until := s.throttle[row.ID]
 	s.mu.Unlock()
