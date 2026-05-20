@@ -23,7 +23,7 @@ const (
 )
 
 func antigravityUserAgent() string {
-	return fmt.Sprintf("antigravity/%s %s/%s", antigravityVersion, antigravityOS(), antigravityArch())
+	return fmt.Sprintf("antigravity/ide/%s %s/%s", antigravityVersion, antigravityOS(), antigravityArch())
 }
 
 func antigravityLoadCodeAssistUserAgent() string {
