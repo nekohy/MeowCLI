@@ -430,8 +430,12 @@ func normalizeClaudeContents(contents *ast.Node) (bool, error) {
 		}
 	}
 
-	for len(normalized) > 0 && trailingModelHasFunctionCall(&normalized[len(normalized)-1]) {
-		normalized = normalized[:len(normalized)-1]
+	pairingChanged, paired, err := normalizeClaudeFunctionPairing(normalized)
+	if err != nil {
+		return false, err
+	}
+	if pairingChanged {
+		normalized = paired
 		changed = true
 	}
 
@@ -440,6 +444,57 @@ func normalizeClaudeContents(contents *ast.Node) (bool, error) {
 	}
 	*contents = ast.NewArray(normalized)
 	return true, nil
+}
+
+func normalizeClaudeFunctionPairing(contents []ast.Node) (bool, []ast.Node, error) {
+	changed := false
+	paired := make([]ast.Node, 0, len(contents))
+	for i := 0; i < len(contents); i++ {
+		content := contents[i]
+
+		if astString(content.Get("role")) == "model" && len(contentFunctionCallIDs(&content)) > 0 {
+			nextResponseIDs := map[string]struct{}{}
+			if i+1 < len(contents) {
+				nextResponseIDs = contentFunctionResponseIDs(&contents[i+1])
+			}
+			if !idsCovered(contentFunctionCallIDs(&content), nextResponseIDs) {
+				// 没有下一轮 tool_result 就移除 tool_use
+				contentChanged, keep, err := filterFunctionCallParts(&content)
+				if err != nil {
+					return false, nil, err
+				}
+				if contentChanged {
+					changed = true
+				}
+				if !keep {
+					changed = true
+					continue
+				}
+			}
+		}
+
+		responseIDs := contentFunctionResponseIDs(&content)
+		if len(responseIDs) > 0 {
+			prevCallIDs := map[string]struct{}{}
+			if len(paired) > 0 {
+				prevCallIDs = idsSet(contentFunctionCallIDs(&paired[len(paired)-1]))
+			}
+			contentChanged, keep, err := filterFunctionResponseParts(&content, prevCallIDs)
+			if err != nil {
+				return false, nil, err
+			}
+			if contentChanged {
+				changed = true
+			}
+			if !keep {
+				changed = true
+				continue
+			}
+		}
+
+		paired = append(paired, content)
+	}
+	return changed, paired, nil
 }
 
 func normalizeClaudeContent(content *ast.Node) (bool, bool, error) {
@@ -495,6 +550,57 @@ func normalizeClaudeContent(content *ast.Node) (bool, bool, error) {
 	return true, true, nil
 }
 
+func filterFunctionCallParts(content *ast.Node) (bool, bool, error) {
+	return filterContentParts(content, func(part *ast.Node) bool {
+		return !part.Get("functionCall").Exists()
+	})
+}
+
+func filterFunctionResponseParts(content *ast.Node, allowed map[string]struct{}) (bool, bool, error) {
+	return filterContentParts(content, func(part *ast.Node) bool {
+		functionResponse := part.Get("functionResponse")
+		if !functionResponse.Exists() {
+			return true
+		}
+		_, ok := allowed[strings.TrimSpace(astString(functionResponse.Get("id")))]
+		return ok
+	})
+}
+
+func filterContentParts(content *ast.Node, keep func(*ast.Node) bool) (bool, bool, error) {
+	parts := content.Get("parts")
+	if parts == nil || !parts.Exists() {
+		return false, true, nil
+	}
+	if err := parts.Load(); err != nil {
+		return false, false, err
+	}
+	if parts.TypeSafe() != ast.V_ARRAY {
+		return false, true, nil
+	}
+
+	changed := false
+	kept := make([]ast.Node, 0, nodeLen(parts))
+	for i := 0; i < nodeLen(parts); i++ {
+		part := parts.Index(i)
+		if keep(part) {
+			kept = append(kept, *part)
+			continue
+		}
+		changed = true
+	}
+	if !changed {
+		return false, len(kept) > 0, nil
+	}
+	if len(kept) == 0 {
+		return true, false, nil
+	}
+	if _, err := content.Set("parts", ast.NewArray(kept)); err != nil {
+		return false, false, err
+	}
+	return true, true, nil
+}
+
 func partHasPayload(part *ast.Node) bool {
 	if part.Get("thought").Exists() {
 		return isSignedThoughtPart(part)
@@ -517,17 +623,53 @@ func isSignedThoughtPart(part *ast.Node) bool {
 		strings.TrimSpace(astString(part.Get("thoughtSignature"))) != ""
 }
 
-func trailingModelHasFunctionCall(content *ast.Node) bool {
-	if astString(content.Get("role")) != "model" {
-		return false
-	}
+func contentFunctionCallIDs(content *ast.Node) []string {
+	ids := make([]string, 0)
 	parts := content.Get("parts")
 	for i := 0; i < nodeLen(parts); i++ {
-		if parts.Index(i).Get("functionCall").Exists() {
-			return true
+		functionCall := parts.Index(i).Get("functionCall")
+		if !functionCall.Exists() {
+			continue
+		}
+		id := strings.TrimSpace(astString(functionCall.Get("id")))
+		if id != "" {
+			ids = append(ids, id)
 		}
 	}
-	return false
+	return ids
+}
+
+func contentFunctionResponseIDs(content *ast.Node) map[string]struct{} {
+	ids := map[string]struct{}{}
+	parts := content.Get("parts")
+	for i := 0; i < nodeLen(parts); i++ {
+		functionResponse := parts.Index(i).Get("functionResponse")
+		if !functionResponse.Exists() {
+			continue
+		}
+		id := strings.TrimSpace(astString(functionResponse.Get("id")))
+		if id != "" {
+			ids[id] = struct{}{}
+		}
+	}
+	return ids
+}
+
+func idsCovered(ids []string, set map[string]struct{}) bool {
+	for _, id := range ids {
+		if _, ok := set[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func idsSet(ids []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	return set
 }
 
 type pendingFunctionCallIDs map[string][]string
