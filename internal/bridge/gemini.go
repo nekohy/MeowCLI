@@ -151,6 +151,17 @@ func parseGenerateContentTarget(rawTarget string) (string, string, error) {
 	return modelName, action, nil
 }
 
+type geminiModel struct {
+	Name                       string   `json:"name"`
+	BaseModelID                string   `json:"baseModelId"`
+	DisplayName                string   `json:"displayName"`
+	SupportedGenerationMethods []string `json:"supportedGenerationMethods"`
+}
+
+type geminiModelsResponse struct {
+	Models []geminiModel `json:"models"`
+}
+
 func (h *Handler) handleGeminiModels(c *gin.Context) {
 	ctx := c.Request.Context()
 	lister, ok := h.models.(ModelLister)
@@ -163,19 +174,19 @@ func (h *Handler) handleGeminiModels(c *gin.Context) {
 		writeRelayError(c, errModelResolutionFailed)
 		return
 	}
-	models := make([]map[string]any, 0, len(items))
+	models := make([]geminiModel, 0, len(items))
 	for _, item := range items {
 		if item.Handler != utils.HandlerGemini && item.Handler != utils.HandlerAntigravity {
 			continue
 		}
-		models = append(models, map[string]any{
-			"name":                       "models/" + item.Alias,
-			"baseModelId":                item.Origin,
-			"displayName":                item.Alias,
-			"supportedGenerationMethods": []string{"generateContent", "streamGenerateContent"},
+		models = append(models, geminiModel{
+			Name:                       "models/" + item.Alias,
+			BaseModelID:                item.Origin,
+			DisplayName:                item.Alias,
+			SupportedGenerationMethods: []string{"generateContent", "streamGenerateContent"},
 		})
 	}
-	body, err := sonic.Marshal(map[string]any{"models": models})
+	body, err := sonic.Marshal(geminiModelsResponse{Models: models})
 	if err != nil {
 		writeRelayError(c, errRelayResponseFailed)
 		return

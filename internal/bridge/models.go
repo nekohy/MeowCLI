@@ -17,6 +17,11 @@ type openAIModel struct {
 	OwnedBy string `json:"owned_by"`
 }
 
+type openAIModelsResponse struct {
+	Object string        `json:"object"`
+	Data   []openAIModel `json:"data"`
+}
+
 func (h *Handler) RouteModels() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h.handleModels(c)
@@ -50,9 +55,9 @@ func (h *Handler) handleModels(c *gin.Context) {
 		})
 	}
 
-	body, err := sonic.Marshal(map[string]any{
-		"object": "list",
-		"data":   models,
+	body, err := sonic.Marshal(openAIModelsResponse{
+		Object: "list",
+		Data:   models,
 	})
 	if err != nil {
 		writeRelayError(c, errRelayResponseFailed)

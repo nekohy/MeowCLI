@@ -17,7 +17,7 @@ func rawJSONMessage(v gjson.Result) json.RawMessage {
 	return json.RawMessage(v.Raw)
 }
 
-func marshalRaw(v interface{}) json.RawMessage {
+func marshalRaw(v any) json.RawMessage {
 	out, err := sonic.Marshal(v)
 	if err != nil {
 		return nil
@@ -25,7 +25,7 @@ func marshalRaw(v interface{}) json.RawMessage {
 	return out
 }
 
-func appendRaw[T interface{}](items []json.RawMessage, v T) []json.RawMessage {
+func appendRaw[T any](items []json.RawMessage, v T) []json.RawMessage {
 	raw := marshalRaw(v)
 	if len(raw) == 0 {
 		return items
@@ -33,7 +33,7 @@ func appendRaw[T interface{}](items []json.RawMessage, v T) []json.RawMessage {
 	return append(items, raw)
 }
 
-func ptr[T interface{}](v T) *T {
+func ptr[T any](v T) *T {
 	return &v
 }
 

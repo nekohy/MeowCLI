@@ -34,7 +34,6 @@ type Organizations struct {
 type CodexAuthInfo struct {
 	ChatgptAccountUserID string          `json:"chatgpt_account_user_id"` // 是acc_id+user_id拼接的，原生
 	ChatgptPlanType      string          `json:"chatgpt_plan_type"`
-	Groups               []any           `json:"groups"`
 	Organizations        []Organizations `json:"organizations"`
 }
 
