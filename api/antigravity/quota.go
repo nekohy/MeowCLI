@@ -135,11 +135,10 @@ func ParseQuotaFromAvailableModels(body []byte) *Quota {
 		if info == nil {
 			return true
 		}
-		fractionResult := quotaInfo.Get("remainingFraction")
-		if !fractionResult.Exists() {
-			return true
+		fraction := 0.0
+		if fractionResult := quotaInfo.Get("remainingFraction"); fractionResult.Exists() {
+			fraction = utils.TruncateQuotaRatio(fractionResult.Float())
 		}
-		fraction := utils.TruncateQuotaRatio(fractionResult.Float())
 		if !info.set || fraction < info.fraction {
 			info.fraction = fraction
 		}
