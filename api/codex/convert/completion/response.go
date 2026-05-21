@@ -3,6 +3,7 @@ package completion
 import (
 	"crypto/sha256"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -20,9 +21,9 @@ func convertStreamResponseToCompletions(rawJSON []byte, stateRef **completionRes
 		if !root.Get("response.id").Exists() || !root.Get("response.created_at").Exists() || !root.Get("response.model").Exists() {
 			return nil, false, fmt.Errorf("response.created missing required response metadata")
 		}
-		state.ResponseID = root.Get("response.id").String()
+		state.ResponseID = strings.Clone(root.Get("response.id").String())
 		state.CreatedAt = root.Get("response.created_at").Int()
-		state.Model = root.Get("response.model").String()
+		state.Model = strings.Clone(root.Get("response.model").String())
 		return nil, false, nil
 	case "response.reasoning_summary_text.delta":
 		chunk, err := newCompletionStreamChunk(payload, root.Get("response.usage"), state)
