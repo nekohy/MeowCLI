@@ -263,6 +263,9 @@ func (s *Scheduler) refreshAvailableFromRows(_ context.Context, dbRows []db.List
 	s.available = rows
 	s.clearExpiredThrottlesLocked(now)
 	s.mu.Unlock()
+	if s.manager != nil {
+		s.manager.PruneStaleEntries()
+	}
 	return rows
 }
 
