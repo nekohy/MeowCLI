@@ -24,9 +24,9 @@ func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte 
 	}
 
 	if isClaude {
-		// Claude custom tool 缺 input_schema 会被上游拒绝
+		// Claude 模型要求 Gemini 工具声明携带 parameters 而不是 parametersJsonSchema
 		tools := root.Get("tools")
-		toolsChanged, err := normalizeCustomToolInputSchemas(tools)
+		toolsChanged, err := normalizeClaudeTools(tools)
 		if err != nil {
 			return body
 		}
@@ -39,7 +39,7 @@ func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte 
 	}
 
 	contents := root.Get("contents")
-	// 补齐 functionCall 和 functionResponse 的配对 ID
+	// 补齐 functionCall 和 functionResponse 的 Tool ID
 	idsChanged, err := ensureGeminiFunctionCallIDs(contents)
 	if err != nil {
 		return body
@@ -61,24 +61,30 @@ func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte 
 	return out
 }
 
-func normalizeCustomToolInputSchemas(tools *ast.Node) (bool, error) {
+func normalizeClaudeTools(tools *ast.Node) (bool, error) {
 	changed := false
 	for i := 0; i < nodeLen(tools); i++ {
 		tool := tools.Index(i)
-		custom := tool.Get("custom")
-		if !astObjectExists(custom) {
+		functionDeclarations := tool.Get("functionDeclarations")
+		declarationsChanged := false
+		for j := 0; j < nodeLen(functionDeclarations); j++ {
+			declaration := functionDeclarations.Index(j)
+			declarationChanged, err := ensureClaudeFunctionDeclarationParameters(declaration)
+			if err != nil {
+				return false, err
+			}
+			if !declarationChanged {
+				continue
+			}
+			if _, err := functionDeclarations.SetByIndex(j, *declaration); err != nil {
+				return false, err
+			}
+			declarationsChanged = true
+		}
+		if !declarationsChanged {
 			continue
 		}
-
-		changedSchema, err := ensureCustomToolInputSchema(custom)
-		if err != nil {
-			return false, err
-		}
-		if !changedSchema {
-			continue
-		}
-
-		if _, err := tool.Set("custom", *custom); err != nil {
+		if _, err := tool.Set("functionDeclarations", *functionDeclarations); err != nil {
 			return false, err
 		}
 		if _, err := tools.SetByIndex(i, *tool); err != nil {
@@ -89,32 +95,20 @@ func normalizeCustomToolInputSchemas(tools *ast.Node) (bool, error) {
 	return changed, nil
 }
 
-func ensureCustomToolInputSchema(custom *ast.Node) (bool, error) {
-	schema := custom.Get("input_schema")
-	if !astObjectExists(schema) {
-		_, err := custom.Set("input_schema", emptyObjectInputSchemaNode())
-		return true, err
-	}
-
-	schemaType := strings.TrimSpace(astString(schema.Get("type")))
-	isObjectSchema := schemaType == "" || schemaType == "object"
-	changed := false
-	if schemaType == "" {
-		if _, err := schema.Set("type", ast.NewString("object")); err != nil {
-			return false, err
-		}
-		changed = true
-	}
-	if isObjectSchema && !astObjectExists(schema.Get("properties")) {
-		if _, err := schema.Set("properties", ast.NewObject(nil)); err != nil {
-			return false, err
-		}
-		changed = true
-	}
-	if !changed {
+func ensureClaudeFunctionDeclarationParameters(declaration *ast.Node) (bool, error) {
+	if !astObjectExists(declaration) {
 		return false, nil
 	}
-	_, err := custom.Set("input_schema", *schema)
+
+	if astObjectExists(declaration.Get("parameters")) {
+		return false, nil
+	}
+	schema := declaration.Get("parametersJsonSchema")
+	if !astObjectExists(schema) {
+		_, err := declaration.Set("parameters", emptyObjectInputSchemaNode())
+		return true, err
+	}
+	_, err := declaration.Set("parameters", *schema)
 	return true, err
 }
 
