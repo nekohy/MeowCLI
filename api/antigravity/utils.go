@@ -40,11 +40,11 @@ func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte 
 
 	contents := root.Get("contents")
 	// 补齐 functionCall 和 functionResponse 的 Tool ID
-	idsChanged, err := ensureGeminiFunctionCallIDs(contents)
+	contentsChanged, err := ensureGeminiFunctionCallIDs(contents, isClaude)
 	if err != nil {
 		return body
 	}
-	if idsChanged {
+	if contentsChanged {
 		if _, err := root.Set("contents", *contents); err != nil {
 			return body
 		}
@@ -253,7 +253,7 @@ func cleanAntigravityGeminiSchema(node *ast.Node, parentIsProperties bool) (bool
 			}
 		}
 	case ast.V_ARRAY:
-		// array 分支用于进入 anyOf/allOf 这类数组里的 schema 对象
+		// array 分支用于进入 anyOf 里的 schema 对象
 		for i := 0; i < nodeLen(node); i++ {
 			child := node.Index(i)
 			childChanged, err := cleanAntigravityGeminiSchema(child, false)
@@ -400,9 +400,47 @@ func astObjectExists(node *ast.Node) bool {
 	return node.TypeSafe() == ast.V_OBJECT
 }
 
+func stripTrailingFunctionCallTurn(contents *ast.Node) (bool, error) {
+	if contents == nil || !contents.Exists() {
+		return false, nil
+	}
+	if err := contents.Load(); err != nil {
+		return false, err
+	}
+	if contents.TypeSafe() != ast.V_ARRAY {
+		return false, nil
+	}
+
+	lastIndex := nodeLen(contents) - 1
+	if lastIndex < 0 {
+		return false, nil
+	}
+	last := contents.Index(lastIndex)
+	if astString(last.Get("role")) != "model" || !contentHasFunctionCall(last) {
+		return false, nil
+	}
+
+	kept := make([]ast.Node, 0, lastIndex)
+	for i := 0; i < lastIndex; i++ {
+		kept = append(kept, *contents.Index(i))
+	}
+	*contents = ast.NewArray(kept)
+	return true, nil
+}
+
+func contentHasFunctionCall(content *ast.Node) bool {
+	parts := content.Get("parts")
+	for i := 0; i < nodeLen(parts); i++ {
+		if parts.Index(i).Get("functionCall").Exists() {
+			return true
+		}
+	}
+	return false
+}
+
 type pendingFunctionCallIDs map[string][]string
 
-func ensureGeminiFunctionCallIDs(contents *ast.Node) (bool, error) {
+func ensureGeminiFunctionCallIDs(contents *ast.Node, stripTrailingCall bool) (bool, error) {
 	changed := false
 	pending := pendingFunctionCallIDs{}
 
@@ -419,6 +457,18 @@ func ensureGeminiFunctionCallIDs(contents *ast.Node) (bool, error) {
 			changed = true
 		}
 	}
+
+	if stripTrailingCall {
+		// Claude 不接受最后一轮悬空的 functionCall
+		trimmed, err := stripTrailingFunctionCallTurn(contents)
+		if err != nil {
+			return false, err
+		}
+		if trimmed {
+			changed = true
+		}
+	}
+
 	return changed, nil
 }
 
