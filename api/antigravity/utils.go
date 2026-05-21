@@ -211,15 +211,6 @@ func cleanAntigravityGeminiSchema(node *ast.Node, parentIsProperties bool) (bool
 			changed = true
 		}
 
-		// Claude input_schema 要求带 properties 的 object 显式声明 required
-		requiredChanged, err := ensureObjectRequiredArray(node)
-		if err != nil {
-			return false, err
-		}
-		if requiredChanged {
-			changed = true
-		}
-
 		if !parentIsProperties {
 			// const 语义接近单值 enum，先转换再删除原字段
 			if constNode := node.Get("const"); constNode.Exists() {
@@ -235,6 +226,14 @@ func cleanAntigravityGeminiSchema(node *ast.Node, parentIsProperties bool) (bool
 				}
 			}
 
+			unionChanged, err := flattenStringEnumAnyOf(node)
+			if err != nil {
+				return false, err
+			}
+			if unionChanged {
+				changed = true
+			}
+
 			// properties 的子字段名可能刚好叫 pattern 或 const，不能当作 schema 关键字删除
 			for key := range unsupportedGeminiSchemaKeywords {
 				if removed, err := node.Unset(key); err != nil {
@@ -243,9 +242,18 @@ func cleanAntigravityGeminiSchema(node *ast.Node, parentIsProperties bool) (bool
 					changed = true
 				}
 			}
+
+			// Claude input_schema 要求 object schema 显式声明 properties 和 required
+			objectShapeChanged, err := ensureObjectSchemaShape(node)
+			if err != nil {
+				return false, err
+			}
+			if objectShapeChanged {
+				changed = true
+			}
 		}
 	case ast.V_ARRAY:
-		// array 分支用于进入 anyOf oneOf allOf 这类数组里的 schema 对象
+		// array 分支用于进入 anyOf/allOf 这类数组里的 schema 对象
 		for i := 0; i < nodeLen(node); i++ {
 			child := node.Index(i)
 			childChanged, err := cleanAntigravityGeminiSchema(child, false)
@@ -265,15 +273,96 @@ func cleanAntigravityGeminiSchema(node *ast.Node, parentIsProperties bool) (bool
 	return changed, nil
 }
 
-func ensureObjectRequiredArray(node *ast.Node) (bool, error) {
+func flattenStringEnumAnyOf(node *ast.Node) (bool, error) {
+	anyOf := node.Get("anyOf")
+	if anyOf == nil || !anyOf.Exists() {
+		return false, nil
+	}
+	if err := anyOf.Load(); err != nil {
+		return false, err
+	}
+	if anyOf.TypeSafe() != ast.V_ARRAY {
+		return false, nil
+	}
+
+	values, ok := collectStringEnumUnionValues(anyOf)
+	if !ok || len(values) == 0 {
+		return false, nil
+	}
+
+	enumValues := make([]ast.Node, 0, len(values))
+	for _, value := range values {
+		enumValues = append(enumValues, ast.NewString(value))
+	}
+	if _, err := node.Set("type", ast.NewString("string")); err != nil {
+		return false, err
+	}
+	if _, err := node.Set("enum", ast.NewArray(enumValues)); err != nil {
+		return false, err
+	}
+	if _, err := node.Unset("anyOf"); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func collectStringEnumUnionValues(union *ast.Node) ([]string, bool) {
+	seen := map[string]struct{}{}
+	values := make([]string, 0)
+	for i := 0; i < nodeLen(union); i++ {
+		variant := union.Index(i)
+		if !astObjectExists(variant) || astString(variant.Get("type")) != "string" {
+			return nil, false
+		}
+
+		enumNode := variant.Get("enum")
+		if enumNode == nil || !enumNode.Exists() {
+			return nil, false
+		}
+		if err := enumNode.Load(); err != nil || enumNode.TypeSafe() != ast.V_ARRAY {
+			return nil, false
+		}
+
+		for j := 0; j < nodeLen(enumNode); j++ {
+			valueNode := enumNode.Index(j)
+			if valueNode == nil || !valueNode.Exists() {
+				return nil, false
+			}
+			if err := valueNode.Load(); err != nil || valueNode.TypeSafe() != ast.V_STRING {
+				return nil, false
+			}
+			value := astString(valueNode)
+			if _, exists := seen[value]; exists {
+				continue
+			}
+			seen[value] = struct{}{}
+			values = append(values, value)
+		}
+	}
+	return values, true
+}
+
+func ensureObjectSchemaShape(node *ast.Node) (bool, error) {
+	if astString(node.Get("type")) != "object" {
+		return false, nil
+	}
+
+	changed := false
 	if !astObjectExists(node.Get("properties")) {
-		return false, nil
+		if _, err := node.Set("properties", ast.NewObject(nil)); err != nil {
+			return false, err
+		}
+		changed = true
 	}
-	if astStringArrayExists(node.Get("required")) {
-		return false, nil
+
+	if !astStringArrayExists(node.Get("required")) {
+		if _, err := node.Set("required", ast.NewArray(nil)); err != nil {
+			return false, err
+		}
+		changed = true
 	}
-	_, err := node.Set("required", ast.NewArray(nil))
-	return true, err
+
+	return changed, nil
 }
 
 func astStringArrayExists(node *ast.Node) bool {
