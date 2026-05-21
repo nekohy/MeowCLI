@@ -477,11 +477,37 @@ func normalizeClaudeFunctionCallTurns(contents *ast.Node) (bool, error) {
 		}
 	}
 
+	for len(normalized) > 0 && isEmptyModelTurn(&normalized[len(normalized)-1]) {
+		normalized = normalized[:len(normalized)-1]
+		changed = true
+	}
+
 	if !changed {
 		return false, nil
 	}
 	*contents = ast.NewArray(normalized)
 	return true, nil
+}
+
+func isEmptyModelTurn(content *ast.Node) bool {
+	if astString(content.Get("role")) != "model" {
+		return false
+	}
+
+	parts := content.Get("parts")
+	if nodeLen(parts) == 0 {
+		return true
+	}
+	for i := 0; i < nodeLen(parts); i++ {
+		part := parts.Index(i)
+		if strings.TrimSpace(astString(part.Get("text"))) != "" {
+			return false
+		}
+		if part.Get("functionCall").Exists() || part.Get("functionResponse").Exists() || part.Get("inlineData").Exists() {
+			return false
+		}
+	}
+	return true
 }
 
 func nextContentHasFunctionResponses(contents *ast.Node, contentIndex int, callIDs []string) bool {
