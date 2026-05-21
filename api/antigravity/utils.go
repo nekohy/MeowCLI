@@ -467,7 +467,7 @@ func normalizeClaudeContent(content *ast.Node) (bool, bool, error) {
 
 		if astString(content.Get("role")) == "model" && part.Get("functionCall").Exists() {
 			functionCallParts = append(functionCallParts, *part)
-		} else if astString(content.Get("role")) == "model" && part.Get("thought").Exists() {
+		} else if astString(content.Get("role")) == "model" && isSignedThoughtPart(part) {
 			thoughtParts = append(thoughtParts, *part)
 		} else {
 			regularParts = append(regularParts, *part)
@@ -496,6 +496,9 @@ func normalizeClaudeContent(content *ast.Node) (bool, bool, error) {
 }
 
 func partHasPayload(part *ast.Node) bool {
+	if part.Get("thought").Exists() {
+		return isSignedThoughtPart(part)
+	}
 	if strings.TrimSpace(astString(part.Get("text"))) != "" {
 		return true
 	}
@@ -506,6 +509,12 @@ func partHasPayload(part *ast.Node) bool {
 		return true
 	}
 	return false
+}
+
+func isSignedThoughtPart(part *ast.Node) bool {
+	return part.Get("thought").Exists() &&
+		strings.TrimSpace(astString(part.Get("text"))) != "" &&
+		strings.TrimSpace(astString(part.Get("thoughtSignature"))) != ""
 }
 
 func trailingModelHasFunctionCall(content *ast.Node) bool {
