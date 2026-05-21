@@ -1,6 +1,7 @@
 package antigravity
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/bytedance/sonic/ast"
@@ -13,47 +14,23 @@ func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte 
 		return body
 	}
 
-	isClaude := strings.Contains(strings.ToLower(modelName), "claude")
-	changed := false
-
-	// 去掉 Antigravity 不接受的顶层安全设置
-	if removed, err := root.Unset("safetySettings"); err != nil {
+	if _, err := root.Unset("safetySettings"); err != nil {
 		return body
-	} else if removed {
-		changed = true
 	}
 
+	isClaude := strings.Contains(strings.ToLower(modelName), "claude")
 	if isClaude {
 		// Claude 模型要求 Gemini 工具声明携带 parameters 而不是 parametersJsonSchema
-		tools := root.Get("tools")
-		toolsChanged, err := normalizeClaudeTools(tools)
-		if err != nil {
+		if err := normalizeClaudeTools(root.Get("tools")); err != nil {
 			return body
-		}
-		if toolsChanged {
-			if _, err := root.Set("tools", *tools); err != nil {
-				return body
-			}
-			changed = true
 		}
 	}
 
-	contents := root.Get("contents")
 	// 补齐 functionCall 和 functionResponse 的 Tool ID
-	contentsChanged, err := normalizeContents(contents, isClaude)
-	if err != nil {
+	if err := normalizeContents(root.Get("contents"), isClaude); err != nil {
 		return body
-	}
-	if contentsChanged {
-		if _, err := root.Set("contents", *contents); err != nil {
-			return body
-		}
-		changed = true
 	}
 
-	if !changed {
-		return body
-	}
 	out, err := root.MarshalJSON()
 	if err != nil {
 		return body
@@ -61,47 +38,33 @@ func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte 
 	return out
 }
 
-func normalizeClaudeTools(tools *ast.Node) (bool, error) {
-	return rewriteArray(tools, func(tool *ast.Node) (bool, error) {
-		declarations := tool.Get("functionDeclarations")
-		changed, err := rewriteArray(declarations, normalizeClaudeFunctionDeclaration)
-		if err != nil || !changed {
-			return changed, err
-		}
-		_, err = tool.Set("functionDeclarations", *declarations)
-		return true, err
-	})
-}
-
-func normalizeClaudeFunctionDeclaration(declaration *ast.Node) (bool, error) {
-	if !astObjectExists(declaration) {
-		return false, nil
-	}
-
-	changed := false
-	// 已经有 parameters 时不再使用 parametersJsonSchema 覆盖
-	if !astObjectExists(declaration.Get("parameters")) {
-		if schema := declaration.Get("parametersJsonSchema"); astObjectExists(schema) {
-			if _, err := declaration.Set("parameters", *schema); err != nil {
-				return false, err
+func normalizeClaudeTools(tools *ast.Node) error {
+	for i := 0; i < nodeLen(tools); i++ {
+		declarations := tools.Index(i).Get("functionDeclarations")
+		for j := 0; j < nodeLen(declarations); j++ {
+			declaration := declarations.Index(j)
+			parameters := declaration.Get("parameters")
+			// 已经有 parameters 时不再使用 parametersJsonSchema 覆盖
+			if !astObjectExists(parameters) {
+				if schema := declaration.Get("parametersJsonSchema"); astObjectExists(schema) {
+					if _, err := declaration.Set("parameters", *schema); err != nil {
+						return err
+					}
+					if _, err := declaration.Unset("parametersJsonSchema"); err != nil {
+						return err
+					}
+					parameters = declaration.Get("parameters")
+				}
 			}
-			if _, err := declaration.Unset("parametersJsonSchema"); err != nil {
-				return false, err
+			if astObjectExists(parameters) {
+				// 清理 parameters 内 Google 不接受的 JSON Schema 关键字
+				if err := cleanAntigravityGeminiSchema(parameters, false); err != nil {
+					return err
+				}
 			}
-			changed = true
 		}
 	}
-
-	parameters := declaration.Get("parameters")
-	// 清理 parameters 内 Google 不接受的 JSON Schema 关键字
-	schemaChanged, err := cleanAntigravityGeminiSchema(parameters, false)
-	if err != nil || !schemaChanged {
-		return changed, err
-	}
-	if _, err := declaration.Set("parameters", *parameters); err != nil {
-		return false, err
-	}
-	return true, nil
+	return nil
 }
 
 // Antigravity 的 Gemini schema parser 不接受这些 JSON Schema 关键字
@@ -132,96 +95,71 @@ var unsupportedGeminiSchemaKeywords = map[string]struct{}{
 	"uniqueItems":          {},
 }
 
-func cleanAntigravityGeminiSchema(node *ast.Node, propertiesMap bool) (bool, error) {
-	nodeType, ok, err := astNodeType(node)
-	if err != nil || !ok {
-		return false, err
-	}
-
-	changed := false
-	switch nodeType {
+func cleanAntigravityGeminiSchema(node *ast.Node, propertiesMap bool) error {
+	switch astNodeType(node) {
 	case ast.V_OBJECT:
 		// 先递归清理子 schema，再处理当前 schema 节点自身
-		childrenChanged, err := rewriteObjectChildren(node, func(key string, child *ast.Node) (bool, error) {
+		if err := rewriteObjectChildren(node, func(key string, child *ast.Node) error {
 			return cleanAntigravityGeminiSchema(child, key == "properties")
-		})
-		if err != nil {
-			return false, err
+		}); err != nil {
+			return err
 		}
-		changed = childrenChanged
-
-		if propertiesMap {
-			return changed, nil
+		if !propertiesMap {
+			return cleanCurrentSchemaObject(node)
 		}
-		schemaChanged, err := cleanCurrentSchemaObject(node)
-		if err != nil {
-			return false, err
-		}
-		return changed || schemaChanged, nil
 	case ast.V_ARRAY:
-		return rewriteArray(node, func(child *ast.Node) (bool, error) {
+		return rewriteArray(node, func(child *ast.Node) error {
 			return cleanAntigravityGeminiSchema(child, false)
 		})
-	default:
-		return false, nil
 	}
+	return nil
 }
 
-func cleanCurrentSchemaObject(node *ast.Node) (bool, error) {
-	changed := false
+func cleanCurrentSchemaObject(node *ast.Node) error {
 	if constNode := node.Get("const"); constNode.Exists() {
 		// const 语义接近单值 enum，先转换再删除原字段
 		if !node.Get("enum").Exists() {
 			if _, err := node.Set("enum", ast.NewArray([]ast.Node{*constNode})); err != nil {
-				return false, err
+				return err
 			}
 		}
-		if removed, err := node.Unset("const"); err != nil {
-			return false, err
-		} else if removed {
-			changed = true
+		if _, err := node.Unset("const"); err != nil {
+			return err
 		}
 	}
 
-	unionChanged, err := flattenStringEnumAnyOf(node)
-	if err != nil {
-		return false, err
+	if err := flattenStringEnumAnyOf(node); err != nil {
+		return err
 	}
-	changed = changed || unionChanged
 
 	// properties 的子字段名可能刚好叫 pattern 或 const，不能当作 schema 关键字删除
 	for key := range unsupportedGeminiSchemaKeywords {
-		removed, err := node.Unset(key)
-		if err != nil {
-			return false, err
+		if _, err := node.Unset(key); err != nil {
+			return err
 		}
-		changed = changed || removed
 	}
 
 	if astString(node.Get("type")) != "object" {
-		return changed, nil
+		return nil
 	}
 	// Claude input_schema 要求 object schema 显式声明 properties 和 required
 	if !astObjectExists(node.Get("properties")) {
 		if _, err := node.Set("properties", ast.NewObject(nil)); err != nil {
-			return false, err
+			return err
 		}
-		changed = true
 	}
-	if !astStringArrayExists(node.Get("required")) {
+	if _, ok := astStringArray(node.Get("required")); !ok {
 		if _, err := node.Set("required", ast.NewArray(nil)); err != nil {
-			return false, err
+			return err
 		}
-		changed = true
 	}
-	return changed, nil
+	return nil
 }
 
-func flattenStringEnumAnyOf(node *ast.Node) (bool, error) {
-	anyOf := node.Get("anyOf")
-	values, ok, err := collectStringEnumUnionValues(anyOf)
+func flattenStringEnumAnyOf(node *ast.Node) error {
+	values, ok, err := collectStringEnumUnionValues(node.Get("anyOf"))
 	if err != nil || !ok || len(values) == 0 {
-		return false, err
+		return err
 	}
 
 	enumValues := make([]ast.Node, 0, len(values))
@@ -229,42 +167,37 @@ func flattenStringEnumAnyOf(node *ast.Node) (bool, error) {
 		enumValues = append(enumValues, ast.NewString(value))
 	}
 	if _, err := node.Set("type", ast.NewString("string")); err != nil {
-		return false, err
+		return err
 	}
 	if _, err := node.Set("enum", ast.NewArray(enumValues)); err != nil {
-		return false, err
+		return err
 	}
-	if _, err := node.Unset("anyOf"); err != nil {
-		return false, err
-	}
-	return true, nil
+	_, err = node.Unset("anyOf")
+	return err
 }
 
 func collectStringEnumUnionValues(union *ast.Node) ([]string, bool, error) {
-	variants, ok, err := astArrayItems(union)
-	if err != nil || !ok {
+	if astNodeType(union) != ast.V_ARRAY {
+		return nil, false, nil
+	}
+	n, err := union.Len()
+	if err != nil || n == 0 {
 		return nil, false, err
 	}
 
 	seen := map[string]struct{}{}
 	values := make([]string, 0)
-	for i := range variants {
-		variant := &variants[i]
-		if !astObjectExists(variant) || astString(variant.Get("type")) != "string" {
+	for i := 0; i < n; i++ {
+		variant := union.Index(i)
+		if astString(variant.Get("type")) != "string" {
 			return nil, false, nil
 		}
 
-		enumItems, ok, err := astArrayItems(variant.Get("enum"))
-		if err != nil || !ok {
-			return nil, false, err
+		enumValues, ok := astStringArray(variant.Get("enum"))
+		if !ok {
+			return nil, false, nil
 		}
-		for j := range enumItems {
-			valueNode := &enumItems[j]
-			nodeType, ok, err := astNodeType(valueNode)
-			if err != nil || !ok || nodeType != ast.V_STRING {
-				return nil, false, err
-			}
-			value := astString(valueNode)
+		for _, value := range enumValues {
 			if _, exists := seen[value]; exists {
 				continue
 			}
@@ -275,75 +208,56 @@ func collectStringEnumUnionValues(union *ast.Node) ([]string, bool, error) {
 	return values, true, nil
 }
 
-func normalizeContents(contents *ast.Node, claudeRules bool) (bool, error) {
+func normalizeContents(contents *ast.Node, claudeRules bool) error {
+	if claudeRules {
+		return normalizeClaudeContents(contents)
+	}
+
 	pending := pendingFunctionCallIDs{}
-	changed, err := rewriteArray(contents, func(content *ast.Node) (bool, error) {
+	return rewriteArray(contents, func(content *ast.Node) error {
 		return ensureContentFunctionCallIDs(content, pending)
 	})
-	if err != nil || !claudeRules {
-		return changed, err
-	}
-
-	claudeChanged, err := normalizeClaudeContents(contents)
-	return changed || claudeChanged, err
 }
 
-func normalizeClaudeContents(contents *ast.Node) (bool, error) {
-	items, ok, err := astArrayItems(contents)
-	if err != nil || !ok {
-		return false, err
-	}
-
-	changed := false
-	normalized := make([]ast.Node, 0, len(items))
-	for i := range items {
-		content := &items[i]
-		// 跳过 web 模式可能产生的空 assistant 消息
-		contentChanged, keep, err := normalizeClaudeContent(content)
+func normalizeClaudeContents(contents *ast.Node) error {
+	n := nodeLen(contents)
+	normalized := make([]ast.Node, 0, n)
+	for i := 0; i < n; i++ {
+		content := contents.Index(i)
+		// 跳过可能产生的空 assistant 消息
+		keep, err := normalizeClaudeContent(content)
 		if err != nil {
-			return false, err
+			return err
 		}
-		changed = changed || contentChanged || !keep
 		if keep {
 			normalized = append(normalized, *content)
 		}
 	}
 
-	paired, pairingChanged, err := keepPairedToolParts(normalized)
+	normalized, err := keepPairedToolParts(normalized)
 	if err != nil {
-		return false, err
+		return err
 	}
-	normalized = paired
-	changed = changed || pairingChanged
 
 	// Claude 不支持 assistant message prefill，发送前必须以 user 消息结尾
 	for len(normalized) > 0 && astString(normalized[len(normalized)-1].Get("role")) == "model" {
 		normalized = normalized[:len(normalized)-1]
-		changed = true
 	}
 
-	if !changed {
-		return false, nil
-	}
 	*contents = ast.NewArray(normalized)
-	return true, nil
+	return nil
 }
 
-func normalizeClaudeContent(content *ast.Node) (bool, bool, error) {
-	parts, ok, err := astArrayItems(content.Get("parts"))
-	if err != nil || !ok {
-		return false, false, err
-	}
-
+func normalizeClaudeContent(content *ast.Node) (bool, error) {
+	parts := content.Get("parts")
+	n := nodeLen(parts)
 	role := astString(content.Get("role"))
-	changed := false
 	thoughts := make([]ast.Node, 0)
-	regular := make([]ast.Node, 0, len(parts))
+	regular := make([]ast.Node, 0, n)
 	calls := make([]ast.Node, 0)
-	for i := range parts {
-		part := &parts[i]
+	for i := 0; i < n; i++ {
+		part := parts.Index(i)
 		if !partHasPayload(part) {
-			changed = true
 			continue
 		}
 		switch {
@@ -356,152 +270,180 @@ func normalizeClaudeContent(content *ast.Node) (bool, bool, error) {
 		}
 	}
 
-	kept := make([]ast.Node, 0, len(thoughts)+len(regular)+len(calls))
-	kept = append(kept, thoughts...)
-	kept = append(kept, regular...)
+	kept := append(thoughts, regular...)
 	kept = append(kept, calls...)
 	if len(kept) == 0 {
-		return true, false, nil
+		return false, nil
 	}
 
-	if role == "model" && len(calls) > 0 && len(regular) > 0 {
-		// Antigravity 会按 functionCall 拆分 model 消息
-		changed = true
-	}
-	if !changed {
-		return false, true, nil
-	}
-	_, err = content.Set("parts", ast.NewArray(kept))
-	return true, true, err
+	// Antigravity 会按 functionCall 拆分 model 消息
+	_, err := content.Set("parts", ast.NewArray(kept))
+	return true, err
 }
 
-func keepPairedToolParts(contents []ast.Node) ([]ast.Node, bool, error) {
-	changed := false
+func keepPairedToolParts(contents []ast.Node) ([]ast.Node, error) {
 	out := make([]ast.Node, 0, len(contents))
 	for i := range contents {
 		content := contents[i]
 
-		callIDs := contentFunctionIDs(&content, "functionCall")
-		if astString(content.Get("role")) == "model" && len(callIDs) > 0 {
-			nextResponseIDs := map[string]struct{}{}
+		if astString(content.Get("role")) == "model" && len(functionParts(&content, "functionCall")) > 0 {
+			var next *ast.Node
 			if i+1 < len(contents) {
-				nextResponseIDs = idSet(contentFunctionIDs(&contents[i+1], "functionResponse"))
+				next = &contents[i+1]
 			}
-			if !idsCovered(callIDs, nextResponseIDs) {
+			paired, err := ensurePairedFunctionIDs(&content, next)
+			if err != nil {
+				return nil, err
+			}
+			if !paired {
 				// 没有下一轮 tool_result 就移除 tool_use
-				contentChanged, keep, err := filterContentParts(&content, func(part *ast.Node) bool {
-					return !part.Get("functionCall").Exists()
-				})
+				keep, err := filterFunctionParts(&content, "functionCall", nil)
 				if err != nil {
-					return nil, false, err
+					return nil, err
 				}
-				changed = changed || contentChanged || !keep
 				if !keep {
 					continue
 				}
 			}
 		}
 
-		responseIDs := contentFunctionIDs(&content, "functionResponse")
-		if len(responseIDs) > 0 {
-			allowed := map[string]struct{}{}
-			if len(out) > 0 {
-				allowed = idSet(contentFunctionIDs(&out[len(out)-1], "functionCall"))
-			}
-			contentChanged, keep, err := filterContentParts(&content, func(part *ast.Node) bool {
-				functionResponse := part.Get("functionResponse")
-				if !functionResponse.Exists() {
-					return true
-				}
-				_, ok := allowed[strings.TrimSpace(astString(functionResponse.Get("id")))]
-				return ok
-			})
-			if err != nil {
-				return nil, false, err
-			}
-			changed = changed || contentChanged || !keep
-			if !keep {
-				continue
-			}
+		var allowed []string
+		if len(out) > 0 {
+			allowed = contentFunctionIDs(&out[len(out)-1], "functionCall")
+		}
+		keep, err := filterFunctionParts(&content, "functionResponse", allowed)
+		if err != nil {
+			return nil, err
+		}
+		if !keep {
+			continue
 		}
 
 		out = append(out, content)
 	}
-	return out, changed, nil
+	return out, nil
 }
 
-func filterContentParts(content *ast.Node, keep func(*ast.Node) bool) (bool, bool, error) {
-	parts, ok, err := astArrayItems(content.Get("parts"))
-	if err != nil || !ok {
-		return false, true, err
+func ensurePairedFunctionIDs(content, next *ast.Node) (bool, error) {
+	if next == nil {
+		return false, nil
 	}
 
-	kept := make([]ast.Node, 0, len(parts))
-	for i := range parts {
-		if keep(&parts[i]) {
-			kept = append(kept, parts[i])
+	calls := functionParts(content, "functionCall")
+	responses := functionParts(next, "functionResponse")
+	used := make([]bool, len(responses))
+	for _, call := range calls {
+		matched := -1
+		for i, response := range responses {
+			if used[i] || !functionPartsMatch(call, response) {
+				continue
+			}
+			matched = i
+			used[i] = true
+			break
+		}
+		if matched == -1 {
+			return false, nil
+		}
+
+		id := call.id
+		if id == "" {
+			id = "toolu_" + uuid.NewString()
+			if err := setFunctionPartID(call, "functionCall", id); err != nil {
+				return false, err
+			}
+		}
+		if responses[matched].id == "" {
+			if err := setFunctionPartID(responses[matched], "functionResponse", id); err != nil {
+				return false, err
+			}
 		}
 	}
-	if len(kept) == len(parts) {
-		return false, len(kept) > 0, nil
+	return true, nil
+}
+
+func functionPartsMatch(call, response functionPart) bool {
+	if call.id != "" {
+		return response.id == call.id || response.id == "" && call.name != "" && call.name == response.name
+	}
+	return response.id == "" && call.name != "" && call.name == response.name
+}
+
+func setFunctionPartID(part functionPart, kind, id string) error {
+	if _, err := part.payload.Set("id", ast.NewString(id)); err != nil {
+		return err
+	}
+	_, err := part.part.Set(kind, *part.payload)
+	return err
+}
+
+func filterFunctionParts(content *ast.Node, kind string, allowed []string) (bool, error) {
+	parts := content.Get("parts")
+	n := nodeLen(parts)
+	kept := make([]ast.Node, 0, n)
+	for i := 0; i < n; i++ {
+		part := parts.Index(i)
+		functionPart := part.Get(kind)
+		if !functionPart.Exists() || allowed != nil && slices.Contains(allowed, strings.TrimSpace(astString(functionPart.Get("id")))) {
+			kept = append(kept, *part)
+		}
 	}
 	if len(kept) == 0 {
-		return true, false, nil
-	}
-	_, err = content.Set("parts", ast.NewArray(kept))
-	return true, true, err
-}
-
-func ensureContentFunctionCallIDs(content *ast.Node, pending pendingFunctionCallIDs) (bool, error) {
-	parts := content.Get("parts")
-	changed, err := rewriteArray(parts, func(part *ast.Node) (bool, error) {
-		if functionCall := part.Get("functionCall"); functionCall.Exists() {
-			return ensureFunctionCallID(part, functionCall, pending)
-		}
-		if functionResponse := part.Get("functionResponse"); functionResponse.Exists() {
-			return ensureFunctionResponseID(part, functionResponse, pending)
-		}
 		return false, nil
-	})
-	if err != nil || !changed {
-		return changed, err
 	}
-	_, err = content.Set("parts", *parts)
+	_, err := content.Set("parts", ast.NewArray(kept))
 	return true, err
 }
 
-func ensureFunctionCallID(part, functionCall *ast.Node, pending pendingFunctionCallIDs) (bool, error) {
+func ensureContentFunctionCallIDs(content *ast.Node, pending pendingFunctionCallIDs) error {
+	parts := content.Get("parts")
+	for i := 0; i < nodeLen(parts); i++ {
+		part := parts.Index(i)
+		if functionCall := part.Get("functionCall"); functionCall.Exists() {
+			if err := ensureFunctionCallID(part, functionCall, pending); err != nil {
+				return err
+			}
+			continue
+		}
+		if functionResponse := part.Get("functionResponse"); functionResponse.Exists() {
+			if err := ensureFunctionResponseID(part, functionResponse, pending); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func ensureFunctionCallID(part, functionCall *ast.Node, pending pendingFunctionCallIDs) error {
 	id := strings.TrimSpace(astString(functionCall.Get("id")))
-	changed := false
 	if id == "" {
 		id = "toolu_" + uuid.NewString()
 		if _, err := functionCall.Set("id", ast.NewString(id)); err != nil {
-			return false, err
+			return err
 		}
 		if _, err := part.Set("functionCall", *functionCall); err != nil {
-			return false, err
+			return err
 		}
-		changed = true
 	}
 	pending.push(astString(functionCall.Get("name")), id)
-	return changed, nil
+	return nil
 }
 
-func ensureFunctionResponseID(part, functionResponse *ast.Node, pending pendingFunctionCallIDs) (bool, error) {
+func ensureFunctionResponseID(part, functionResponse *ast.Node, pending pendingFunctionCallIDs) error {
 	if id := strings.TrimSpace(astString(functionResponse.Get("id"))); id != "" {
-		return false, nil
+		return nil
 	}
 	id := pending.pop(astString(functionResponse.Get("name")))
 	if id == "" {
-		return false, nil
+		return nil
 	}
 	if _, err := functionResponse.Set("id", ast.NewString(id)); err != nil {
-		return false, err
+		return err
 	}
 	if _, err := part.Set("functionResponse", *functionResponse); err != nil {
-		return false, err
+		return err
 	}
-	return true, nil
+	return nil
 }
 
 type pendingFunctionCallIDs map[string][]string
@@ -540,131 +482,103 @@ func isSignedThoughtPart(part *ast.Node) bool {
 }
 
 func contentFunctionIDs(content *ast.Node, kind string) []string {
-	parts, ok, _ := astArrayItems(content.Get("parts"))
-	if !ok {
-		return nil
-	}
-
 	ids := make([]string, 0)
-	for i := range parts {
-		id := strings.TrimSpace(astString(parts[i].Get(kind).Get("id")))
-		if id != "" {
-			ids = append(ids, id)
+	for _, part := range functionParts(content, kind) {
+		if part.id != "" {
+			ids = append(ids, part.id)
 		}
 	}
 	return ids
 }
 
-func idsCovered(ids []string, set map[string]struct{}) bool {
-	for _, id := range ids {
-		if _, ok := set[id]; !ok {
-			return false
-		}
-	}
-	return true
+type functionPart struct {
+	part    *ast.Node
+	payload *ast.Node
+	name    string
+	id      string
 }
 
-func idSet(ids []string) map[string]struct{} {
-	set := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		set[id] = struct{}{}
-	}
-	return set
-}
-
-func astStringArrayExists(node *ast.Node) bool {
-	items, ok, _ := astArrayItems(node)
-	if !ok {
-		return false
-	}
-	for i := range items {
-		nodeType, ok, _ := astNodeType(&items[i])
-		if !ok || nodeType != ast.V_STRING {
-			return false
+func functionParts(content *ast.Node, kind string) []functionPart {
+	parts := content.Get("parts")
+	out := make([]functionPart, 0)
+	for i := 0; i < nodeLen(parts); i++ {
+		part := parts.Index(i)
+		payload := part.Get(kind)
+		if !payload.Exists() {
+			continue
 		}
+		out = append(out, functionPart{
+			part:    part,
+			payload: payload,
+			name:    strings.TrimSpace(astString(payload.Get("name"))),
+			id:      strings.TrimSpace(astString(payload.Get("id"))),
+		})
 	}
-	return true
+	return out
 }
 
 func astObjectExists(node *ast.Node) bool {
-	nodeType, ok, _ := astNodeType(node)
-	return ok && nodeType == ast.V_OBJECT
+	return astNodeType(node) == ast.V_OBJECT
 }
 
-func astArrayItems(node *ast.Node) ([]ast.Node, bool, error) {
-	nodeType, ok, err := astNodeType(node)
-	if err != nil || !ok || nodeType != ast.V_ARRAY {
-		return nil, false, err
+func astStringArray(node *ast.Node) ([]string, bool) {
+	if astNodeType(node) != ast.V_ARRAY {
+		return nil, false
+	}
+	n := nodeLen(node)
+	values := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		item := node.Index(i)
+		if astNodeType(item) != ast.V_STRING {
+			return nil, false
+		}
+		values = append(values, astString(item))
+	}
+	return values, true
+}
+
+func astNodeType(node *ast.Node) int {
+	if node == nil || !node.Exists() {
+		return ast.V_NONE
+	}
+	if err := node.Load(); err != nil {
+		return ast.V_NONE
+	}
+	return node.TypeSafe()
+}
+
+func nodeLen(node *ast.Node) int {
+	if astNodeType(node) != ast.V_ARRAY {
+		return 0
 	}
 	n, err := node.Len()
 	if err != nil {
-		return nil, false, err
+		return 0
 	}
-	items := make([]ast.Node, 0, n)
-	for i := 0; i < n; i++ {
-		items = append(items, *node.Index(i))
-	}
-	return items, true, nil
+	return n
 }
 
-func astNodeType(node *ast.Node) (int, bool, error) {
-	if node == nil || !node.Exists() {
-		return ast.V_NONE, false, nil
+func rewriteArray(node *ast.Node, rewrite func(*ast.Node) error) error {
+	for i := 0; i < nodeLen(node); i++ {
+		if err := rewrite(node.Index(i)); err != nil {
+			return err
+		}
 	}
-	if err := node.Load(); err != nil {
-		return ast.V_NONE, false, err
-	}
-	return node.TypeSafe(), true, nil
+	return nil
 }
 
-func rewriteArray(node *ast.Node, rewrite func(*ast.Node) (bool, error)) (bool, error) {
-	items, ok, err := astArrayItems(node)
-	if err != nil || !ok {
-		return false, err
-	}
-
-	changed := false
-	for i := range items {
-		childChanged, err := rewrite(&items[i])
-		if err != nil {
-			return false, err
-		}
-		if !childChanged {
-			continue
-		}
-		if _, err := node.SetByIndex(i, items[i]); err != nil {
-			return false, err
-		}
-		changed = true
-	}
-	return changed, nil
-}
-
-func rewriteObjectChildren(node *ast.Node, rewrite func(string, *ast.Node) (bool, error)) (bool, error) {
-	updates := make([]ast.Pair, 0)
+func rewriteObjectChildren(node *ast.Node, rewrite func(string, *ast.Node) error) error {
 	var rewriteErr error
 	if err := node.ForEach(func(seq ast.Sequence, child *ast.Node) bool {
-		changed, err := rewrite(*seq.Key, child)
-		if err != nil {
+		if err := rewrite(*seq.Key, child); err != nil {
 			rewriteErr = err
 			return false
 		}
-		if changed {
-			updates = append(updates, ast.NewPair(*seq.Key, *child))
-		}
 		return true
 	}); err != nil {
-		return false, err
+		return err
 	}
-	if rewriteErr != nil {
-		return false, rewriteErr
-	}
-	for _, update := range updates {
-		if _, err := node.Set(update.Key, update.Value); err != nil {
-			return false, err
-		}
-	}
-	return len(updates) > 0, nil
+	return rewriteErr
 }
 
 func astString(node *ast.Node) string {
