@@ -211,6 +211,15 @@ func cleanAntigravityGeminiSchema(node *ast.Node, parentIsProperties bool) (bool
 			changed = true
 		}
 
+		// Claude input_schema 要求带 properties 的 object 显式声明 required
+		requiredChanged, err := ensureObjectRequiredArray(node)
+		if err != nil {
+			return false, err
+		}
+		if requiredChanged {
+			changed = true
+		}
+
 		if !parentIsProperties {
 			// const 语义接近单值 enum，先转换再删除原字段
 			if constNode := node.Get("const"); constNode.Exists() {
@@ -254,6 +263,42 @@ func cleanAntigravityGeminiSchema(node *ast.Node, parentIsProperties bool) (bool
 	}
 
 	return changed, nil
+}
+
+func ensureObjectRequiredArray(node *ast.Node) (bool, error) {
+	if !astObjectExists(node.Get("properties")) {
+		return false, nil
+	}
+	if astStringArrayExists(node.Get("required")) {
+		return false, nil
+	}
+	_, err := node.Set("required", ast.NewArray(nil))
+	return true, err
+}
+
+func astStringArrayExists(node *ast.Node) bool {
+	if node == nil || !node.Exists() {
+		return false
+	}
+	if err := node.Load(); err != nil {
+		return false
+	}
+	if node.TypeSafe() != ast.V_ARRAY {
+		return false
+	}
+	for i := 0; i < nodeLen(node); i++ {
+		child := node.Index(i)
+		if child == nil || !child.Exists() {
+			return false
+		}
+		if err := child.Load(); err != nil {
+			return false
+		}
+		if child.TypeSafe() != ast.V_STRING {
+			return false
+		}
+	}
+	return true
 }
 
 func astObjectExists(node *ast.Node) bool {
