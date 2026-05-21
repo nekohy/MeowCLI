@@ -14,12 +14,12 @@ import (
 	"time"
 
 	"github.com/bytedance/sonic"
+	"github.com/bytedance/sonic/ast"
 	"github.com/google/uuid"
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	"github.com/nekohy/MeowCLI/utils"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 const readBodyLimit = 4 << 20
@@ -56,19 +56,32 @@ func (c *Client) APIType() []utils.APIType {
 }
 
 func (c *Client) ReplaceModel(body []byte, model string) []byte {
-	out := body
-	if response := gjson.GetBytes(out, "response"); response.Exists() && response.Type == gjson.JSON {
-		out = []byte(response.Raw)
+	var root ast.Node
+	if err := root.UnmarshalJSON(body); err != nil {
+		return body
 	}
-	for _, path := range []string{"modelVersion", "response.modelVersion"} {
-		if !gjson.GetBytes(out, path).Exists() || model == "" {
-			continue
+
+	payload := &root
+	if response := root.Get("response"); response.Exists() {
+		if err := response.Load(); err != nil {
+			return body
 		}
-		if updated, err := sjson.SetBytes(out, path, model); err == nil {
-			out = updated
+		if response.TypeSafe() == ast.V_OBJECT {
+			payload = response
 		}
 	}
-	return out
+
+	if model != "" && payload.Get("modelVersion").Exists() {
+		if _, err := payload.Set("modelVersion", ast.NewString(model)); err != nil {
+			return body
+		}
+	}
+
+	updated, err := payload.MarshalJSON()
+	if err != nil {
+		return body
+	}
+	return updated
 }
 
 func (c *Client) Chat(req *api.Request) (*http.Response, error) {
@@ -124,9 +137,6 @@ func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes [
 		request = []byte(nested.Raw)
 	}
 	request = normalizeGeminiRequestForAntigravity(request, modelName)
-	if strings.Contains(strings.ToLower(modelName), "claude") {
-		request, _ = sjson.SetBytes(request, "toolConfig.functionCallingConfig.mode", "VALIDATED")
-	}
 	var enabledCreditTypes []string
 	if useCredits {
 		if normalized := normalizeCreditTypes(creditTypes); len(normalized) > 0 {
@@ -146,9 +156,12 @@ func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes [
 	if projectID == "" {
 		projectID = defaultProjectID
 	}
+	if !isImageModel {
+		request = setAntigravityRequestSessionID(request, generateStableSessionID(request))
+	}
 	wrapped, err := sonic.Marshal(wrappedRequest{
 		Project:            projectID,
-		Request:            sonic.NoCopyRawMessage(request),
+		Request:            request,
 		Model:              modelName,
 		UserAgent:          "antigravity",
 		RequestType:        requestType,
@@ -158,10 +171,22 @@ func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes [
 	if err != nil {
 		return body
 	}
-	if !isImageModel {
-		wrapped, _ = sjson.SetBytes(wrapped, "request.sessionId", generateStableSessionID(request))
-	}
 	return wrapped
+}
+
+func setAntigravityRequestSessionID(request []byte, sessionID string) []byte {
+	var root ast.Node
+	if err := root.UnmarshalJSON(request); err != nil {
+		return request
+	}
+	if _, err := root.Set("sessionId", ast.NewString(sessionID)); err != nil {
+		return request
+	}
+	out, err := root.MarshalJSON()
+	if err != nil {
+		return request
+	}
+	return out
 }
 
 func normalizeCreditTypes(values []string) []string {

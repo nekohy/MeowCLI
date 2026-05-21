@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/bytedance/sonic"
-	"github.com/tidwall/sjson"
+	"github.com/bytedance/sonic/ast"
 
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/internal/settings"
@@ -56,22 +56,32 @@ func (c *Client) APIType() []utils.APIType {
 }
 
 func (c *Client) ReplaceModel(body []byte, model string) []byte {
-	out := body
-	if response := gjson.GetBytes(out, "response"); response.Exists() && response.Type == gjson.JSON {
-		out = []byte(response.Raw)
+	var root ast.Node
+	if err := root.UnmarshalJSON(body); err != nil {
+		return body
 	}
-	for _, path := range []string{"modelVersion", "response.modelVersion"} {
-		if !gjson.GetBytes(out, path).Exists() {
-			continue
+
+	payload := &root
+	if response := root.Get("response"); response.Exists() {
+		if err := response.Load(); err != nil {
+			return body
 		}
-		if model == "" {
-			continue
-		}
-		if updated, err := sjson.SetBytes(out, path, model); err == nil {
-			out = updated
+		if response.TypeSafe() == ast.V_OBJECT {
+			payload = response
 		}
 	}
-	return out
+
+	if model != "" && payload.Get("modelVersion").Exists() {
+		if _, err := payload.Set("modelVersion", ast.NewString(model)); err != nil {
+			return body
+		}
+	}
+
+	updated, err := payload.MarshalJSON()
+	if err != nil {
+		return body
+	}
+	return updated
 }
 
 func (c *Client) Chat(req *api.Request) (*http.Response, error) {

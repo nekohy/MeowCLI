@@ -20,6 +20,10 @@ func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte 
 
 	isClaude := strings.Contains(strings.ToLower(modelName), "claude")
 	if isClaude {
+		if err := setClaudeFunctionCallingMode(&root); err != nil {
+			return body
+		}
+
 		// Claude 模型要求 Gemini 工具声明携带 parameters 而不是 parametersJsonSchema
 		if err := normalizeClaudeTools(root.Get("tools")); err != nil {
 			return body
@@ -36,6 +40,27 @@ func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte 
 		return body
 	}
 	return out
+}
+
+func setClaudeFunctionCallingMode(root *ast.Node) error {
+	toolConfig := root.Get("toolConfig")
+	if !astObjectExists(toolConfig) {
+		if _, err := root.Set("toolConfig", ast.NewObject(nil)); err != nil {
+			return err
+		}
+		toolConfig = root.Get("toolConfig")
+	}
+
+	functionCallingConfig := toolConfig.Get("functionCallingConfig")
+	if !astObjectExists(functionCallingConfig) {
+		if _, err := toolConfig.Set("functionCallingConfig", ast.NewObject(nil)); err != nil {
+			return err
+		}
+		functionCallingConfig = toolConfig.Get("functionCallingConfig")
+	}
+
+	_, err := functionCallingConfig.Set("mode", ast.NewString("VALIDATED"))
+	return err
 }
 
 func normalizeClaudeTools(tools *ast.Node) error {

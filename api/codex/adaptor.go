@@ -21,7 +21,6 @@ import (
 	"github.com/bytedance/sonic/ast"
 	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 type Client struct {
@@ -89,20 +88,32 @@ func (c *Client) APIType() []utils.APIType {
 }
 
 func (c *Client) ReplaceModel(body []byte, model string) []byte {
-	out := body
-	if gjson.GetBytes(out, "model").Exists() {
-		if updated, err := sjson.SetBytes(out, "model", model); err == nil {
-			out = updated
+	var root ast.Node
+	if err := root.UnmarshalJSON(body); err != nil {
+		return body
+	}
+
+	payload := &root
+	if response := root.Get("response"); response.Exists() {
+		if err := response.Load(); err != nil {
+			return body
+		}
+		if response.TypeSafe() == ast.V_OBJECT {
+			payload = response
 		}
 	}
-	if gjson.GetBytes(out, "response.model").Exists() {
-		updated, err := sjson.SetBytes(out, "response.model", model)
-		if err != nil {
-			return out
+
+	if payload.Get("model").Exists() {
+		if _, err := payload.Set("model", ast.NewString(model)); err != nil {
+			return body
 		}
-		return updated
 	}
-	return out
+
+	updated, err := payload.MarshalJSON()
+	if err != nil {
+		return body
+	}
+	return updated
 }
 
 // Chat 向上游 Codex API 发送请求，返回原始 *http.Response（调用方负责关闭 Body）
@@ -281,11 +292,9 @@ func readCodexCompletedResponse(r io.Reader) ([]byte, error) {
 				items = append(items, json.RawMessage(item))
 			}
 
-			if rawOutput, err := sonic.Marshal(items); err == nil {
-				patched, err := sjson.SetRawBytes([]byte(response), "output", rawOutput)
-				if err == nil {
-					response = string(patched)
-				}
+			patched, err := patchCodexResponseOutput([]byte(response), items)
+			if err == nil {
+				response = string(patched)
 			}
 			return []byte(response), nil
 		}
@@ -294,6 +303,25 @@ func readCodexCompletedResponse(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	return nil, io.ErrUnexpectedEOF
+}
+
+func patchCodexResponseOutput(response []byte, outputItems []json.RawMessage) ([]byte, error) {
+	rawOutput, err := sonic.Marshal(outputItems)
+	if err != nil {
+		return nil, err
+	}
+	var root ast.Node
+	if err := root.UnmarshalJSON(response); err != nil {
+		return nil, err
+	}
+	var output ast.Node
+	if err := output.UnmarshalJSON(rawOutput); err != nil {
+		return nil, err
+	}
+	if _, err := root.Set("output", output); err != nil {
+		return nil, err
+	}
+	return root.MarshalJSON()
 }
 
 func (c *Client) proxyURL() (*url.URL, error) {
