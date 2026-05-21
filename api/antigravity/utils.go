@@ -400,7 +400,7 @@ func astObjectExists(node *ast.Node) bool {
 	return node.TypeSafe() == ast.V_OBJECT
 }
 
-func normalizeClaudeFunctionCallTurns(contents *ast.Node) (bool, error) {
+func normalizeClaudeContents(contents *ast.Node) (bool, error) {
 	if contents == nil || !contents.Exists() {
 		return false, nil
 	}
@@ -412,58 +412,11 @@ func normalizeClaudeFunctionCallTurns(contents *ast.Node) (bool, error) {
 	}
 
 	changed := false
-	var expectedResponses map[string]struct{}
 	normalized := make([]ast.Node, 0, nodeLen(contents))
 	for i := 0; i < nodeLen(contents); i++ {
 		content := contents.Index(i)
-
-		if len(expectedResponses) > 0 {
-			contentChanged, keep, err := filterFunctionResponseParts(content, expectedResponses)
-			if err != nil {
-				return false, err
-			}
-			if contentChanged {
-				changed = true
-			}
-			if keep {
-				normalized = append(normalized, *content)
-			} else {
-				changed = true
-			}
-			expectedResponses = nil
-			continue
-		}
-
-		responseIDs := contentFunctionResponseIDs(content)
-		if len(responseIDs) > 0 {
-			contentChanged, keep, err := filterFunctionResponseParts(content, nil)
-			if err != nil {
-				return false, err
-			}
-			if contentChanged {
-				changed = true
-			}
-			if keep {
-				normalized = append(normalized, *content)
-			} else {
-				changed = true
-			}
-			continue
-		}
-
-		callIDs := contentFunctionCallIDs(content)
-		if astString(content.Get("role")) != "model" || len(callIDs) == 0 {
-			normalized = append(normalized, *content)
-			continue
-		}
-
-		if nextContentHasFunctionResponses(contents, i, callIDs) {
-			expectedResponses = idsSet(callIDs)
-			normalized = append(normalized, *content)
-			continue
-		}
-
-		contentChanged, keep, err := filterFunctionCallParts(content)
+		// 跳过 web 模式可能产生的空 assistant 消息
+		contentChanged, keep, err := normalizeClaudeContent(content)
 		if err != nil {
 			return false, err
 		}
@@ -477,7 +430,7 @@ func normalizeClaudeFunctionCallTurns(contents *ast.Node) (bool, error) {
 		}
 	}
 
-	for len(normalized) > 0 && isEmptyModelTurn(&normalized[len(normalized)-1]) {
+	for len(normalized) > 0 && trailingModelHasFunctionCall(&normalized[len(normalized)-1]) {
 		normalized = normalized[:len(normalized)-1]
 		changed = true
 	}
@@ -489,87 +442,52 @@ func normalizeClaudeFunctionCallTurns(contents *ast.Node) (bool, error) {
 	return true, nil
 }
 
-func isEmptyModelTurn(content *ast.Node) bool {
-	if astString(content.Get("role")) != "model" {
-		return false
-	}
-
-	parts := content.Get("parts")
-	if nodeLen(parts) == 0 {
-		return true
-	}
-	for i := 0; i < nodeLen(parts); i++ {
-		part := parts.Index(i)
-		if strings.TrimSpace(astString(part.Get("text"))) != "" {
-			return false
-		}
-		if part.Get("functionCall").Exists() || part.Get("functionResponse").Exists() || part.Get("inlineData").Exists() {
-			return false
-		}
-	}
-	return true
-}
-
-func nextContentHasFunctionResponses(contents *ast.Node, contentIndex int, callIDs []string) bool {
-	if contentIndex+1 >= nodeLen(contents) {
-		return false
-	}
-	responseIDs := contentFunctionResponseIDs(contents.Index(contentIndex + 1))
-	for _, id := range callIDs {
-		if _, ok := responseIDs[id]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
-func filterFunctionCallParts(content *ast.Node) (bool, bool, error) {
-	return filterContentParts(content, func(part *ast.Node) bool {
-		return !part.Get("functionCall").Exists()
-	})
-}
-
-func filterFunctionResponseParts(content *ast.Node, allowed map[string]struct{}) (bool, bool, error) {
-	return filterContentParts(content, func(part *ast.Node) bool {
-		functionResponse := part.Get("functionResponse")
-		if !functionResponse.Exists() {
-			return true
-		}
-		if len(allowed) == 0 {
-			return false
-		}
-		_, ok := allowed[strings.TrimSpace(astString(functionResponse.Get("id")))]
-		return ok
-	})
-}
-
-func filterContentParts(content *ast.Node, keep func(*ast.Node) bool) (bool, bool, error) {
+func normalizeClaudeContent(content *ast.Node) (bool, bool, error) {
 	parts := content.Get("parts")
 	if parts == nil || !parts.Exists() {
-		return false, true, nil
+		return false, false, nil
 	}
 	if err := parts.Load(); err != nil {
 		return false, false, err
 	}
 	if parts.TypeSafe() != ast.V_ARRAY {
-		return false, true, nil
+		return false, false, nil
 	}
 
 	changed := false
-	kept := make([]ast.Node, 0, nodeLen(parts))
+	regularParts := make([]ast.Node, 0, nodeLen(parts))
+	thoughtParts := make([]ast.Node, 0)
+	functionCallParts := make([]ast.Node, 0)
 	for i := 0; i < nodeLen(parts); i++ {
 		part := parts.Index(i)
-		if keep(part) {
-			kept = append(kept, *part)
+		if !partHasPayload(part) {
+			changed = true
 			continue
 		}
+
+		if astString(content.Get("role")) == "model" && part.Get("functionCall").Exists() {
+			functionCallParts = append(functionCallParts, *part)
+		} else if astString(content.Get("role")) == "model" && part.Get("thought").Exists() {
+			thoughtParts = append(thoughtParts, *part)
+		} else {
+			regularParts = append(regularParts, *part)
+		}
+	}
+
+	kept := make([]ast.Node, 0, len(thoughtParts)+len(regularParts)+len(functionCallParts))
+	kept = append(kept, thoughtParts...)
+	kept = append(kept, regularParts...)
+	kept = append(kept, functionCallParts...)
+
+	if len(kept) == 0 {
+		return true, false, nil
+	}
+	if astString(content.Get("role")) == "model" && len(functionCallParts) > 0 && len(regularParts) > 0 {
+		// Antigravity 会按 functionCall 拆分 model 消息
 		changed = true
 	}
 	if !changed {
-		return false, len(kept) > 0, nil
-	}
-	if len(kept) == 0 {
-		return true, false, nil
+		return false, true, nil
 	}
 	if _, err := content.Set("parts", ast.NewArray(kept)); err != nil {
 		return false, false, err
@@ -577,44 +495,30 @@ func filterContentParts(content *ast.Node, keep func(*ast.Node) bool) (bool, boo
 	return true, true, nil
 }
 
-func contentFunctionCallIDs(content *ast.Node) []string {
-	ids := make([]string, 0)
-	parts := content.Get("parts")
-	for i := 0; i < nodeLen(parts); i++ {
-		functionCall := parts.Index(i).Get("functionCall")
-		if !functionCall.Exists() {
-			continue
-		}
-		id := strings.TrimSpace(astString(functionCall.Get("id")))
-		if id != "" {
-			ids = append(ids, id)
-		}
+func partHasPayload(part *ast.Node) bool {
+	if strings.TrimSpace(astString(part.Get("text"))) != "" {
+		return true
 	}
-	return ids
+	if part.Get("functionCall").Exists() || part.Get("functionResponse").Exists() {
+		return true
+	}
+	if part.Get("inlineData").Exists() {
+		return true
+	}
+	return false
 }
 
-func contentFunctionResponseIDs(content *ast.Node) map[string]struct{} {
-	ids := map[string]struct{}{}
+func trailingModelHasFunctionCall(content *ast.Node) bool {
+	if astString(content.Get("role")) != "model" {
+		return false
+	}
 	parts := content.Get("parts")
 	for i := 0; i < nodeLen(parts); i++ {
-		functionResponse := parts.Index(i).Get("functionResponse")
-		if !functionResponse.Exists() {
-			continue
-		}
-		id := strings.TrimSpace(astString(functionResponse.Get("id")))
-		if id != "" {
-			ids[id] = struct{}{}
+		if parts.Index(i).Get("functionCall").Exists() {
+			return true
 		}
 	}
-	return ids
-}
-
-func idsSet(ids []string) map[string]struct{} {
-	set := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		set[id] = struct{}{}
-	}
-	return set
+	return false
 }
 
 type pendingFunctionCallIDs map[string][]string
@@ -638,8 +542,8 @@ func ensureGeminiFunctionCallIDs(contents *ast.Node, stripTrailingCall bool) (bo
 	}
 
 	if stripTrailingCall {
-		// Claude 要求 functionCall 后一轮立刻给齐 functionResponse
-		normalized, err := normalizeClaudeFunctionCallTurns(contents)
+		// Claude 要求空消息被跳过并且 functionCall 在 model 消息末尾
+		normalized, err := normalizeClaudeContents(contents)
 		if err != nil {
 			return false, err
 		}
