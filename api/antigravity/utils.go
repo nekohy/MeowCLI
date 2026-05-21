@@ -69,7 +69,7 @@ func normalizeClaudeTools(tools *ast.Node) (bool, error) {
 		declarationsChanged := false
 		for j := 0; j < nodeLen(functionDeclarations); j++ {
 			declaration := functionDeclarations.Index(j)
-			declarationChanged, err := ensureClaudeFunctionDeclarationParameters(declaration)
+			declarationChanged, err := normalizeClaudeFunctionDeclaration(declaration)
 			if err != nil {
 				return false, err
 			}
@@ -95,21 +95,165 @@ func normalizeClaudeTools(tools *ast.Node) (bool, error) {
 	return changed, nil
 }
 
-func ensureClaudeFunctionDeclarationParameters(declaration *ast.Node) (bool, error) {
+func normalizeClaudeFunctionDeclaration(declaration *ast.Node) (bool, error) {
 	if !astObjectExists(declaration) {
 		return false, nil
 	}
 
+	parametersChanged, err := ensureClaudeFunctionDeclarationParameters(declaration)
+	if err != nil {
+		return false, err
+	}
+
+	// 清理 parameters 内 Google 不接受的 JSON Schema 关键字
+	schemasChanged, err := cleanFunctionDeclarationSchemas(declaration)
+	if err != nil {
+		return false, err
+	}
+	return parametersChanged || schemasChanged, nil
+}
+
+func ensureClaudeFunctionDeclarationParameters(declaration *ast.Node) (bool, error) {
+	// 已经有 parameters 时不再使用 parametersJsonSchema 覆盖
 	if astObjectExists(declaration.Get("parameters")) {
 		return false, nil
 	}
+
 	schema := declaration.Get("parametersJsonSchema")
 	if !astObjectExists(schema) {
-		_, err := declaration.Set("parameters", emptyObjectInputSchemaNode())
-		return true, err
+		return false, nil
 	}
-	_, err := declaration.Set("parameters", *schema)
+	if _, err := declaration.Set("parameters", *schema); err != nil {
+		return false, err
+	}
+	_, err := declaration.Unset("parametersJsonSchema")
 	return true, err
+}
+
+func cleanFunctionDeclarationSchemas(declaration *ast.Node) (bool, error) {
+	schema := declaration.Get("parameters")
+	schemaChanged, err := cleanAntigravityGeminiSchema(schema, false)
+	if err != nil {
+		return false, err
+	}
+	if !schemaChanged {
+		return false, nil
+	}
+	if _, err := declaration.Set("parameters", *schema); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Antigravity 的 Gemini schema parser 不接受这些 JSON Schema 关键字
+var unsupportedGeminiSchemaKeywords = map[string]struct{}{
+	"$defs":                {},
+	"$id":                  {},
+	"$ref":                 {},
+	"$schema":              {},
+	"additionalProperties": {},
+	"default":              {},
+	"definitions":          {},
+	"deprecated":           {},
+	"enumTitles":           {},
+	"examples":             {},
+	"exclusiveMaximum":     {},
+	"exclusiveMinimum":     {},
+	"format":               {},
+	"maxItems":             {},
+	"maxLength":            {},
+	"minItems":             {},
+	"minLength":            {},
+	"nullable":             {},
+	"pattern":              {},
+	"patternProperties":    {},
+	"prefill":              {},
+	"propertyNames":        {},
+	"title":                {},
+	"uniqueItems":          {},
+}
+
+func cleanAntigravityGeminiSchema(node *ast.Node, parentIsProperties bool) (bool, error) {
+	if node == nil || !node.Exists() {
+		return false, nil
+	}
+	if err := node.Load(); err != nil {
+		return false, err
+	}
+
+	changed := false
+	switch node.TypeSafe() {
+	case ast.V_OBJECT:
+		// object 分支负责清理当前 schema 节点并递归进入 properties 下的子 schema
+		childUpdates := make([]ast.Pair, 0)
+		var childErr error
+		if err := node.ForEach(func(seq ast.Sequence, child *ast.Node) bool {
+			key := *seq.Key
+			childChanged, err := cleanAntigravityGeminiSchema(child, key == "properties")
+			if err != nil {
+				childErr = err
+				return false
+			}
+			if childChanged {
+				childUpdates = append(childUpdates, ast.NewPair(key, *child))
+			}
+			return true
+		}); err != nil {
+			return false, err
+		}
+		if childErr != nil {
+			return false, childErr
+		}
+		for _, update := range childUpdates {
+			if _, err := node.Set(update.Key, update.Value); err != nil {
+				return false, err
+			}
+			changed = true
+		}
+
+		if !parentIsProperties {
+			// const 语义接近单值 enum，先转换再删除原字段
+			if constNode := node.Get("const"); constNode.Exists() {
+				if !node.Get("enum").Exists() {
+					if _, err := node.Set("enum", ast.NewArray([]ast.Node{*constNode})); err != nil {
+						return false, err
+					}
+				}
+				if removed, err := node.Unset("const"); err != nil {
+					return false, err
+				} else if removed {
+					changed = true
+				}
+			}
+
+			// properties 的子字段名可能刚好叫 pattern 或 const，不能当作 schema 关键字删除
+			for key := range unsupportedGeminiSchemaKeywords {
+				if removed, err := node.Unset(key); err != nil {
+					return false, err
+				} else if removed {
+					changed = true
+				}
+			}
+		}
+	case ast.V_ARRAY:
+		// array 分支用于进入 anyOf oneOf allOf 这类数组里的 schema 对象
+		for i := 0; i < nodeLen(node); i++ {
+			child := node.Index(i)
+			childChanged, err := cleanAntigravityGeminiSchema(child, false)
+			if err != nil {
+				return false, err
+			}
+			if !childChanged {
+				continue
+			}
+			if _, err := node.SetByIndex(i, *child); err != nil {
+				return false, err
+			}
+			changed = true
+		}
+	}
+
+	return changed, nil
 }
 
 func astObjectExists(node *ast.Node) bool {
@@ -119,14 +263,7 @@ func astObjectExists(node *ast.Node) bool {
 	if err := node.Load(); err != nil {
 		return false
 	}
-	return node.Type() == ast.V_OBJECT
-}
-
-func emptyObjectInputSchemaNode() ast.Node {
-	return ast.NewObject([]ast.Pair{
-		ast.NewPair("type", ast.NewString("object")),
-		ast.NewPair("properties", ast.NewObject(nil)),
-	})
+	return node.TypeSafe() == ast.V_OBJECT
 }
 
 type pendingFunctionCallIDs map[string][]string
