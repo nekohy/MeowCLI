@@ -211,15 +211,6 @@ func cleanAntigravityGeminiSchema(node *ast.Node, parentIsProperties bool) (bool
 			changed = true
 		}
 
-		// Claude input_schema 要求带 properties 的 object 显式声明 required
-		requiredChanged, err := ensureObjectRequiredArray(node)
-		if err != nil {
-			return false, err
-		}
-		if requiredChanged {
-			changed = true
-		}
-
 		if !parentIsProperties {
 			// const 语义接近单值 enum，先转换再删除原字段
 			if constNode := node.Get("const"); constNode.Exists() {
@@ -243,6 +234,15 @@ func cleanAntigravityGeminiSchema(node *ast.Node, parentIsProperties bool) (bool
 					changed = true
 				}
 			}
+
+			// Claude input_schema 要求 object schema 显式声明 properties 和 required
+			objectShapeChanged, err := ensureObjectSchemaShape(node)
+			if err != nil {
+				return false, err
+			}
+			if objectShapeChanged {
+				changed = true
+			}
 		}
 	case ast.V_ARRAY:
 		// array 分支用于进入 anyOf oneOf allOf 这类数组里的 schema 对象
@@ -265,15 +265,24 @@ func cleanAntigravityGeminiSchema(node *ast.Node, parentIsProperties bool) (bool
 	return changed, nil
 }
 
-func ensureObjectRequiredArray(node *ast.Node) (bool, error) {
+func ensureObjectSchemaShape(node *ast.Node) (bool, error) {
+	if astString(node.Get("type")) != "object" {
+		return false, nil
+	}
+	changed := false
 	if !astObjectExists(node.Get("properties")) {
-		return false, nil
+		if _, err := node.Set("properties", ast.NewObject(nil)); err != nil {
+			return false, err
+		}
+		changed = true
 	}
-	if astStringArrayExists(node.Get("required")) {
-		return false, nil
+	if !astStringArrayExists(node.Get("required")) {
+		if _, err := node.Set("required", ast.NewArray(nil)); err != nil {
+			return false, err
+		}
+		changed = true
 	}
-	_, err := node.Set("required", ast.NewArray(nil))
-	return true, err
+	return changed, nil
 }
 
 func astStringArrayExists(node *ast.Node) bool {
