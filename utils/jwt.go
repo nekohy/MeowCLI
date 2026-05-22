@@ -34,6 +34,8 @@ type Organizations struct {
 type CodexAuthInfo struct {
 	ChatgptAccountUserID string          `json:"chatgpt_account_user_id"` // 是acc_id+user_id拼接的，原生
 	ChatgptPlanType      string          `json:"chatgpt_plan_type"`
+	Poid                 string          `json:"poid"`
+	UserID               string          `json:"user_id"`
 	Organizations        []Organizations `json:"organizations"`
 }
 
@@ -70,7 +72,13 @@ func base64URLDecode(data string) ([]byte, error) {
 
 // GetAccountUserID 从 JWT 声明中提取 account-scoped user id
 func (c *JWTClaims) GetAccountUserID() string {
-	return strings.TrimSpace(c.CodexAuthInfo.ChatgptAccountUserID)
+	if id := strings.TrimSpace(c.CodexAuthInfo.ChatgptAccountUserID); id != "" {
+		return id
+	}
+	if poid := strings.TrimSpace(c.CodexAuthInfo.Poid); poid != "" {
+		return poid
+	}
+	return strings.TrimSpace(c.CodexAuthInfo.UserID)
 }
 
 // GetCredentialID 返回默认持久化/调度使用的凭据 ID: email__account_id.
