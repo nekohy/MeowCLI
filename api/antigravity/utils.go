@@ -69,27 +69,40 @@ func normalizeClaudeTools(tools *ast.Node) error {
 		for j := 0; j < nodeLen(declarations); j++ {
 			declaration := declarations.Index(j)
 			parameters := declaration.Get("parameters")
-			// 已经有 parameters 时不再使用 parametersJsonSchema 覆盖
-			if !astObjectExists(parameters) {
-				if schema := declaration.Get("parametersJsonSchema"); astObjectExists(schema) {
-					if _, err := declaration.Set("parameters", *schema); err != nil {
-						return err
-					}
-					if _, err := declaration.Unset("parametersJsonSchema"); err != nil {
-						return err
-					}
-					parameters = declaration.Get("parameters")
-				}
-			}
-			if astObjectExists(parameters) {
-				// 清理 parameters 内 Google 不接受的 JSON Schema 关键字
+			parametersJsonSchema := declaration.Get("parametersJsonSchema")
+
+			switch {
+			case astObjectExists(parameters):
 				if err := cleanAntigravityGeminiSchema(parameters, false); err != nil {
 					return err
 				}
+			case astObjectExists(parametersJsonSchema):
+				if _, err := declaration.Set("parameters", *parametersJsonSchema); err != nil {
+					return err
+				}
+				if err := cleanAntigravityGeminiSchema(declaration.Get("parameters"), false); err != nil {
+					return err
+				}
+			default:
+				if _, err := declaration.Set("parameters", emptyClaudeToolParameters()); err != nil {
+					return err
+				}
+			}
+
+			if _, err := declaration.Unset("parametersJsonSchema"); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
+}
+
+func emptyClaudeToolParameters() ast.Node {
+	schema := ast.NewObject(nil)
+	_, _ = schema.Set("type", ast.NewString("OBJECT"))
+	_, _ = schema.Set("properties", ast.NewObject(nil))
+	_, _ = schema.Set("required", ast.NewArray(nil))
+	return schema
 }
 
 // Antigravity 的 Gemini schema parser 不接受这些 JSON Schema 关键字
