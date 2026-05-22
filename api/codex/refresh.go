@@ -19,6 +19,13 @@ type RTResponse struct {
 	ExpiresIn    int    `json:"expires_in"`
 }
 
+type refreshTokenRequest struct {
+	ClientID     string `json:"client_id"`
+	GrantType    string `json:"grant_type"`
+	RefreshToken string `json:"refresh_token"`
+	Scope        string `json:"scope"`
+}
+
 func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*codexutils.CodexTokenData, bool, error) {
 	tokenInput := parseRefreshTokenInput(refreshToken)
 	if tokenInput.RefreshToken == "" {
@@ -32,12 +39,12 @@ func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*
 	_, err := c.client.R().
 		SetContext(reqCtx).
 		SetHeader("Accept", "application/json").
-		SetHeader("Content-Type", "application/x-www-form-urlencoded").
-		SetFormData(map[string]string{
-			"client_id":     tokenInput.ClientID,
-			"grant_type":    "refresh_token",
-			"refresh_token": tokenInput.RefreshToken,
-			"scope":         "openid profile email",
+		SetHeader("Content-Type", "application/json").
+		SetBody(refreshTokenRequest{
+			ClientID:     tokenInput.ClientID,
+			GrantType:    "refresh_token",
+			RefreshToken: tokenInput.RefreshToken,
+			Scope:        "openid profile email",
 		}).
 		SetResult(&result).
 		Post(codexutils.RefreshTokenURL)
