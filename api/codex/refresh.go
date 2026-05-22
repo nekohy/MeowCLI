@@ -8,6 +8,7 @@ import (
 	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
 	commonutils "github.com/nekohy/MeowCLI/utils"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -19,7 +20,8 @@ type RTResponse struct {
 }
 
 func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*codexutils.CodexTokenData, bool, error) {
-	if refreshToken == "" {
+	tokenInput := parseRefreshTokenInput(refreshToken)
+	if tokenInput.RefreshToken == "" {
 		return nil, false, fmt.Errorf("refresh token was eaten by a cat")
 	}
 
@@ -32,9 +34,9 @@ func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*
 		SetHeader("Accept", "application/json").
 		SetHeader("Content-Type", "application/x-www-form-urlencoded").
 		SetFormData(map[string]string{
-			"client_id":     codexutils.ClientID,
+			"client_id":     tokenInput.ClientID,
 			"grant_type":    "refresh_token",
-			"refresh_token": refreshToken,
+			"refresh_token": tokenInput.RefreshToken,
 			"scope":         "openid profile email",
 		}).
 		SetResult(&result).
@@ -51,7 +53,48 @@ func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*
 	return &codexutils.CodexTokenData{
 		IDToken:      result.IDToken,
 		AccessToken:  result.AccessToken,
-		RefreshToken: result.RefreshToken,
+		RefreshToken: tokenInput.StoredRefreshToken(result.RefreshToken),
 		Expire:       time.Now().Add(time.Duration(result.ExpiresIn) * time.Second).Format(time.RFC3339),
 	}, false, nil
+}
+
+type refreshTokenInput struct {
+	RefreshToken string
+	ClientID     string
+	overrideID   string
+}
+
+func parseRefreshTokenInput(input string) refreshTokenInput {
+	trimmed := strings.TrimSpace(input)
+	result := refreshTokenInput{
+		RefreshToken: trimmed,
+		ClientID:     codexutils.ClientID,
+	}
+	if trimmed == "" {
+		return result
+	}
+
+	at := strings.LastIndex(trimmed, "@")
+	if at <= 0 || at == len(trimmed)-1 {
+		return result
+	}
+
+	refreshToken := strings.TrimSpace(trimmed[:at])
+	clientID := strings.TrimSpace(trimmed[at+1:])
+	if refreshToken == "" || clientID == "" {
+		return result
+	}
+
+	result.RefreshToken = refreshToken
+	result.ClientID = clientID
+	result.overrideID = clientID
+	return result
+}
+
+func (i refreshTokenInput) StoredRefreshToken(refreshToken string) string {
+	refreshToken = strings.TrimSpace(refreshToken)
+	if refreshToken == "" || i.overrideID == "" {
+		return refreshToken
+	}
+	return refreshToken + "@" + i.overrideID
 }
