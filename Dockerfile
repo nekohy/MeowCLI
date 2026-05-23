@@ -8,7 +8,7 @@ COPY web/ ./
 RUN npm run build:ssg
 
 # ── Stage 2: Build Go binary ────────────────────────────────
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 ARG VERSION=dev
 ARG BUILD_TIME=unknown
