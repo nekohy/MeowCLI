@@ -68,11 +68,44 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		d.Close()
 		return nil, fmt.Errorf("sqlite apply schema: %w", err)
 	}
+	if err := ensureModelPluginColumn(ctx, d); err != nil {
+		d.Close()
+		return nil, err
+	}
 
 	return &Store{
 		db:      d,
 		queries: sqlcsqlite.New(d),
 	}, nil
+}
+
+func ensureModelPluginColumn(ctx context.Context, d *sql.DB) error {
+	rows, err := d.QueryContext(ctx, "PRAGMA table_info(models)")
+	if err != nil {
+		return fmt.Errorf("sqlite inspect models schema: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return fmt.Errorf("sqlite scan models schema: %w", err)
+		}
+		if name == "plugin" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("sqlite read models schema: %w", err)
+	}
+	if _, err := d.ExecContext(ctx, "ALTER TABLE models ADD COLUMN plugin TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("sqlite add models.plugin column: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) Close() {

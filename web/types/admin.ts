@@ -36,6 +36,14 @@ export interface CredentialField {
   preferred?: boolean
 }
 
+export interface PluginInfo {
+  name: string
+  label: string
+  description: string
+  handlers: string[]
+  api_types: string[]
+}
+
 export interface HandlerOverview {
   key: string
   label: string
@@ -46,6 +54,7 @@ export interface HandlerOverview {
   credential_endpoint?: string
   credential_fields?: CredentialField[]
   credential_status_options?: string[]
+  plugins?: PluginInfo[]
   models_total: number
   credentials_total: number
   credentials_enabled: number
@@ -247,6 +256,7 @@ export interface ModelItem {
   origin: string
   handler: string
   plan_types: string
+  plugin: string
   extra: Record<string, unknown>
 }
 

@@ -3,10 +3,13 @@ CREATE TABLE IF NOT EXISTS models (
     origin TEXT NOT NULL,
     handler TEXT NOT NULL,
     plan_types TEXT NOT NULL DEFAULT '',
+    plugin TEXT NOT NULL DEFAULT '',
     extra JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE INDEX IF NOT EXISTS idx_models_handler ON models(handler);
+
+ALTER TABLE models ADD COLUMN IF NOT EXISTS plugin TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS codex (
     id TEXT PRIMARY KEY,

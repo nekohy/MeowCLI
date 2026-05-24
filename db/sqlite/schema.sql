@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS models (
     origin TEXT NOT NULL,
     handler TEXT NOT NULL,
     plan_types TEXT NOT NULL DEFAULT '',
+    plugin TEXT NOT NULL DEFAULT '',
     extra TEXT NOT NULL DEFAULT '{}'
 );
 

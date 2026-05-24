@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
 import { joinPlanTypeInput, planTypeText, safeStringify, splitPlanTypeInput, statusText } from '~/lib/admin'
-import type { ModelItem } from '~/types/admin'
+import type { ModelItem, PluginInfo } from '~/types/admin'
 
 function hasExtra(extra: unknown): boolean {
   if (!extra) return false
@@ -28,6 +28,8 @@ const modalAlias = ref('')
 const modalOrigin = ref('')
 const modalHandler = ref('gemini')
 const modalPlanTypes = ref('')
+const modalPlugins = ref<string[]>([])
+const pluginModalOpen = ref(false)
 const modalExtra = ref('{}')
 const modalError = ref('')
 const handlerIconByKey: Record<string, string> = {
@@ -40,6 +42,7 @@ const modalHandlerConfig = computed(() => (
   admin.handlers.value.find((handler) => handler.key === modalHandler.value) || null
 ))
 const modalAvailablePlanTypes = computed(() => modalHandlerConfig.value?.plan_list || [])
+const modalAvailablePlugins = computed(() => modalHandlerConfig.value?.plugins || [])
 const modalSelectedPlanTypes = computed(() => splitPlanTypeInput(modalPlanTypes.value, modalAvailablePlanTypes.value))
 
 function defaultPlanTypesForHandler(_handlerKey: string) {
@@ -54,15 +57,34 @@ function modelPlanTypes(item: ModelItem) {
   return splitPlanTypeInput(item.plan_types, planTypesForHandler(item.handler))
 }
 
-const hintNoPlanTypes = computed(() => {
-  return '未限制，调度器将使用所有可用套餐'
-})
-const modalPlanSummary = computed(() => {
-  const selected = modalSelectedPlanTypes.value
-  if (!selected.length) {
-    return hintNoPlanTypes.value
-  }
-  return `当前顺序：${selected.map((planType, idx) => `${idx + 1}. ${planTypeText(planType)}`).join(' → ')}`
+function modelPlanSummary(item: ModelItem) {
+  return modelPlanTypes(item).map((planType) => planTypeText(planType)).join(' -> ')
+}
+
+function splitPluginInput(value: string) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item, index, list) => list.indexOf(item) === index)
+}
+
+function pluginsForHandler(handlerKey: string) {
+  return admin.handlers.value.find((handler) => handler.key === handlerKey)?.plugins || []
+}
+
+function modelPlugins(item: ModelItem) {
+  const available = new Set(pluginsForHandler(item.handler).map((plugin) => plugin.name))
+  return splitPluginInput(item.plugin).filter((name) => available.has(name))
+}
+
+function pluginLabel(name: string, plugins: PluginInfo[]) {
+  return plugins.find((plugin) => plugin.name === name)?.label || name
+}
+
+const modalSelectedPlugins = computed(() => {
+  const available = new Set(modalAvailablePlugins.value.map((plugin) => plugin.name))
+  return modalPlugins.value.filter((name) => available.has(name))
 })
 
 const modelPlanOrder = usePlanOrderModal(
@@ -88,7 +110,7 @@ const filteredItems = computed(() => {
     if (!query) {
       return true
     }
-    return [item.alias, item.origin, item.handler, item.plan_types, safeStringify(item.extra)]
+    return [item.alias, item.origin, item.handler, item.plan_types, item.plugin, safeStringify(item.extra)]
       .some((value) => String(value || '').toLowerCase().includes(query))
   })
 })
@@ -118,6 +140,7 @@ function openCreateModal() {
   modalOrigin.value = ''
   modalHandler.value = admin.activeHandler.value?.key || admin.handlers.value[0]?.key || 'codex'
   modalPlanTypes.value = defaultPlanTypesForHandler(modalHandler.value)
+  modalPlugins.value = []
   modalExtra.value = '{}'
   modalError.value = ''
   modalOpen.value = true
@@ -129,6 +152,7 @@ function openEditModal(item: ModelItem) {
   modalOrigin.value = item.origin
   modalHandler.value = item.handler
   modalPlanTypes.value = joinPlanTypeInput(modelPlanTypes(item), planTypesForHandler(item.handler)) || defaultPlanTypesForHandler(item.handler)
+  modalPlugins.value = modelPlugins(item)
   modalExtra.value = safeStringify(item.extra)
   modalError.value = ''
   modalOpen.value = true
@@ -138,6 +162,28 @@ function closeModal() {
   modalOpen.value = false
   modalError.value = ''
   modelPlanOrder.closeModal()
+  closePluginModal()
+}
+
+function openPluginModal() {
+  pluginModalOpen.value = true
+}
+
+function closePluginModal() {
+  pluginModalOpen.value = false
+}
+
+function isModalPluginSelected(name: string) {
+  return modalSelectedPlugins.value.includes(name)
+}
+
+function toggleModalPlugin(name: string) {
+  const idx = modalPlugins.value.indexOf(name)
+  if (idx >= 0) {
+    modalPlugins.value.splice(idx, 1)
+    return
+  }
+  modalPlugins.value.push(name)
 }
 
 async function saveModel() {
@@ -156,6 +202,9 @@ async function saveModel() {
       origin: modalOrigin.value.trim(),
       handler: modalHandler.value,
       plan_types: joinPlanTypeInput(splitPlanTypeInput(modalPlanTypes.value, modalAvailablePlanTypes.value), modalAvailablePlanTypes.value),
+      plugin: modalPlugins.value
+        .filter((name) => modalAvailablePlugins.value.some((plugin) => plugin.name === name))
+        .join(','),
       extra,
     }
 
@@ -233,6 +282,8 @@ watch(
         modalAvailablePlanTypes.value,
       )
     }
+    const availablePlugins = new Set(modalAvailablePlugins.value.map((plugin) => plugin.name))
+    modalPlugins.value = modalPlugins.value.filter((name) => availablePlugins.has(name))
   },
 )
 </script>
@@ -287,11 +338,11 @@ watch(
         <VCard
           v-for="item in filteredItems"
           :key="item.alias"
-          class="interactive-card"
+          class="interactive-card model-card"
           color="surface-container"
           variant="flat"
         >
-          <VCardText class="pa-5 d-flex flex-column ga-3">
+          <VCardText class="pa-5 d-flex flex-column ga-3 model-card-body">
             <div class="d-flex justify-space-between align-center">
               <div style="min-width: 0">
                 <div class="text-h6 font-weight-bold">{{ item.alias }}</div>
@@ -302,17 +353,28 @@ watch(
               </AdminBadge>
             </div>
 
-            <div class="d-flex flex-wrap ga-2 align-center">
-              <template v-if="modelPlanTypes(item).length">
-                <AdminBadge
-                  v-for="(pt, idx) in modelPlanTypes(item)"
-                  :key="pt"
-                  tone="secondary"
-                  subtle
-                >
-                  {{ idx + 1 }}. {{ planTypeText(pt) }}
-                </AdminBadge>
-              </template>
+            <div v-if="modelPlanTypes(item).length" class="d-flex flex-wrap ga-2 align-center">
+              <AdminBadge
+                tone="secondary"
+                subtle
+                icon="mdi-swap-vertical"
+                class="model-plan-badge"
+              >
+                {{ modelPlanSummary(item) }}
+              </AdminBadge>
+            </div>
+
+            <div v-if="modelPlugins(item).length" class="d-flex flex-wrap ga-2 align-center">
+              <AdminBadge
+                v-for="pluginName in modelPlugins(item)"
+                :key="pluginName"
+                tone="accent"
+                subtle
+                icon="mdi-puzzle-outline"
+                class="model-plugin-badge"
+              >
+                {{ pluginLabel(pluginName, pluginsForHandler(item.handler)) }}
+              </AdminBadge>
             </div>
 
             <details v-if="hasExtra(item.extra)" class="extra-json-panel">
@@ -320,11 +382,12 @@ watch(
               <pre>{{ formatExtra(item.extra) }}</pre>
             </details>
 
-            <div class="d-flex ga-2">
+            <div class="d-flex ga-2 justify-end model-card-actions">
               <AdminButton
                 variant="secondary"
                 size="sm"
                 prepend-icon="mdi-pencil-outline"
+                class="model-action-button"
                 @click="openEditModal(item)"
               >
                 编辑
@@ -333,6 +396,7 @@ watch(
                 variant="danger"
                 size="sm"
                 prepend-icon="mdi-delete-outline"
+                class="model-action-button"
                 @click="openDeleteConfirm(item)"
               >
                 删除
@@ -386,14 +450,33 @@ watch(
           class="model-plan-panel"
         >
           <div class="d-flex justify-space-between align-center ga-3 flex-wrap">
-            <div class="text-subtitle-2 font-weight-bold">套餐类型</div>
+            <div class="text-subtitle-2 font-weight-bold">调用套餐顺序</div>
             <AdminButton variant="secondary" size="sm" prepend-icon="mdi-swap-vertical" @click="modelPlanOrder.openModal()">
               排序
             </AdminButton>
           </div>
-
-          <div class="model-plan-summary text-medium-emphasis">
-            {{ modalPlanSummary }}
+        </VSheet>
+        <VSheet
+          color="surface-container-high"
+          rounded="lg"
+          class="model-plugin-panel"
+        >
+          <div class="d-flex justify-space-between align-center ga-3 flex-wrap">
+            <div>
+              <div class="text-subtitle-2 font-weight-bold">插件</div>
+              <div v-if="!modalAvailablePlugins.length" class="model-plan-summary text-medium-emphasis">
+                无插件可用，开发者正在激情Meow Meow中
+              </div>
+            </div>
+            <AdminButton
+              variant="secondary"
+              size="sm"
+              prepend-icon="mdi-puzzle-outline"
+              :disabled="!modalAvailablePlugins.length"
+              @click="openPluginModal()"
+            >
+              选择
+            </AdminButton>
           </div>
         </VSheet>
         <VTextarea
@@ -425,7 +508,7 @@ watch(
 
     <PlanOrderModal
       :open="modelPlanOrder.open.value"
-      title="套餐类型排序"
+      title="调用套餐排序"
       :draft="modelPlanOrder.draft.value"
       :drag-idx="modelPlanOrder.dragIdx.value"
       :is-selected="modelPlanOrder.isSelected"
@@ -436,6 +519,46 @@ watch(
       :on-drag-end="modelPlanOrder.onDragEnd"
       @close="modelPlanOrder.closeModal()"
     />
+
+    <ModalDialog
+      :open="pluginModalOpen"
+      title="插件选择"
+      description="勾选当前模型启用的请求插件"
+      icon="mdi-puzzle-outline"
+      :max-width="440"
+      @close="closePluginModal"
+    >
+      <div v-if="modalAvailablePlugins.length" class="model-plugin-list" role="group" aria-label="插件">
+        <label
+          v-for="plugin in modalAvailablePlugins"
+          :key="plugin.name"
+          class="model-plugin-option"
+          :class="{ 'is-selected': isModalPluginSelected(plugin.name) }"
+        >
+          <input
+            :checked="isModalPluginSelected(plugin.name)"
+            class="model-plugin-native"
+            type="checkbox"
+            :value="plugin.name"
+            :aria-label="plugin.label"
+            @change="toggleModalPlugin(plugin.name)"
+          >
+          <span class="model-plugin-check" aria-hidden="true">
+            <VIcon :icon="isModalPluginSelected(plugin.name) ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank-outline'" />
+          </span>
+          <span class="model-plugin-label">
+            <span>{{ plugin.label }}</span>
+            <small>{{ plugin.description }}</small>
+          </span>
+        </label>
+      </div>
+      <div v-else class="text-center text-medium-emphasis py-4">
+        当前处理器暂无可用插件
+      </div>
+      <template #footer>
+        <VBtn variant="text" @click="closePluginModal">关闭</VBtn>
+      </template>
+    </ModalDialog>
 
     <ModalDialog
       :open="confirm.open.value"
@@ -466,6 +589,126 @@ watch(
   border: 1px solid rgba(var(--v-theme-outline-variant), 0.58);
   background: rgba(var(--v-theme-surface), 0.72) !important;
   box-shadow: inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.025);
+}
+
+.model-card {
+  border: 1px solid rgba(var(--v-theme-outline-variant), 0.62);
+  background: rgba(var(--v-theme-surface-container), 0.82) !important;
+  box-shadow: inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.035);
+}
+
+.model-card-body {
+  min-height: 100%;
+}
+
+.model-card-actions {
+  margin-top: auto;
+}
+
+.model-action-button {
+  min-width: 78px;
+  padding-inline: 13px 15px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.model-action-button :deep(.v-btn__content) {
+  line-height: 1;
+}
+
+.model-action-button :deep(.v-btn__prepend) {
+  margin-inline-end: 7px;
+}
+
+.model-plugin-panel {
+  display: grid;
+  gap: 8px;
+  padding: 13px 14px;
+  border: 1px solid rgba(var(--v-theme-outline-variant), 0.58);
+  background: rgba(var(--v-theme-surface), 0.72) !important;
+}
+
+.model-plugin-badge {
+  border: 1px solid rgba(var(--v-theme-tertiary), 0.34);
+  background: rgba(var(--v-theme-tertiary), 0.07);
+}
+
+.model-plan-badge {
+  border: 1px solid rgba(var(--v-theme-secondary), 0.32);
+  background: rgba(var(--v-theme-secondary), 0.06);
+}
+
+.model-plugin-list {
+  display: grid;
+  gap: 10px;
+}
+
+.model-plugin-option {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-height: 62px;
+  padding: 12px 14px;
+  border: 1px solid rgba(var(--v-theme-outline-variant), 0.62);
+  border-radius: 10px;
+  background: rgba(var(--v-theme-surface-container-highest), 0.42);
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.model-plugin-option:hover {
+  border-color: rgba(var(--v-theme-primary), 0.42);
+  background: rgba(var(--v-theme-surface-container-highest), 0.62);
+}
+
+.model-plugin-option.is-selected {
+  border-color: rgba(var(--v-theme-primary), 0.72);
+  background: rgba(var(--v-theme-primary), 0.11);
+  box-shadow: inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.035);
+}
+
+.model-plugin-native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.model-plugin-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 1px;
+  color: rgb(var(--v-theme-primary));
+  line-height: 1;
+}
+
+.model-plugin-label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.model-plugin-label > span {
+  color: rgba(var(--v-theme-on-surface), 0.92);
+  font-size: 0.88rem;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.model-plugin-label > small {
+  color: rgba(var(--v-theme-on-surface), 0.66);
+  font-size: 0.76rem;
+  font-weight: 450;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .model-plan-summary {

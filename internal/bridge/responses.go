@@ -26,13 +26,13 @@ func (h *Handler) handleResponses(c *gin.Context, apiType utils.APIType) {
 		return
 	}
 
-	var req relayRequest
-	if err := sonic.Unmarshal(body, &req); err != nil {
+	var parsed relayRequest
+	if err := sonic.Unmarshal(body, &parsed); err != nil {
 		writeRelayError(c, errReadRequestBody)
 		return
 	}
 
-	alias := strings.Clone(strings.TrimSpace(req.Model))
+	alias := strings.Clone(strings.TrimSpace(parsed.Model))
 	if alias == "" {
 		writeRelayError(c, errModelRequired)
 		return
@@ -43,19 +43,35 @@ func (h *Handler) handleResponses(c *gin.Context, apiType utils.APIType) {
 		writeRelayError(c, relayErr)
 		return
 	}
-	sessionKey := sessionAffinityKey(target.info.Handler, req.SessionID)
+
 	needReplace := alias != target.info.Origin
 	upstreamBody := body
 	if needReplace {
 		upstreamBody = target.backend.ReplaceModel(body, target.info.Origin)
 	}
 
+	upstreamBody, err := h.runModelPlugins(ctx, pluginRequest{
+		Alias:          alias,
+		Origin:         target.info.Origin,
+		Handler:        target.info.Handler,
+		APIType:        apiType,
+		Stream:         parsed.Stream,
+		EnabledPlugins: target.info.EnabledPlugins,
+		Body:           upstreamBody,
+	})
+	if err != nil {
+		writeRelayError(c, pluginFailure(err))
+		return
+	}
+
+	sessionKey := sessionAffinityKey(target.info.Handler, parsed.SessionID)
+
 	h.relayUpstream(c, upstreamRelay{
 		ctx:                  ctx,
 		scheduler:            target.sched,
 		requestHeaders:       c.Request.Header,
 		allowedPlans:         target.info.AllowedPlanTypes,
-		streamRequest:        req.Stream,
+		streamRequest:        parsed.Stream,
 		modelAlias:           alias,
 		modelTier:            modelTier(target.info),
 		apiType:              apiType,

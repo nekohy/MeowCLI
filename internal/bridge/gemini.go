@@ -31,6 +31,7 @@ func (h *Handler) handleGemini(c *gin.Context) {
 		writeRelayError(c, errModelRequired)
 		return
 	}
+	stream := action == "streamGenerateContent"
 
 	target, relayErr, ok := h.resolveRelayTarget(ctx, alias, utils.APIGemini)
 	if !ok {
@@ -41,6 +42,20 @@ func (h *Handler) handleGemini(c *gin.Context) {
 		writeRelayError(c, errUnsupportedAPIType)
 		return
 	}
+
+	body, err = h.runModelPlugins(ctx, pluginRequest{
+		Alias:          alias,
+		Origin:         target.info.Origin,
+		Handler:        target.info.Handler,
+		APIType:        utils.APIGemini,
+		Stream:         stream,
+		EnabledPlugins: target.info.EnabledPlugins,
+		Body:           body,
+	})
+	if err != nil {
+		writeRelayError(c, pluginFailure(err))
+		return
+	}
 	backendOptions := generateContentBackendOptions(target.info.Handler, target.info.Origin, action, c.Request.URL.RawQuery)
 
 	h.relayUpstream(c, upstreamRelay{
@@ -48,7 +63,7 @@ func (h *Handler) handleGemini(c *gin.Context) {
 		scheduler:             target.sched,
 		requestHeaders:        c.Request.Header,
 		allowedPlans:          target.info.AllowedPlanTypes,
-		streamRequest:         action == "streamGenerateContent",
+		streamRequest:         stream,
 		modelAlias:            alias,
 		modelTier:             modelTier(target.info),
 		apiType:               utils.APIGemini,
