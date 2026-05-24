@@ -3,7 +3,7 @@ services:
 #    build:
 #      context: .
 #      dockerfile: Dockerfile
-    image: meowcli:latest
+    image: ghcr.io/nekohy/meowcli:latest
     container_name: meowcli
     restart: unless-stopped
     environment:
