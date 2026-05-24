@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
-import { joinPlanTypeInput, planTypeText, safeStringify, splitPlanTypeInput, statusText } from '~/lib/admin'
+import { joinPlanTypeInput, planTypeText, safeStringify, splitPlanTypeInput } from '~/lib/admin'
 import type { ModelItem, PluginInfo } from '~/types/admin'
 
 function hasExtra(extra: unknown): boolean {
@@ -29,7 +29,6 @@ const modalOrigin = ref('')
 const modalHandler = ref('gemini')
 const modalPlanTypes = ref('')
 const modalPlugins = ref<string[]>([])
-const pluginModalOpen = ref(false)
 const modalExtra = ref('{}')
 const modalError = ref('')
 const handlerIconByKey: Record<string, string> = {
@@ -82,16 +81,29 @@ function pluginLabel(name: string, plugins: PluginInfo[]) {
   return plugins.find((plugin) => plugin.name === name)?.label || name
 }
 
-const modalSelectedPlugins = computed(() => {
-  const available = new Set(modalAvailablePlugins.value.map((plugin) => plugin.name))
-  return modalPlugins.value.filter((name) => available.has(name))
-})
-
 const modelPlanOrder = usePlanOrderModal(
   () => modalPlanTypes.value,
   (value) => { modalPlanTypes.value = value },
   () => modalAvailablePlanTypes.value,
 )
+
+const modelPluginOrder = useOrderedSelectionModal(
+  () => modalPlugins.value,
+  (value) => { modalPlugins.value = value },
+  () => modalAvailablePlugins.value.map((plugin) => plugin.name),
+)
+
+const modalPlanSummary = computed(() => (
+  modelPlanOrder.preview.value.length
+    ? `已选择 ${modelPlanOrder.preview.value.length} 个套餐`
+    : '未指定套餐顺序'
+))
+
+const modalPluginSummary = computed(() => (
+  modelPluginOrder.preview.value.length
+    ? `已启用 ${modelPluginOrder.preview.value.length} 个插件`
+    : '未启用插件'
+))
 
 function formatExtra(extra: unknown): string {
   try {
@@ -162,28 +174,15 @@ function closeModal() {
   modalOpen.value = false
   modalError.value = ''
   modelPlanOrder.closeModal()
-  closePluginModal()
+  modelPluginOrder.closeModal()
 }
 
-function openPluginModal() {
-  pluginModalOpen.value = true
+function modalPluginLabel(name: string) {
+  return pluginLabel(name, modalAvailablePlugins.value)
 }
 
-function closePluginModal() {
-  pluginModalOpen.value = false
-}
-
-function isModalPluginSelected(name: string) {
-  return modalSelectedPlugins.value.includes(name)
-}
-
-function toggleModalPlugin(name: string) {
-  const idx = modalPlugins.value.indexOf(name)
-  if (idx >= 0) {
-    modalPlugins.value.splice(idx, 1)
-    return
-  }
-  modalPlugins.value.push(name)
+function modalPluginDescription(name: string) {
+  return modalAvailablePlugins.value.find((plugin) => plugin.name === name)?.description || ''
 }
 
 async function saveModel() {
@@ -360,7 +359,15 @@ watch(
                 icon="mdi-swap-vertical"
                 class="model-plan-badge"
               >
-                {{ modelPlanSummary(item) }}
+                <span class="model-plan-summary-inline">
+                  <span
+                    v-for="(planType, idx) in modelPlanTypes(item)"
+                    :key="planType"
+                    class="model-plan-summary-token"
+                  >
+                    {{ planTypeText(planType) }}<span v-if="idx < modelPlanTypes(item).length - 1" class="model-plan-arrow"> -&gt; </span>
+                  </span>
+                </span>
               </AdminBadge>
             </div>
 
@@ -427,6 +434,7 @@ watch(
           label="别名"
           placeholder="gpt-4-meow"
           prepend-inner-icon="mdi-tag-outline"
+          persistent-placeholder
           :disabled="modalMode === 'edit'"
         />
         <VTextField
@@ -434,57 +442,45 @@ watch(
           label="上游模型"
           placeholder="gpt-4-0125-preview"
           prepend-inner-icon="mdi-cloud-outline"
+          persistent-placeholder
         />
         <VSelect
           v-model="modalHandler"
           label="目标处理器"
           prepend-inner-icon="mdi-cpu-64-bit"
           :items="admin.handlers.value.map((handler) => ({
-            title: `${handler.label} (${statusText(handler.status)})`,
+            title: handler.label,
             value: handler.key,
           }))"
         />
-        <VSheet
-          color="surface-container-high"
-          rounded="lg"
-          class="model-plan-panel"
-        >
-          <div class="d-flex justify-space-between align-center ga-3 flex-wrap">
-            <div class="text-subtitle-2 font-weight-bold">调用套餐顺序</div>
-            <AdminButton variant="secondary" size="sm" prepend-icon="mdi-swap-vertical" @click="modelPlanOrder.openModal()">
-              排序
-            </AdminButton>
-          </div>
-        </VSheet>
-        <VSheet
-          color="surface-container-high"
-          rounded="lg"
-          class="model-plugin-panel"
-        >
-          <div class="d-flex justify-space-between align-center ga-3 flex-wrap">
-            <div>
-              <div class="text-subtitle-2 font-weight-bold">插件</div>
-              <div v-if="!modalAvailablePlugins.length" class="model-plan-summary text-medium-emphasis">
-                无插件可用，开发者正在激情Meow Meow中
-              </div>
-            </div>
-            <AdminButton
-              variant="secondary"
-              size="sm"
-              prepend-icon="mdi-puzzle-outline"
-              :disabled="!modalAvailablePlugins.length"
-              @click="openPluginModal()"
-            >
-              选择
-            </AdminButton>
-          </div>
-        </VSheet>
+        <VTextField
+          class="model-order-field"
+          :model-value="modalPlanSummary"
+          label="调用套餐顺序"
+          prepend-inner-icon="mdi-swap-vertical"
+          append-inner-icon="mdi-menu-right"
+          readonly
+          @click="modelPlanOrder.openModal()"
+          @click:append-inner="modelPlanOrder.openModal()"
+        />
+        <VTextField
+          class="model-order-field"
+          :model-value="modalAvailablePlugins.length ? modalPluginSummary : '无插件可用，开发者正在激情Meow Meow中'"
+          label="插件"
+          prepend-inner-icon="mdi-puzzle-outline"
+          :append-inner-icon="modalAvailablePlugins.length ? 'mdi-menu-right' : undefined"
+          readonly
+          :disabled="!modalAvailablePlugins.length"
+          @click="modalAvailablePlugins.length && modelPluginOrder.openModal()"
+          @click:append-inner="modelPluginOrder.openModal()"
+        />
         <VTextarea
           v-model="modalExtra"
           rows="4"
           label="附加参数"
           placeholder="{}"
           prepend-inner-icon="mdi-code-json"
+          persistent-placeholder
         />
         <VAlert
           v-if="modalError"
@@ -509,6 +505,7 @@ watch(
     <PlanOrderModal
       :open="modelPlanOrder.open.value"
       title="调用套餐排序"
+      :max-width="520"
       :draft="modelPlanOrder.draft.value"
       :drag-idx="modelPlanOrder.dragIdx.value"
       :is-selected="modelPlanOrder.isSelected"
@@ -520,45 +517,25 @@ watch(
       @close="modelPlanOrder.closeModal()"
     />
 
-    <ModalDialog
-      :open="pluginModalOpen"
-      title="插件选择"
-      description="勾选当前模型启用的请求插件"
+    <PlanOrderModal
+      :open="modelPluginOrder.open.value"
+      title="插件排序"
+      description="拖动排序，勾选启用；请求会按此顺序执行插件"
       icon="mdi-puzzle-outline"
-      :max-width="440"
-      @close="closePluginModal"
-    >
-      <div v-if="modalAvailablePlugins.length" class="model-plugin-list" role="group" aria-label="插件">
-        <label
-          v-for="plugin in modalAvailablePlugins"
-          :key="plugin.name"
-          class="model-plugin-option"
-          :class="{ 'is-selected': isModalPluginSelected(plugin.name) }"
-        >
-          <input
-            :checked="isModalPluginSelected(plugin.name)"
-            class="model-plugin-native"
-            type="checkbox"
-            :value="plugin.name"
-            :aria-label="plugin.label"
-            @change="toggleModalPlugin(plugin.name)"
-          >
-          <span class="model-plugin-check" aria-hidden="true">
-            <VIcon :icon="isModalPluginSelected(plugin.name) ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank-outline'" />
-          </span>
-          <span class="model-plugin-label">
-            <span>{{ plugin.label }}</span>
-            <small>{{ plugin.description }}</small>
-          </span>
-        </label>
-      </div>
-      <div v-else class="text-center text-medium-emphasis py-4">
-        当前处理器暂无可用插件
-      </div>
-      <template #footer>
-        <VBtn variant="text" @click="closePluginModal">关闭</VBtn>
-      </template>
-    </ModalDialog>
+      empty-text="当前处理器暂无可用插件"
+      :max-width="520"
+      :draft="modelPluginOrder.draft.value"
+      :drag-idx="modelPluginOrder.dragIdx.value"
+      :is-selected="modelPluginOrder.isSelected"
+      :rank-of="modelPluginOrder.rankOf"
+      :toggle="modelPluginOrder.toggle"
+      :on-drag-start="modelPluginOrder.onDragStart"
+      :on-drag-over="modelPluginOrder.onDragOver"
+      :on-drag-end="modelPluginOrder.onDragEnd"
+      :item-label="modalPluginLabel"
+      :item-description="modalPluginDescription"
+      @close="modelPluginOrder.closeModal()"
+    />
 
     <ModalDialog
       :open="confirm.open.value"
@@ -580,15 +557,6 @@ watch(
   display: grid;
   gap: 16px;
   padding-top: 4px;
-}
-
-.model-plan-panel {
-  display: grid;
-  gap: 7px;
-  padding: 13px 14px;
-  border: 1px solid rgba(var(--v-theme-outline-variant), 0.58);
-  background: rgba(var(--v-theme-surface), 0.72) !important;
-  box-shadow: inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.025);
 }
 
 .model-card {
@@ -620,100 +588,67 @@ watch(
   margin-inline-end: 7px;
 }
 
-.model-plugin-panel {
-  display: grid;
-  gap: 8px;
-  padding: 13px 14px;
-  border: 1px solid rgba(var(--v-theme-outline-variant), 0.58);
-  background: rgba(var(--v-theme-surface), 0.72) !important;
+.model-order-field {
+  cursor: pointer;
+}
+
+.model-order-field :deep(.v-field) {
+  cursor: pointer;
+}
+
+.model-order-field :deep(input) {
+  cursor: pointer;
+  font-weight: 400;
 }
 
 .model-plugin-badge {
+  max-width: 100%;
+  height: auto !important;
+  min-height: 32px;
+  align-items: center;
   border: 1px solid rgba(var(--v-theme-tertiary), 0.34);
   background: rgba(var(--v-theme-tertiary), 0.07);
 }
 
 .model-plan-badge {
+  max-width: 100%;
+  height: auto !important;
+  min-height: 32px;
+  align-items: center;
   border: 1px solid rgba(var(--v-theme-secondary), 0.32);
   background: rgba(var(--v-theme-secondary), 0.06);
 }
 
-.model-plugin-list {
-  display: grid;
-  gap: 10px;
-}
-
-.model-plugin-option {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-  min-height: 62px;
-  padding: 12px 14px;
-  border: 1px solid rgba(var(--v-theme-outline-variant), 0.62);
-  border-radius: 10px;
-  background: rgba(var(--v-theme-surface-container-highest), 0.42);
-  cursor: pointer;
-  transition:
-    border-color 140ms ease,
-    background-color 140ms ease,
-    box-shadow 140ms ease;
-}
-
-.model-plugin-option:hover {
-  border-color: rgba(var(--v-theme-primary), 0.42);
-  background: rgba(var(--v-theme-surface-container-highest), 0.62);
-}
-
-.model-plugin-option.is-selected {
-  border-color: rgba(var(--v-theme-primary), 0.72);
-  background: rgba(var(--v-theme-primary), 0.11);
-  box-shadow: inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.035);
-}
-
-.model-plugin-native {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.model-plugin-check {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding-top: 1px;
-  color: rgb(var(--v-theme-primary));
-  line-height: 1;
-}
-
-.model-plugin-label {
-  display: grid;
-  gap: 4px;
+.model-plugin-badge :deep(.v-chip__content),
+.model-plan-badge :deep(.v-chip__content) {
+  display: block;
   min-width: 0;
-  padding-top: 1px;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+  line-height: 1.35;
+  padding-block: 3px;
 }
 
-.model-plugin-label > span {
-  color: rgba(var(--v-theme-on-surface), 0.92);
-  font-size: 0.88rem;
-  font-weight: 650;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
+.model-plugin-badge :deep(.v-chip__prepend),
+.model-plan-badge :deep(.v-chip__prepend) {
+  align-self: center;
+  margin-top: 0;
 }
 
-.model-plugin-label > small {
-  color: rgba(var(--v-theme-on-surface), 0.66);
-  font-size: 0.76rem;
-  font-weight: 450;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
+.model-plan-summary-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
-.model-plan-summary {
-  font-size: 0.78rem;
-  line-height: 1.45;
+.model-plan-summary-token {
+  white-space: nowrap;
+}
+
+.model-plan-arrow {
+  white-space: pre;
 }
 
 .extra-json-panel {

@@ -4,6 +4,10 @@ import { planTypeText } from '~/lib/admin'
 defineProps<{
   open: boolean
   title: string
+  description?: string
+  icon?: string
+  maxWidth?: string | number
+  emptyText?: string
   draft: string[]
   dragIdx: number | null
   isSelected: (planType: string) => boolean
@@ -12,6 +16,8 @@ defineProps<{
   onDragStart: (idx: number) => void
   onDragOver: (e: DragEvent, idx: number) => void
   onDragEnd: () => void
+  itemLabel?: (item: string) => string
+  itemDescription?: (item: string) => string
 }>()
 
 defineEmits<{
@@ -23,19 +29,20 @@ defineEmits<{
   <ModalDialog
     :open="open"
     :title="title"
-    description="拖动排序，勾选启用"
-    icon="mdi-swap-vertical"
-    :max-width="400"
+    :description="description || '拖动排序，勾选启用'"
+    :icon="icon || 'mdi-swap-vertical'"
+    :max-width="maxWidth || 520"
     @close="$emit('close')"
   >
     <div class="plan-order-list">
       <div
-        v-for="(planType, idx) in draft"
-        :key="planType"
+        v-for="(item, idx) in draft"
+        :key="item"
         class="plan-order-item"
         :class="{
-          'plan-order-item--selected': isSelected(planType),
+          'plan-order-item--selected': isSelected(item),
           'plan-order-item--dragging': dragIdx === idx,
+          'plan-order-item--with-description': Boolean(itemDescription?.(item)),
         }"
         draggable="true"
         @dragstart="onDragStart(idx)"
@@ -44,24 +51,28 @@ defineEmits<{
       >
         <VIcon icon="mdi-drag" size="18" class="plan-order-drag text-medium-emphasis" />
         <VCheckbox
-          :model-value="isSelected(planType)"
+          :model-value="isSelected(item)"
+          class="plan-order-check"
           density="compact"
           hide-details
-          @update:model-value="toggle(planType)"
+          @update:model-value="toggle(item)"
           @click.stop
         />
-        <span class="plan-order-label">{{ planTypeText(planType) }}</span>
-        <span v-if="isSelected(planType)" class="plan-order-rank text-medium-emphasis">
-          #{{ rankOf(planType) }}
+        <span class="plan-order-label">
+          <span>{{ itemLabel ? itemLabel(item) : planTypeText(item) }}</span>
+          <small v-if="itemDescription?.(item)">{{ itemDescription(item) }}</small>
+        </span>
+        <span v-if="isSelected(item)" class="plan-order-rank text-medium-emphasis">
+          #{{ rankOf(item) }}
         </span>
       </div>
     </div>
     <div v-if="!draft.length" class="text-center text-medium-emphasis py-4">
-      暂无可用套餐类型
+      {{ emptyText || '暂无可用套餐类型' }}
     </div>
-    <template #footer>
+    <div class="plan-order-footer">
       <VBtn variant="text" @click="$emit('close')">关闭</VBtn>
-    </template>
+    </div>
   </ModalDialog>
 </template>
 
@@ -69,18 +80,26 @@ defineEmits<{
 .plan-order-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .plan-order-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: 20px 28px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  column-gap: 10px;
+  min-height: 48px;
+  padding: 8px 12px;
   border-radius: 10px;
   background: rgba(var(--v-theme-on-surface), 0.04);
   transition: background 0.15s, opacity 0.15s;
   user-select: none;
+}
+
+.plan-order-item--with-description {
+  align-items: center;
+  min-height: 64px;
+  padding-block: 10px;
 }
 
 .plan-order-item:hover {
@@ -100,21 +119,75 @@ defineEmits<{
 }
 
 .plan-order-drag {
+  align-self: center;
   cursor: grab;
+}
+
+.plan-order-item--with-description .plan-order-drag {
+  align-self: center;
+  margin-top: 0;
 }
 
 .plan-order-drag:active {
   cursor: grabbing;
 }
 
+.plan-order-check {
+  align-self: center;
+  margin-inline-start: -2px;
+}
+
+.plan-order-item--with-description .plan-order-check {
+  align-self: center;
+  margin-top: 0;
+}
+
+.plan-order-check :deep(.v-selection-control) {
+  min-height: 32px;
+}
+
+.plan-order-check :deep(.v-selection-control__wrapper) {
+  width: 32px;
+  height: 32px;
+}
+
 .plan-order-label {
-  flex: 1;
+  display: grid;
+  gap: 2px;
+  align-self: center;
+  min-width: 0;
+}
+
+.plan-order-label > span {
+  color: rgba(var(--v-theme-on-surface), 0.91);
   font-weight: 600;
   font-size: 0.875rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.plan-order-label > small {
+  color: rgba(var(--v-theme-on-surface), 0.58);
+  font-size: 0.75rem;
+  font-weight: 450;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .plan-order-rank {
+  align-self: center;
   font-size: 0.75rem;
   font-weight: 700;
+}
+
+.plan-order-item--with-description .plan-order-rank {
+  align-self: center;
+  padding-top: 0;
+}
+
+.plan-order-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 </style>

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { statusText, toneForStatus } from '~/lib/admin'
 import type { HandlerOverview } from '~/types/admin'
 
 defineProps<{
@@ -31,9 +30,6 @@ defineEmits<{
           <div class="handler-card-copy">
             <div class="handler-card-title">{{ handler.label }}</div>
           </div>
-          <AdminBadge :tone="toneForStatus(handler.status)">
-            {{ statusText(handler.status) }}
-          </AdminBadge>
         </div>
 
         <div class="handler-card-stats">

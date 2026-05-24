@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { statusText, toneForStatus } from '~/lib/admin'
 import { hasLogError, logItemKey, logMetaItems } from '~/lib/logs'
 
 const admin = useAdminApp()
@@ -91,9 +90,6 @@ async function openPage(path: string) {
           <VCardText class="dashboard-handler-shell">
             <div class="dashboard-handler-main">
               <div class="dashboard-handler-title">{{ handler.label }}</div>
-              <AdminBadge :tone="toneForStatus(handler.status)">
-                {{ statusText(handler.status) }}
-              </AdminBadge>
             </div>
             <div class="dashboard-handler-stats">
               <div>
