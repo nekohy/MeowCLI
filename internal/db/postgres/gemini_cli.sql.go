@@ -312,6 +312,33 @@ func (q *Queries) ListGeminiCLIPlanTypes(ctx context.Context, arg ListGeminiCLIP
 	return items, nil
 }
 
+const nextGeminiThrottleDeadline = `-- name: NextGeminiThrottleDeadline :one
+SELECT MIN(deadline)::timestamptz AS deadline
+FROM (
+    SELECT q.throttled_until_pro AS deadline
+    FROM gemini g
+    JOIN gemini_quota q ON q.credential_id = g.id
+    WHERE g.status = 'throttled' AND q.throttled_until_pro > NOW()
+    UNION ALL
+    SELECT q.throttled_until_flash AS deadline
+    FROM gemini g
+    JOIN gemini_quota q ON q.credential_id = g.id
+    WHERE g.status = 'throttled' AND q.throttled_until_flash > NOW()
+    UNION ALL
+    SELECT q.throttled_until_flashlite AS deadline
+    FROM gemini g
+    JOIN gemini_quota q ON q.credential_id = g.id
+    WHERE g.status = 'throttled' AND q.throttled_until_flashlite > NOW()
+) deadlines
+`
+
+func (q *Queries) NextGeminiThrottleDeadline(ctx context.Context) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, nextGeminiThrottleDeadline)
+	var deadline pgtype.Timestamptz
+	err := row.Scan(&deadline)
+	return deadline, err
+}
+
 const restoreExpiredThrottledGeminiCLI = `-- name: RestoreExpiredThrottledGeminiCLI :exec
 UPDATE gemini
 SET status = 'enabled', reason = ''

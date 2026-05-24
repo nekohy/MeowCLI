@@ -121,9 +121,6 @@ func Run(ctx context.Context, cfg Config) error {
 	antigravityScheduler.SetSettingsProvider(settingsSvc)
 	antigravityScheduler.SetLogStore(logStore)
 	antigravityScheduler.StartQuotaSyncer(ctx)
-	if _, err := antigravityScheduler.RefreshAvailable(ctx); err != nil {
-		log.Warn().Err(err).Msg("warm antigravity scheduler")
-	}
 
 	modelCache := &modelCacheResolver{store: store}
 	pluginRegistry := pluginloader.DefaultRegistry()

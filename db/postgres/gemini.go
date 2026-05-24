@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"strings"
+	"time"
 
 	sqlcpostgres "github.com/nekohy/MeowCLI/internal/db/postgres"
 	db "github.com/nekohy/MeowCLI/internal/store"
@@ -242,4 +243,12 @@ func (s *Store) UpdateGeminiCLIStatus(ctx context.Context, id string, status str
 
 func (s *Store) RestoreExpiredThrottledGeminiCLI(ctx context.Context) error {
 	return wrapError(s.queries.RestoreExpiredThrottledGeminiCLI(ctx))
+}
+
+func (s *Store) NextGeminiThrottleDeadline(ctx context.Context) (time.Time, error) {
+	value, err := s.queries.NextGeminiThrottleDeadline(ctx)
+	if err != nil {
+		return time.Time{}, wrapError(err)
+	}
+	return tsTo(value), nil
 }

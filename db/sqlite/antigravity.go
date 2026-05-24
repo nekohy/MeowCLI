@@ -144,6 +144,14 @@ func (s *Store) RestoreExpiredThrottledAntigravity(ctx context.Context) error {
 	return wrapError(s.queries.RestoreExpiredThrottledAntigravity(ctx))
 }
 
+func (s *Store) NextAntigravityThrottleDeadline(ctx context.Context) (time.Time, error) {
+	value, err := s.queries.NextAntigravityThrottleDeadline(ctx)
+	if err != nil {
+		return time.Time{}, wrapError(err)
+	}
+	return parseTime(value), nil
+}
+
 func (s *Store) ListAvailableAntigravity(ctx context.Context) ([]db.ListAvailableAntigravityRow, error) {
 	rows, err := s.queries.ListAvailableAntigravity(ctx)
 	if err != nil {

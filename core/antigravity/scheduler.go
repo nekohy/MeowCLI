@@ -82,6 +82,7 @@ type SchedulerStore interface {
 	SetAntigravityQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
 	UpdateAntigravityStatus(ctx context.Context, id string, status string, reason string) (db.AntigravityCredential, error)
 	RestoreExpiredThrottledAntigravity(ctx context.Context) error
+	NextAntigravityThrottleDeadline(ctx context.Context) (time.Time, error)
 }
 
 func NewScheduler(store SchedulerStore, manager *Manager) *Scheduler {
@@ -110,7 +111,20 @@ func (s *Scheduler) SetLogStore(store db.LogStore) {
 
 func (s *Scheduler) StartQuotaSyncer(ctx context.Context) {
 	s.startScoreRefresh(ctx)
+	s.startThrottleDeadlineRefresh(ctx)
 	s.quotaSyncer().Start(ctx)
+}
+
+func (s *Scheduler) startThrottleDeadlineRefresh(ctx context.Context) {
+	scheduling.StartThrottleDeadlineRefresh(ctx, scheduling.ThrottleDeadlineRefreshConfig{
+		Component: "antigravity scheduler",
+		Refresh: func(ctx context.Context) error {
+			_, err := s.RefreshAvailable(ctx)
+			return err
+		},
+		NextDeadline: s.store.NextAntigravityThrottleDeadline,
+		ReportError:  func(err error, message string) { log.Error().Err(err).Msg(message) },
+	})
 }
 
 func (s *Scheduler) startScoreRefresh(ctx context.Context) {
@@ -423,7 +437,7 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 		return
 	}
 	throttleTier := ""
-	if decision.ExplicitRetryAfter {
+	if strings.TrimSpace(modelTier) != "" {
 		throttleTier = normalizeModelTier(modelTier)
 	}
 	throttledUntil := time.Now().Add(decision.Backoff)
@@ -555,6 +569,13 @@ func (s *Scheduler) listAvailable(ctx context.Context) ([]availableRow, error) {
 	rows := append([]availableRow(nil), s.available...)
 	s.mu.Unlock()
 	if len(rows) > 0 {
+		if s.hasExpiredThrottleWindow(time.Now()) {
+			if refreshed, err := s.RefreshAvailable(ctx); err == nil {
+				return refreshed, nil
+			} else {
+				log.Error().Err(err).Msg("antigravity scheduler: refresh available after throttle expiry")
+			}
+		}
 		return rows, nil
 	}
 	return s.RefreshAvailable(ctx)
@@ -725,10 +746,43 @@ func (s *Scheduler) clearExpiredThrottlesLocked(now time.Time) {
 	}
 }
 
-func (s *Scheduler) rememberThrottleUntil(credentialID string, throttledUntil time.Time) {
+func (s *Scheduler) hasExpiredThrottleWindow(now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	for _, until := range s.throttle {
+		if !until.IsZero() && !now.Before(until) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Scheduler) rememberThrottleUntil(credentialID string, throttledUntil time.Time) {
+	s.mu.Lock()
 	s.throttle[credentialID] = throttledUntil
+	s.mu.Unlock()
+
+	go s.refreshAvailableAfterThrottle(credentialID, throttledUntil)
+}
+
+func (s *Scheduler) refreshAvailableAfterThrottle(credentialID string, throttledUntil time.Time) {
+	scheduling.RefreshAfterDeadline(scheduling.RefreshAfterDeadlineConfig{
+		Deadline: throttledUntil,
+		Superseded: func() bool {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			until, ok := s.throttle[credentialID]
+			return ok && until.After(throttledUntil)
+		},
+		Refresh: func(ctx context.Context) error {
+			_, err := s.RefreshAvailable(ctx)
+			return err
+		},
+		ReportError: func(err error) {
+			log.Error().Err(err).Str("credential", credentialID).Msg("antigravity scheduler: refresh available after throttle deadline")
+		},
+	})
 }
 
 func (s *Scheduler) validateCredentialAfterUnauthorized(credentialID string, statusCode int32) {

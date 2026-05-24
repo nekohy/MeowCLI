@@ -355,6 +355,28 @@ func (q *Queries) ListCodexPlanTypes(ctx context.Context, arg ListCodexPlanTypes
 	return items, nil
 }
 
+const nextCodexThrottleDeadline = `-- name: NextCodexThrottleDeadline :one
+SELECT CAST(COALESCE(MIN(deadline), '') AS TEXT) AS deadline
+FROM (
+    SELECT q.throttled_until AS deadline
+    FROM codex c
+    JOIN codex_quota q ON q.credential_id = c.id
+    WHERE c.status = 'throttled' AND q.throttled_until > datetime('now')
+    UNION ALL
+    SELECT q.throttled_until_spark AS deadline
+    FROM codex c
+    JOIN codex_quota q ON q.credential_id = c.id
+    WHERE c.status = 'throttled' AND q.throttled_until_spark > datetime('now')
+)
+`
+
+func (q *Queries) NextCodexThrottleDeadline(ctx context.Context) (string, error) {
+	row := q.db.QueryRowContext(ctx, nextCodexThrottleDeadline)
+	var deadline string
+	err := row.Scan(&deadline)
+	return deadline, err
+}
+
 const restoreExpiredThrottledCodex = `-- name: RestoreExpiredThrottledCodex :exec
 UPDATE codex
 SET status = 'enabled', reason = ''

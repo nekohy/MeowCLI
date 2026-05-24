@@ -127,3 +127,37 @@ WHERE status = 'throttled'
       AND COALESCE(q.throttled_until_tab, NOW()) <= NOW()
       AND COALESCE(q.throttled_until_image, NOW()) <= NOW()
   );
+
+-- name: NextAntigravityThrottleDeadline :one
+SELECT MIN(deadline)::timestamptz AS deadline
+FROM (
+    SELECT q.throttled_until_claude AS deadline
+    FROM antigravity a
+    JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled' AND q.throttled_until_claude > NOW()
+    UNION ALL
+    SELECT q.throttled_until_pro AS deadline
+    FROM antigravity a
+    JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled' AND q.throttled_until_pro > NOW()
+    UNION ALL
+    SELECT q.throttled_until_flash AS deadline
+    FROM antigravity a
+    JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled' AND q.throttled_until_flash > NOW()
+    UNION ALL
+    SELECT q.throttled_until_flashlite AS deadline
+    FROM antigravity a
+    JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled' AND q.throttled_until_flashlite > NOW()
+    UNION ALL
+    SELECT q.throttled_until_tab AS deadline
+    FROM antigravity a
+    JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled' AND q.throttled_until_tab > NOW()
+    UNION ALL
+    SELECT q.throttled_until_image AS deadline
+    FROM antigravity a
+    JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled' AND q.throttled_until_image > NOW()
+) deadlines;

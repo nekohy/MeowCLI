@@ -31,6 +31,7 @@ type SchedulerStore interface {
 	UpdateGeminiCLIStatus(ctx context.Context, id string, status string, reason string) (db.GeminiCredential, error)
 	UpdateGeminiPlanType(ctx context.Context, id string, planType string) (db.GeminiCredential, error)
 	RestoreExpiredThrottledGeminiCLI(ctx context.Context) error
+	NextGeminiThrottleDeadline(ctx context.Context) (time.Time, error)
 }
 
 type planFetcher interface {
@@ -127,7 +128,20 @@ func (s *Scheduler) SetLogStore(store db.LogStore) {
 // It stops when ctx is cancelled.
 func (s *Scheduler) StartQuotaSyncer(ctx context.Context) {
 	s.startScoreRefresh(ctx)
+	s.startThrottleDeadlineRefresh(ctx)
 	s.quotaSyncer().Start(ctx)
+}
+
+func (s *Scheduler) startThrottleDeadlineRefresh(ctx context.Context) {
+	scheduling.StartThrottleDeadlineRefresh(ctx, scheduling.ThrottleDeadlineRefreshConfig{
+		Component: "gemini scheduler",
+		Refresh: func(ctx context.Context) error {
+			_, err := s.RefreshAvailable(ctx)
+			return err
+		},
+		NextDeadline: s.store.NextGeminiThrottleDeadline,
+		ReportError:  func(err error, message string) { log.Error().Err(err).Msg(message) },
+	})
 }
 
 func (s *Scheduler) startScoreRefresh(ctx context.Context) {
@@ -648,10 +662,7 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 		return
 	}
 
-	throttleTier := ""
-	if decision.ExplicitRetryAfter {
-		throttleTier = modelTier
-	}
+	throttleTier := throttleTierForModel(modelTier)
 	throttledUntil := now.Add(decision.Backoff)
 	if err := s.store.SetGeminiQuotaThrottled(bgCtx, credentialID, throttleTier, throttledUntil); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: set throttled")
@@ -661,15 +672,24 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 	}
 	s.rememberThrottleUntil(credentialID, throttledUntil)
 
-	if decision.ExplicitRetryAfter && modelTier != "" {
-		s.suspendCredentialTier(credentialID, modelTier)
-		log.Warn().Str("credential", credentialID).Str("model_tier", modelTier).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Msg("gemini credential tier throttled")
+	if throttleTier != "" {
+		s.suspendCredentialTier(credentialID, throttleTier)
+		log.Warn().Str("credential", credentialID).Str("model_tier", throttleTier).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Msg("gemini credential tier throttled")
 		return
 	}
 
 	// Credential is throttled; remove from cache.
 	s.evictCredential(credentialID)
 	log.Warn().Str("credential", credentialID).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Int("consecutive_failures", consecutive).Msg("gemini credential throttled")
+}
+
+func throttleTierForModel(modelTier string) string {
+	switch modelTier {
+	case ModelTierPro, ModelTierFlash, ModelTierFlashLite:
+		return modelTier
+	default:
+		return ""
+	}
 }
 
 // HandleUnauthorized handles auth/account terminal statuses outside the error-rate backoff path.
@@ -916,14 +936,34 @@ func (s *Scheduler) clearExpiredThrottles(now time.Time) {
 
 func (s *Scheduler) rememberThrottleUntil(credentialID string, throttledUntil time.Time) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	state, ok := s.throttle[credentialID]
 	if !ok {
 		state = &throttleState{}
 		s.throttle[credentialID] = state
 	}
 	state.until = throttledUntil
+	s.mu.Unlock()
+
+	go s.refreshAvailableAfterThrottle(credentialID, throttledUntil)
+}
+
+func (s *Scheduler) refreshAvailableAfterThrottle(credentialID string, throttledUntil time.Time) {
+	scheduling.RefreshAfterDeadline(scheduling.RefreshAfterDeadlineConfig{
+		Deadline: throttledUntil,
+		Superseded: func() bool {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			state, ok := s.throttle[credentialID]
+			return ok && state.until.After(throttledUntil)
+		},
+		Refresh: func(ctx context.Context) error {
+			_, err := s.RefreshAvailable(ctx)
+			return err
+		},
+		ReportError: func(err error) {
+			log.Error().Err(err).Str("credential", credentialID).Msg("gemini scheduler: refresh available after throttle deadline")
+		},
+	})
 }
 
 func (s *Scheduler) isCredentialUnderValidation(credentialID string) bool {

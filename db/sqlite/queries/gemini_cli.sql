@@ -132,3 +132,22 @@ WHERE status = 'throttled'
       AND COALESCE(q.throttled_until_flash, datetime('now')) <= datetime('now')
       AND COALESCE(q.throttled_until_flashlite, datetime('now')) <= datetime('now')
   );
+
+-- name: NextGeminiThrottleDeadline :one
+SELECT CAST(COALESCE(MIN(deadline), '') AS TEXT) AS deadline
+FROM (
+    SELECT q.throttled_until_pro AS deadline
+    FROM gemini g
+    JOIN gemini_quota q ON q.credential_id = g.id
+    WHERE g.status = 'throttled' AND q.throttled_until_pro > datetime('now')
+    UNION ALL
+    SELECT q.throttled_until_flash AS deadline
+    FROM gemini g
+    JOIN gemini_quota q ON q.credential_id = g.id
+    WHERE g.status = 'throttled' AND q.throttled_until_flash > datetime('now')
+    UNION ALL
+    SELECT q.throttled_until_flashlite AS deadline
+    FROM gemini g
+    JOIN gemini_quota q ON q.credential_id = g.id
+    WHERE g.status = 'throttled' AND q.throttled_until_flashlite > datetime('now')
+);

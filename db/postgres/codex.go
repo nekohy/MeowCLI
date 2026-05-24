@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"strings"
+	"time"
 
 	sqlcpostgres "github.com/nekohy/MeowCLI/internal/db/postgres"
 	db "github.com/nekohy/MeowCLI/internal/store"
@@ -224,6 +225,14 @@ func (s *Store) UpdateCodexStatus(ctx context.Context, id string, status string,
 
 func (s *Store) RestoreExpiredThrottledCodex(ctx context.Context) error {
 	return wrapError(s.queries.RestoreExpiredThrottledCodex(ctx))
+}
+
+func (s *Store) NextCodexThrottleDeadline(ctx context.Context) (time.Time, error) {
+	value, err := s.queries.NextCodexThrottleDeadline(ctx)
+	if err != nil {
+		return time.Time{}, wrapError(err)
+	}
+	return tsTo(value), nil
 }
 
 func shouldClearCredentialThrottle(status string) bool {

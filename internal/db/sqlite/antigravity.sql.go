@@ -273,6 +273,48 @@ func (q *Queries) ListAntigravityPlanTypes(ctx context.Context, arg ListAntigrav
 	return items, nil
 }
 
+const nextAntigravityThrottleDeadline = `-- name: NextAntigravityThrottleDeadline :one
+SELECT CAST(COALESCE(MIN(deadline), '') AS TEXT) AS deadline
+FROM (
+    SELECT q.throttled_until_claude AS deadline
+    FROM antigravity a
+    JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled' AND q.throttled_until_claude > datetime('now')
+    UNION ALL
+    SELECT q.throttled_until_pro AS deadline
+    FROM antigravity a
+    JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled' AND q.throttled_until_pro > datetime('now')
+    UNION ALL
+    SELECT q.throttled_until_flash AS deadline
+    FROM antigravity a
+    JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled' AND q.throttled_until_flash > datetime('now')
+    UNION ALL
+    SELECT q.throttled_until_flashlite AS deadline
+    FROM antigravity a
+    JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled' AND q.throttled_until_flashlite > datetime('now')
+    UNION ALL
+    SELECT q.throttled_until_tab AS deadline
+    FROM antigravity a
+    JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled' AND q.throttled_until_tab > datetime('now')
+    UNION ALL
+    SELECT q.throttled_until_image AS deadline
+    FROM antigravity a
+    JOIN antigravity_quota q ON q.credential_id = a.id
+    WHERE a.status = 'throttled' AND q.throttled_until_image > datetime('now')
+)
+`
+
+func (q *Queries) NextAntigravityThrottleDeadline(ctx context.Context) (string, error) {
+	row := q.db.QueryRowContext(ctx, nextAntigravityThrottleDeadline)
+	var deadline string
+	err := row.Scan(&deadline)
+	return deadline, err
+}
+
 const restoreExpiredThrottledAntigravity = `-- name: RestoreExpiredThrottledAntigravity :exec
 UPDATE antigravity
 SET status = 'enabled', reason = ''

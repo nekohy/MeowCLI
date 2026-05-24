@@ -117,3 +117,17 @@ WHERE status = 'throttled'
       AND COALESCE(q.throttled_until, datetime('now')) <= datetime('now')
       AND COALESCE(q.throttled_until_spark, datetime('now')) <= datetime('now')
   );
+
+-- name: NextCodexThrottleDeadline :one
+SELECT CAST(COALESCE(MIN(deadline), '') AS TEXT) AS deadline
+FROM (
+    SELECT q.throttled_until AS deadline
+    FROM codex c
+    JOIN codex_quota q ON q.credential_id = c.id
+    WHERE c.status = 'throttled' AND q.throttled_until > datetime('now')
+    UNION ALL
+    SELECT q.throttled_until_spark AS deadline
+    FROM codex c
+    JOIN codex_quota q ON q.credential_id = c.id
+    WHERE c.status = 'throttled' AND q.throttled_until_spark > datetime('now')
+);
