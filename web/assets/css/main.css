@@ -779,6 +779,8 @@ pre {
 }
 
 .stack-list > .v-card {
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid rgba(var(--v-theme-outline-variant), 0.72);
 }
 
@@ -791,12 +793,16 @@ pre {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* --- Filter / toolbar --- */
@@ -1097,6 +1103,7 @@ pre {
   display: grid;
   gap: 6px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .stack-card-meta {
@@ -1140,6 +1147,7 @@ pre {
   line-height: 1.35;
   font-weight: 700;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .detail-value,
@@ -1822,6 +1830,60 @@ pre {
   .setting-groups,
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .stack-list,
+  .stack-list > .v-card,
+  .stack-card-body,
+  .stack-card-top,
+  .quota-grid,
+  .detail-grid,
+  .toolbar-panel,
+  .selection-bar,
+  .pagination-bar {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .stack-card-top > .d-flex {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .quota-grid,
+  .detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quota-card,
+  .detail-block,
+  .reason-block {
+    min-width: 0;
+    padding: 14px;
+  }
+
+  .quota-row,
+  .quota-footer,
+  .quota-caption,
+  .quota-footer:has(.quota-caption > span + span) .quota-caption {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .quota-caption,
+  .quota-footer:has(.quota-caption > span + span) .quota-caption {
+    flex-basis: 100%;
+  }
+
+  .quota-score {
+    margin-inline-start: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .detail-value,
+  .reason-value {
+    overflow-wrap: anywhere;
   }
 
   .dashboard-metrics {
