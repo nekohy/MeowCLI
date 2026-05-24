@@ -16,6 +16,8 @@ import (
 	"github.com/nekohy/MeowCLI/core/scheduling"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	storedb "github.com/nekohy/MeowCLI/internal/store"
+	requestplugin "github.com/nekohy/MeowCLI/plugin"
+	pluginloader "github.com/nekohy/MeowCLI/plugin/loader"
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +28,7 @@ type ResolvedModel struct {
 	Origin           string
 	Handler          utils.HandlerType
 	AllowedPlanTypes []string
+	EnabledPlugins   []string
 }
 
 // ModelStore provides model alias resolution.
@@ -73,6 +76,7 @@ type Handler struct {
 	schedulers map[utils.HandlerType]CredentialScheduler
 	settings   settings.Provider
 	sessions   *otter.Cache[string, string]
+	plugins    *requestplugin.Registry
 }
 
 func NewHandler(models ModelStore, schedulers map[utils.HandlerType]CredentialScheduler, backends ...api.Backend) *Handler {
@@ -85,6 +89,7 @@ func NewHandler(models ModelStore, schedulers map[utils.HandlerType]CredentialSc
 		models:     models,
 		schedulers: schedulers,
 		sessions:   newSessionAffinityCache(),
+		plugins:    pluginloader.DefaultRegistry(),
 	}
 }
 
@@ -97,7 +102,14 @@ func (h *Handler) SetSettingsProvider(provider settings.Provider) {
 
 func (h *Handler) Route(apiType utils.APIType) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h.handleResponses(c, apiType)
+		switch apiType {
+		case utils.APIResponses, utils.APIResponsesCompact, utils.APICompletion:
+			h.handleResponses(c, apiType)
+		case utils.APIGemini:
+			h.handleGemini(c)
+		default:
+			writeRelayError(c, errUnsupportedAPIType)
+		}
 	}
 }
 

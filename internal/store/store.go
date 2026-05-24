@@ -169,6 +169,7 @@ type ReverseInfoFromModelRow struct {
 	Origin    string          `json:"origin"`
 	Handler   string          `json:"handler"`
 	PlanTypes string          `json:"plan_types"`
+	Plugin    string          `json:"plugin"`
 	Extra     json.RawMessage `json:"extra"`
 }
 
@@ -341,6 +342,7 @@ type ModelRow struct {
 	Origin    string          `json:"origin"`
 	Handler   string          `json:"handler"`
 	PlanTypes string          `json:"plan_types"`
+	Plugin    string          `json:"plugin"`
 	Extra     json.RawMessage `json:"extra"`
 }
 
@@ -349,6 +351,7 @@ type CreateModelParams struct {
 	Origin    string
 	Handler   string
 	PlanTypes string
+	Plugin    string
 	Extra     json.RawMessage
 }
 
@@ -357,6 +360,7 @@ type UpdateModelParams struct {
 	Origin    string
 	Handler   string
 	PlanTypes string
+	Plugin    string
 	Extra     json.RawMessage
 }
 

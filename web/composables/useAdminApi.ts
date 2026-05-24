@@ -240,10 +240,10 @@ export const adminApi = {
   listModels(token: string) {
     return apiRequest<ModelItem[]>('/models', { token })
   },
-  createModel(token: string, payload: { alias: string; origin: string; handler: string; plan_types: string; extra: Record<string, unknown> }) {
+  createModel(token: string, payload: { alias: string; origin: string; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown> }) {
     return apiRequest<ModelItem>('/models', { token, method: 'POST', body: payload })
   },
-  updateModel(token: string, alias: string, payload: { origin: string; handler: string; plan_types: string; extra: Record<string, unknown> }) {
+  updateModel(token: string, alias: string, payload: { origin: string; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown> }) {
     return apiRequest<ModelItem>(`/models/${encodeURIComponent(alias)}`, {
       token,
       method: 'PUT',

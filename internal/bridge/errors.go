@@ -21,6 +21,7 @@ var (
 	errBackendUnavailable     = relayError{StatusCode: http.StatusServiceUnavailable, Code: "backend_unavailable", Message: "backend is unavailable"}
 	errUnsupportedAPIType     = relayError{StatusCode: http.StatusBadRequest, Code: "unsupported_api_type", Message: "handler does not support requested api type"}
 	errSchedulerUnavailable   = relayError{StatusCode: http.StatusServiceUnavailable, Code: "scheduler_unavailable", Message: "credential scheduler is unavailable"}
+	errBridgePluginFailed     = relayError{StatusCode: http.StatusBadRequest, Code: "bridge_plugin_failed", Message: "request plugin failed"}
 	errNoAvailableCredential  = relayError{StatusCode: http.StatusServiceUnavailable, Code: "credential_unavailable", Message: "no available credential"}
 	errUpstreamAuthFailed     = relayError{StatusCode: http.StatusBadGateway, Code: "upstream_auth_failed", Message: "failed to prepare upstream authentication"}
 	errUpstreamRequestFailed  = relayError{StatusCode: http.StatusBadGateway, Code: "upstream_request_failed", Message: "upstream request failed"}

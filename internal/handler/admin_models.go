@@ -14,6 +14,7 @@ type createModelReq struct {
 	Origin    string          `json:"origin" binding:"required"`
 	Handler   string          `json:"handler" binding:"required"`
 	PlanTypes string          `json:"plan_types"`
+	Plugin    string          `json:"plugin"`
 	Extra     json.RawMessage `json:"extra"`
 }
 
@@ -21,6 +22,7 @@ type updateModelReq struct {
 	Origin    string          `json:"origin" binding:"required"`
 	Handler   string          `json:"handler" binding:"required"`
 	PlanTypes string          `json:"plan_types"`
+	Plugin    string          `json:"plugin"`
 	Extra     json.RawMessage `json:"extra"`
 }
 
@@ -39,7 +41,7 @@ func (a *AdminHandler) CreateModel(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	alias, origin, handler, planTypes, extra, err := normalizeModelInput(req.Alias, req.Origin, req.Handler, req.PlanTypes, req.Extra)
+	alias, origin, handler, planTypes, plugins, extra, err := normalizeModelInput(req.Alias, req.Origin, req.Handler, req.PlanTypes, req.Plugin, req.Extra, a.pluginRegistry)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -50,6 +52,7 @@ func (a *AdminHandler) CreateModel(c *gin.Context) {
 		Origin:    origin,
 		Handler:   handler,
 		PlanTypes: planTypes,
+		Plugin:    plugins,
 		Extra:     extra,
 	})
 	if writeStoreError(c, err, "", "model alias already exists") {
@@ -66,7 +69,7 @@ func (a *AdminHandler) UpdateModel(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	alias, origin, handler, planTypes, extra, err := normalizeModelInput(alias, req.Origin, req.Handler, req.PlanTypes, req.Extra)
+	alias, origin, handler, planTypes, plugins, extra, err := normalizeModelInput(alias, req.Origin, req.Handler, req.PlanTypes, req.Plugin, req.Extra, a.pluginRegistry)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -77,6 +80,7 @@ func (a *AdminHandler) UpdateModel(c *gin.Context) {
 		Origin:    origin,
 		Handler:   handler,
 		PlanTypes: planTypes,
+		Plugin:    plugins,
 		Extra:     extra,
 	})
 	if writeStoreError(c, err, "model not found", "") {

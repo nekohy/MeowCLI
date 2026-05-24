@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
+	requestplugin "github.com/nekohy/MeowCLI/plugin"
+	pluginloader "github.com/nekohy/MeowCLI/plugin/loader"
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
@@ -27,18 +29,19 @@ type overviewSummary struct {
 }
 
 type handlerOverview struct {
-	Key                     utils.HandlerType `json:"key"`
-	Label                   string            `json:"label"`
-	Status                  string            `json:"status"`
-	SupportedAPI            []utils.APIType   `json:"supported_api_types"`
-	PlanList                []string          `json:"plan_list,omitempty"`
-	SupportsCredentials     bool              `json:"supports_credentials"`
-	CredentialEndpoint      string            `json:"credential_endpoint,omitempty"`
-	CredentialFields        []credentialField `json:"credential_fields,omitempty"`
-	CredentialStatusOptions []string          `json:"credential_status_options,omitempty"`
-	ModelsTotal             int               `json:"models_total"`
-	CredentialsTotal        int               `json:"credentials_total"`
-	CredentialsEnabled      int64             `json:"credentials_enabled"`
+	Key                     utils.HandlerType        `json:"key"`
+	Label                   string                   `json:"label"`
+	Status                  string                   `json:"status"`
+	SupportedAPI            []utils.APIType          `json:"supported_api_types"`
+	PlanList                []string                 `json:"plan_list,omitempty"`
+	SupportsCredentials     bool                     `json:"supports_credentials"`
+	CredentialEndpoint      string                   `json:"credential_endpoint,omitempty"`
+	CredentialFields        []credentialField        `json:"credential_fields,omitempty"`
+	CredentialStatusOptions []string                 `json:"credential_status_options,omitempty"`
+	Plugins                 []requestplugin.Manifest `json:"plugins,omitempty"`
+	ModelsTotal             int                      `json:"models_total"`
+	CredentialsTotal        int                      `json:"credentials_total"`
+	CredentialsEnabled      int64                    `json:"credentials_enabled"`
 }
 
 type credentialField struct {
@@ -101,6 +104,7 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 	}
 
 	for i := range handlers {
+		handlers[i].Plugins = a.availablePluginsForHandler(handlers[i].Key, handlers[i].SupportedAPI)
 		count, countErr := a.store.CountModelsByHandler(ctx, string(handlers[i].Key))
 		if countErr != nil {
 			return overviewResponse{}, countErr
@@ -135,6 +139,25 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 		Handlers:   handlers,
 		RecentLogs: logs.Rows,
 	}, nil
+}
+
+func (a *AdminHandler) availablePluginsForHandler(handler utils.HandlerType, apiTypes []utils.APIType) []requestplugin.Manifest {
+	registry := a.pluginRegistry
+	if registry == nil {
+		registry = pluginloader.DefaultRegistry()
+	}
+	var plugins []requestplugin.Manifest
+	seen := map[string]struct{}{}
+	for _, apiType := range apiTypes {
+		for _, plugin := range registry.Available(handler, apiType) {
+			if _, ok := seen[plugin.Name]; ok {
+				continue
+			}
+			seen[plugin.Name] = struct{}{}
+			plugins = append(plugins, plugin)
+		}
+	}
+	return plugins
 }
 
 func credentialsEndpointForHandler(handler utils.HandlerType) string {

@@ -32,9 +32,9 @@ func (q *Queries) CountModelsByHandler(ctx context.Context, handler string) (int
 }
 
 const createModel = `-- name: CreateModel :one
-INSERT INTO models (alias, origin, handler, plan_types, extra)
-VALUES (?, ?, ?, ?, ?)
-RETURNING alias, origin, handler, plan_types, extra
+INSERT INTO models (alias, origin, handler, plan_types, plugin, extra)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING alias, origin, handler, plan_types, plugin, extra
 `
 
 type CreateModelParams struct {
@@ -42,6 +42,7 @@ type CreateModelParams struct {
 	Origin    string `json:"origin"`
 	Handler   string `json:"handler"`
 	PlanTypes string `json:"plan_types"`
+	Plugin    string `json:"plugin"`
 	Extra     string `json:"extra"`
 }
 
@@ -51,6 +52,7 @@ func (q *Queries) CreateModel(ctx context.Context, arg CreateModelParams) (Model
 		arg.Origin,
 		arg.Handler,
 		arg.PlanTypes,
+		arg.Plugin,
 		arg.Extra,
 	)
 	var i Model
@@ -59,6 +61,7 @@ func (q *Queries) CreateModel(ctx context.Context, arg CreateModelParams) (Model
 		&i.Origin,
 		&i.Handler,
 		&i.PlanTypes,
+		&i.Plugin,
 		&i.Extra,
 	)
 	return i, err
@@ -77,7 +80,7 @@ func (q *Queries) DeleteModel(ctx context.Context, alias string) (int64, error) 
 }
 
 const listModels = `-- name: ListModels :many
-SELECT alias, origin, handler, plan_types, extra FROM models ORDER BY alias
+SELECT alias, origin, handler, plan_types, plugin, extra FROM models ORDER BY alias
 `
 
 func (q *Queries) ListModels(ctx context.Context) ([]Model, error) {
@@ -94,6 +97,7 @@ func (q *Queries) ListModels(ctx context.Context) ([]Model, error) {
 			&i.Origin,
 			&i.Handler,
 			&i.PlanTypes,
+			&i.Plugin,
 			&i.Extra,
 		); err != nil {
 			return nil, err
@@ -110,7 +114,7 @@ func (q *Queries) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 const reverseInfoFromModel = `-- name: ReverseInfoFromModel :one
-SELECT origin, handler, plan_types, extra
+SELECT origin, handler, plan_types, plugin, extra
 FROM models
 WHERE alias = ?
 LIMIT 1
@@ -120,6 +124,7 @@ type ReverseInfoFromModelRow struct {
 	Origin    string `json:"origin"`
 	Handler   string `json:"handler"`
 	PlanTypes string `json:"plan_types"`
+	Plugin    string `json:"plugin"`
 	Extra     string `json:"extra"`
 }
 
@@ -130,6 +135,7 @@ func (q *Queries) ReverseInfoFromModel(ctx context.Context, alias string) (Rever
 		&i.Origin,
 		&i.Handler,
 		&i.PlanTypes,
+		&i.Plugin,
 		&i.Extra,
 	)
 	return i, err
@@ -137,15 +143,16 @@ func (q *Queries) ReverseInfoFromModel(ctx context.Context, alias string) (Rever
 
 const updateModel = `-- name: UpdateModel :one
 UPDATE models
-SET origin = ?, handler = ?, plan_types = ?, extra = ?
+SET origin = ?, handler = ?, plan_types = ?, plugin = ?, extra = ?
 WHERE alias = ?
-RETURNING alias, origin, handler, plan_types, extra
+RETURNING alias, origin, handler, plan_types, plugin, extra
 `
 
 type UpdateModelParams struct {
 	Origin    string `json:"origin"`
 	Handler   string `json:"handler"`
 	PlanTypes string `json:"plan_types"`
+	Plugin    string `json:"plugin"`
 	Extra     string `json:"extra"`
 	Alias     string `json:"alias"`
 }
@@ -155,6 +162,7 @@ func (q *Queries) UpdateModel(ctx context.Context, arg UpdateModelParams) (Model
 		arg.Origin,
 		arg.Handler,
 		arg.PlanTypes,
+		arg.Plugin,
 		arg.Extra,
 		arg.Alias,
 	)
@@ -164,6 +172,7 @@ func (q *Queries) UpdateModel(ctx context.Context, arg UpdateModelParams) (Model
 		&i.Origin,
 		&i.Handler,
 		&i.PlanTypes,
+		&i.Plugin,
 		&i.Extra,
 	)
 	return i, err

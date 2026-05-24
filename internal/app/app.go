@@ -26,6 +26,8 @@ import (
 	"github.com/nekohy/MeowCLI/internal/router"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	db "github.com/nekohy/MeowCLI/internal/store"
+	requestplugin "github.com/nekohy/MeowCLI/plugin"
+	pluginloader "github.com/nekohy/MeowCLI/plugin/loader"
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
@@ -124,6 +126,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	modelCache := &modelCacheResolver{store: store}
+	pluginRegistry := pluginloader.DefaultRegistry()
 	h := bridge.NewHandler(
 		modelCache,
 		map[utils.HandlerType]bridge.CredentialScheduler{
@@ -136,8 +139,10 @@ func Run(ctx context.Context, cfg Config) error {
 		antigravityClient,
 	)
 	h.SetSettingsProvider(settingsSvc)
+	h.SetPluginRegistry(pluginRegistry)
 
 	adminHandler := handler.NewAdminHandler(store, codexClient, geminiClient, antigravityClient)
+	adminHandler.SetPluginRegistry(pluginRegistry)
 	oauthFlows, err := newOAuthFlows()
 	if err != nil {
 		return err
@@ -292,6 +297,7 @@ func (r *modelCacheResolver) ResolveModel(ctx context.Context, alias string) (*b
 			Origin:           row.Origin,
 			Handler:          ht,
 			AllowedPlanTypes: parseModelPlanTypes(ht, row.PlanTypes),
+			EnabledPlugins:   parseEnabledPlugins(row.Plugin),
 		}
 		r.storeModelCache(alias, modelCacheEntry{
 			info:      info,
@@ -387,7 +393,12 @@ func (r *modelCacheResolver) pruneModelCacheLocked(now time.Time) {
 
 func cloneResolvedModel(info bridge.ResolvedModel) *bridge.ResolvedModel {
 	info.AllowedPlanTypes = append([]string(nil), info.AllowedPlanTypes...)
+	info.EnabledPlugins = append([]string(nil), info.EnabledPlugins...)
 	return &info
+}
+
+func parseEnabledPlugins(raw string) []string {
+	return requestplugin.ParseList(raw)
 }
 
 func parseModelPlanTypes(handler utils.HandlerType, raw string) []string {

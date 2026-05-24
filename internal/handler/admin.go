@@ -21,6 +21,8 @@ import (
 	"github.com/nekohy/MeowCLI/internal/auth"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	db "github.com/nekohy/MeowCLI/internal/store"
+	requestplugin "github.com/nekohy/MeowCLI/plugin"
+	pluginloader "github.com/nekohy/MeowCLI/plugin/loader"
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
@@ -61,6 +63,7 @@ type AdminHandler struct {
 	settingsSvc    *settings.Service
 	importJobs     *importJobManager
 	buildInfo      BuildInfoProvider
+	pluginRegistry *requestplugin.Registry
 	mu             sync.Mutex
 }
 
@@ -92,6 +95,13 @@ func (a *AdminHandler) SetSettingsService(svc *settings.Service) {
 
 func (a *AdminHandler) SetBuildInfoProvider(provider BuildInfoProvider) {
 	a.buildInfo = provider
+}
+
+func (a *AdminHandler) SetPluginRegistry(registry *requestplugin.Registry) {
+	if a == nil {
+		return
+	}
+	a.pluginRegistry = registry
 }
 
 func (a *AdminHandler) ensureAuthCache(c *gin.Context) bool {
@@ -166,19 +176,19 @@ func writeAdminKeyError(c *gin.Context, err error, notFoundMsg, conflictMsg, ini
 	return true
 }
 
-func normalizeModelInput(alias, origin, handler string, planTypes string, extra json.RawMessage) (string, string, string, string, json.RawMessage, error) {
+func normalizeModelInput(alias, origin, handler string, planTypes string, plugins string, extra json.RawMessage, registry *requestplugin.Registry) (string, string, string, string, string, json.RawMessage, error) {
 	alias = strings.TrimSpace(alias)
 	origin = strings.TrimSpace(origin)
 	handler = strings.TrimSpace(handler)
 	if alias == "" {
-		return "", "", "", "", nil, fmt.Errorf("alias is required")
+		return "", "", "", "", "", nil, fmt.Errorf("alias is required")
 	}
 	if origin == "" {
-		return "", "", "", "", nil, fmt.Errorf("origin is required")
+		return "", "", "", "", "", nil, fmt.Errorf("origin is required")
 	}
 	parsedHandler, ok := utils.ParseHandlerType(handler)
 	if !ok {
-		return "", "", "", "", nil, fmt.Errorf("unknown handler type: %q", handler)
+		return "", "", "", "", "", nil, fmt.Errorf("unknown handler type: %q", handler)
 	}
 	switch parsedHandler {
 	case utils.HandlerGemini:
@@ -188,14 +198,40 @@ func normalizeModelInput(alias, origin, handler string, planTypes string, extra 
 	case utils.HandlerCodex:
 		planTypes = corecodex.NormalizePlanTypeList(planTypes)
 	default:
-		return "", "", "", "", nil, fmt.Errorf("unsupported handler type: %q", parsedHandler)
+		return "", "", "", "", "", nil, fmt.Errorf("unsupported handler type: %q", parsedHandler)
+	}
+	normalizedPlugins, err := normalizeModelPlugins(plugins, parsedHandler, registry)
+	if err != nil {
+		return "", "", "", "", "", nil, err
 	}
 	if len(extra) == 0 {
 		extra = json.RawMessage("{}")
 	} else if !sonic.Valid(extra) {
-		return "", "", "", "", nil, fmt.Errorf("extra must be valid JSON")
+		return "", "", "", "", "", nil, fmt.Errorf("extra must be valid JSON")
 	}
-	return alias, origin, string(parsedHandler), planTypes, extra, nil
+	return alias, origin, string(parsedHandler), planTypes, normalizedPlugins, extra, nil
+}
+
+func normalizeModelPlugins(raw string, handler utils.HandlerType, registry *requestplugin.Registry) (string, error) {
+	names := requestplugin.ParseList(raw)
+	if len(names) == 0 {
+		return "", nil
+	}
+	if registry == nil {
+		registry = pluginloader.DefaultRegistry()
+	}
+	normalized := names[:0]
+	for _, name := range names {
+		p, ok := registry.Get(name)
+		if !ok {
+			return "", fmt.Errorf("unknown plugin: %q", name)
+		}
+		if !p.Manifest().SupportsHandler(handler) {
+			return "", fmt.Errorf("plugin %q is not available for handler %q", name, handler)
+		}
+		normalized = append(normalized, name)
+	}
+	return strings.Join(normalized, ","), nil
 }
 
 func (a *AdminHandler) currentSettings() settings.Snapshot {

@@ -115,6 +115,7 @@ type Model struct {
 	Origin    string `json:"origin"`
 	Handler   string `json:"handler"`
 	PlanTypes string `json:"plan_types"`
+	Plugin    string `json:"plugin"`
 	Extra     string `json:"extra"`
 }
 

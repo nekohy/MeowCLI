@@ -21,14 +21,14 @@ type Deps struct {
 func Setup(r *gin.Engine, deps Deps) {
 	// /v1 with API auth (admin + user)
 	v1 := r.Group("/v1", handler.APIAuthMiddleware(deps.AuthCache))
-	v1.GET("/models", deps.Bridge.RouteModels())
+	v1.GET("/models", deps.Bridge.RouteModels(utils.APIResponses))
 	v1.POST("/responses", deps.Bridge.Route(utils.APIResponses))
 	v1.POST("/responses/compact", deps.Bridge.Route(utils.APIResponsesCompact))
 	v1.POST("/chat/completions", deps.Bridge.Route(utils.APICompletion))
 
 	v1beta := r.Group("/v1beta", handler.APIAuthMiddleware(deps.AuthCache))
-	v1beta.GET("/models", deps.Bridge.RouteGeminiModels())
-	v1beta.POST("/models/*target", deps.Bridge.RouteGemini())
+	v1beta.GET("/models", deps.Bridge.RouteModels(utils.APIGemini))
+	v1beta.POST("/models/*target", deps.Bridge.Route(utils.APIGemini))
 
 	// Admin
 	admin := r.Group("/admin")
