@@ -97,7 +97,14 @@ func (h *Handler) SetSettingsProvider(provider settings.Provider) {
 
 func (h *Handler) Route(apiType utils.APIType) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h.handleResponses(c, apiType)
+		switch apiType {
+		case utils.APIResponses, utils.APIResponsesCompact, utils.APICompletion:
+			h.handleResponses(c, apiType)
+		case utils.APIGemini:
+			h.handleGemini(c)
+		default:
+			writeRelayError(c, errUnsupportedAPIType)
+		}
 	}
 }
 

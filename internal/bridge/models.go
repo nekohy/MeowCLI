@@ -22,9 +22,16 @@ type openAIModelsResponse struct {
 	Data   []openAIModel `json:"data"`
 }
 
-func (h *Handler) RouteModels() gin.HandlerFunc {
+func (h *Handler) RouteModels(apiType utils.APIType) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h.handleModels(c)
+		switch apiType {
+		case utils.APIResponses, utils.APIResponsesCompact, utils.APICompletion:
+			h.handleModels(c)
+		case utils.APIGemini:
+			h.handleGeminiModels(c)
+		default:
+			writeRelayError(c, errUnsupportedAPIType)
+		}
 	}
 }
 

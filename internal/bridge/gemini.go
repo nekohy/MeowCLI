@@ -17,18 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (h *Handler) RouteGemini() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		h.handleGemini(c)
-	}
-}
-
-func (h *Handler) RouteGeminiModels() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		h.handleGeminiModels(c)
-	}
-}
-
 func (h *Handler) handleGemini(c *gin.Context) {
 	ctx := c.Request.Context()
 
