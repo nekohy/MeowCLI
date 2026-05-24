@@ -1,8 +1,4 @@
-# MeowCLI请求插件
-
-`plugin` 包用于定义 MeowCLI 转发链路里的请求体插件。插件可以在请求发往上游之前修改 body。
-
-## 目录结构
+# 目录结构
 
 ```text
 plugin/
@@ -13,7 +9,7 @@ plugin/
 
 主程序导入 `plugin/loader` 并调用 `loader.DefaultRegistry()`。`loader` 通过 blank import 导入插件子包，插件子包在 `init()` 中调用 `plugin.Register(...)` 完成注册。
 
-## 统一接口
+# 统一接口
 
 每个插件实现 `plugin.Interface`：
 
@@ -38,7 +34,7 @@ plugin.Manifest{
 
 `Apply` 接收当前请求上下文并直接修改它。一个模型启用多个插件时，会按 `models.plugin` 中的名称顺序依次执行。
 
-## 请求上下文
+# 请求上下文
 
 `plugin.Context` 包含：
 
@@ -54,7 +50,7 @@ plugin.Manifest{
 - `SetBody([]byte)`：直接替换请求体，并清空已经解析的 AST。
 - `Bytes()`：返回最终请求体。如果已经解析 JSON，会在插件链末尾统一 marshal。
 
-## 新增插件
+# 新增插件
 
 1. 在 `plugin/<handler/api>/<plugin-name>/` 下创建插件子包
 2. 实现 `plugin.Interface`
@@ -105,7 +101,7 @@ import (
 )
 ```
 
-## 在模型上启用插件
+# 在模型上启用插件
 
 `models.plugin` 字段保存模型启用的插件名称，使用英文逗号分隔：
 
