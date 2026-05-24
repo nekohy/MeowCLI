@@ -769,7 +769,10 @@ pre {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
-.stack-list,
+.stack-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+}
+
 .model-grid,
 .key-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
@@ -786,13 +789,13 @@ pre {
 
 .quota-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
   gap: 12px;
 }
 
 .detail-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
   gap: 12px;
 }
 
@@ -1076,6 +1079,8 @@ pre {
 
 .quota-card {
   position: relative;
+  container-type: inline-size;
+  min-width: 0;
 }
 
 .stack-card-body,
@@ -1084,6 +1089,7 @@ pre {
   gap: 16px;
   padding: 18px !important;
   min-width: 0;
+  container-type: inline-size;
 }
 
 .stack-card-copy,
@@ -1144,20 +1150,20 @@ pre {
 
 .quota-footer {
   display: flex;
-  flex-wrap: nowrap;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   align-items: center;
   min-width: 0;
 }
 
 .quota-caption {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 13rem;
   flex-wrap: nowrap;
   gap: 4px 12px;
   align-items: center;
-  min-width: 0;
-  overflow: hidden;
+  min-width: min(100%, 13rem);
+  overflow: visible;
 }
 
 .quota-caption > span {
@@ -1168,9 +1174,10 @@ pre {
 
 .quota-caption-text {
   display: inline-block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .quota-caption > span + span::before {
@@ -1202,6 +1209,45 @@ pre {
   line-height: 1.35;
   color: rgb(var(--v-theme-on-surface));
   white-space: nowrap;
+}
+
+.quota-footer:has(.quota-caption > span + span) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.quota-footer:has(.quota-caption > span + span) .quota-caption {
+  display: grid;
+  flex: 1 1 14rem;
+  min-width: min(100%, 14rem);
+  gap: 2px;
+  overflow: visible;
+}
+
+.quota-footer:has(.quota-caption > span + span) .quota-caption > span {
+  display: block;
+}
+
+.quota-footer:has(.quota-caption > span + span) .quota-caption-text {
+  display: block;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.quota-footer:has(.quota-caption > span + span) .quota-caption > span + span::before {
+  content: none;
+}
+
+.quota-footer:has(.quota-caption > span + span) .quota-score {
+  align-self: center;
+  margin-inline-start: auto;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* --- Disabled reason block --- */
@@ -1724,8 +1770,7 @@ pre {
     justify-content: flex-start;
   }
 
-  .detail-grid,
-  .quota-grid {
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 
