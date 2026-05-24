@@ -1,4 +1,4 @@
-# 请求插件系统
+# MeowCLI请求插件
 
 `plugin` 包用于定义 MeowCLI 转发链路里的请求体插件。插件可以在请求发往上游之前修改 body。
 
@@ -9,9 +9,6 @@ plugin/
   plugin.go                         # 统一接口、Manifest、Registry
   loader/
     loader.go                       # 集中导入已编译插件子包
-  gemini/
-    includethoughts/
-      plugin.go                     # Gemini includeThoughts 示例插件
 ```
 
 主程序导入 `plugin/loader` 并调用 `loader.DefaultRegistry()`。`loader` 通过 blank import 导入插件子包，插件子包在 `init()` 中调用 `plugin.Register(...)` 完成注册。
@@ -59,11 +56,10 @@ plugin.Manifest{
 
 ## 新增插件
 
-1. 在 `plugin/<handler>/<plugin-name>/` 下创建插件子包
+1. 在 `plugin/<handler/api>/<plugin-name>/` 下创建插件子包
 2. 实现 `plugin.Interface`
 3. 在 `init()` 中调用 `plugin.Register(Plugin{})`
 4. 在 `plugin/loader/loader.go` 添加 blank import
-5. 为请求体修改行为补测试
 
 示例：
 
@@ -105,7 +101,7 @@ func (Plugin) Apply(ctx context.Context, req *plugin.Context) error {
 import (
     "github.com/nekohy/MeowCLI/plugin"
 
-    _ "github.com/nekohy/MeowCLI/plugin/gemini/myplugin"
+    _ "github.com/nekohy/MeowCLI/plugin/<handler/api>/<plugin-name>"
 )
 ```
 
