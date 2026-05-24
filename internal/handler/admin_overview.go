@@ -29,19 +29,20 @@ type overviewSummary struct {
 }
 
 type handlerOverview struct {
-	Key                     utils.HandlerType        `json:"key"`
-	Label                   string                   `json:"label"`
-	Status                  string                   `json:"status"`
-	SupportedAPI            []utils.APIType          `json:"supported_api_types"`
-	PlanList                []string                 `json:"plan_list,omitempty"`
-	SupportsCredentials     bool                     `json:"supports_credentials"`
-	CredentialEndpoint      string                   `json:"credential_endpoint,omitempty"`
-	CredentialFields        []credentialField        `json:"credential_fields,omitempty"`
-	CredentialStatusOptions []string                 `json:"credential_status_options,omitempty"`
-	Plugins                 []requestplugin.Manifest `json:"plugins,omitempty"`
-	ModelsTotal             int                      `json:"models_total"`
-	CredentialsTotal        int                      `json:"credentials_total"`
-	CredentialsEnabled      int64                    `json:"credentials_enabled"`
+	Key                             utils.HandlerType                `json:"key"`
+	Label                           string                           `json:"label"`
+	Status                          string                           `json:"status"`
+	SupportedAPI                    []utils.APIType                  `json:"supported_api_types"`
+	PlanList                        []string                         `json:"plan_list,omitempty"`
+	SupportsCredentials             bool                             `json:"supports_credentials"`
+	CredentialEndpoint              string                           `json:"credential_endpoint,omitempty"`
+	CredentialFields                []credentialField                `json:"credential_fields,omitempty"`
+	CredentialStatusOptions         []string                         `json:"credential_status_options,omitempty"`
+	CredentialThrottleStatusOptions []credentialThrottleStatusOption `json:"credential_throttle_status_options,omitempty"`
+	Plugins                         []requestplugin.Manifest         `json:"plugins,omitempty"`
+	ModelsTotal                     int                              `json:"models_total"`
+	CredentialsTotal                int                              `json:"credentials_total"`
+	CredentialsEnabled              int64                            `json:"credentials_enabled"`
 }
 
 type credentialField struct {
@@ -52,6 +53,12 @@ type credentialField struct {
 	HelpText    string `json:"help_text,omitempty"`
 	Optional    bool   `json:"optional,omitempty"`
 	Preferred   bool   `json:"preferred,omitempty"`
+}
+
+type credentialThrottleStatusOption struct {
+	Value  string `json:"value"`
+	Label  string `json:"label"`
+	Metric string `json:"metric"`
 }
 
 func (a *AdminHandler) Overview(c *gin.Context) {
@@ -183,7 +190,11 @@ func defaultHandlerOverview() []handlerOverview {
 					Preferred:   true,
 				},
 			},
-			CredentialStatusOptions: []string{"enabled", "disabled", "throttled"},
+			CredentialStatusOptions: []string{"enabled", "disabled"},
+			CredentialThrottleStatusOptions: []credentialThrottleStatusOption{
+				{Value: "throttled:default", Label: "Default退避", Metric: "default"},
+				{Value: "throttled:spark", Label: "Spark退避", Metric: "spark"},
+			},
 		},
 		{
 			Key:                 utils.HandlerGemini,
@@ -202,7 +213,12 @@ func defaultHandlerOverview() []handlerOverview {
 					Preferred:   true,
 				},
 			},
-			CredentialStatusOptions: []string{"enabled", "disabled", "throttled"},
+			CredentialStatusOptions: []string{"enabled", "disabled"},
+			CredentialThrottleStatusOptions: []credentialThrottleStatusOption{
+				{Value: "throttled:pro", Label: "Pro退避", Metric: "pro"},
+				{Value: "throttled:flash", Label: "Flash退避", Metric: "flash"},
+				{Value: "throttled:flashlite", Label: "Lite退避", Metric: "flashlite"},
+			},
 		},
 		{
 			Key:                 utils.HandlerAntigravity,
@@ -221,7 +237,15 @@ func defaultHandlerOverview() []handlerOverview {
 					Preferred:   true,
 				},
 			},
-			CredentialStatusOptions: []string{"enabled", "disabled", "throttled"},
+			CredentialStatusOptions: []string{"enabled", "disabled"},
+			CredentialThrottleStatusOptions: []credentialThrottleStatusOption{
+				{Value: "throttled:claude", Label: "Claude退避", Metric: "claude"},
+				{Value: "throttled:pro", Label: "Pro退避", Metric: "pro"},
+				{Value: "throttled:flash", Label: "Flash退避", Metric: "flash"},
+				{Value: "throttled:flashlite", Label: "Lite退避", Metric: "flashlite"},
+				{Value: "throttled:tab", Label: "Tab退避", Metric: "tab"},
+				{Value: "throttled:image", Label: "Image退避", Metric: "image"},
+			},
 		},
 	}
 }

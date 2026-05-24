@@ -26,14 +26,27 @@ FROM antigravity a
 LEFT JOIN antigravity_quota q ON q.credential_id = a.id
 WHERE
     (?1 = '' OR LOWER(a.id) LIKE ?1 OR LOWER(a.email) LIKE ?1 OR LOWER(a.status) LIKE ?1 OR LOWER(a.plan_type) LIKE ?1)
-    AND (?2 = '' OR a.status = ?2)
+    AND (
+        ?2 = ''
+        OR (
+            (instr(',' || ?2 || ',', ',enabled,') = 0 OR a.status = 'enabled')
+            AND (instr(',' || ?2 || ',', ',disabled,') = 0 OR a.status = 'disabled')
+            AND (instr(',' || ?2 || ',', ',throttled:all,') = 0 OR q.throttled_until_claude > datetime('now') OR q.throttled_until_pro > datetime('now') OR q.throttled_until_flash > datetime('now') OR q.throttled_until_flashlite > datetime('now') OR q.throttled_until_tab > datetime('now') OR q.throttled_until_image > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:claude,') = 0 OR q.throttled_until_claude > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:pro,') = 0 OR q.throttled_until_pro > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:flash,') = 0 OR q.throttled_until_flash > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:flashlite,') = 0 OR q.throttled_until_flashlite > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:tab,') = 0 OR q.throttled_until_tab > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:image,') = 0 OR q.throttled_until_image > datetime('now'))
+        )
+    )
     AND (?3 = '' OR LOWER(a.plan_type) = LOWER(?3))
     AND (?4 = 0 OR q.synced_at IS NULL OR q.synced_at = '')
 `
 
 type CountAntigravityFilteredParams struct {
 	Search       interface{} `json:"search"`
-	Status       interface{} `json:"status"`
+	Statuses     interface{} `json:"statuses"`
 	PlanType     interface{} `json:"plan_type"`
 	UnsyncedOnly interface{} `json:"unsynced_only"`
 }
@@ -41,7 +54,7 @@ type CountAntigravityFilteredParams struct {
 func (q *Queries) CountAntigravityFiltered(ctx context.Context, arg CountAntigravityFilteredParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countAntigravityFiltered,
 		arg.Search,
-		arg.Status,
+		arg.Statuses,
 		arg.PlanType,
 		arg.UnsyncedOnly,
 	)
@@ -118,21 +131,32 @@ SELECT
     COALESCE(q.reset_image, datetime('now')) AS reset_image,
     COALESCE(c.credits_amount, 0) AS credits_amount,
     COALESCE(c.credit_types, '') AS credit_types,
-    CAST(max(
-        COALESCE(q.throttled_until_claude, datetime('now')),
-        COALESCE(q.throttled_until_pro, datetime('now')),
-        COALESCE(q.throttled_until_flash, datetime('now')),
-        COALESCE(q.throttled_until_flashlite, datetime('now')),
-        COALESCE(q.throttled_until_tab, datetime('now')),
-        COALESCE(q.throttled_until_image, datetime('now'))
-    ) AS TEXT) AS throttled_until,
+    COALESCE(q.throttled_until_claude, '') AS throttled_until_claude,
+    COALESCE(q.throttled_until_pro, '') AS throttled_until_pro,
+    COALESCE(q.throttled_until_flash, '') AS throttled_until_flash,
+    COALESCE(q.throttled_until_flashlite, '') AS throttled_until_flashlite,
+    COALESCE(q.throttled_until_tab, '') AS throttled_until_tab,
+    COALESCE(q.throttled_until_image, '') AS throttled_until_image,
     COALESCE(q.synced_at, '') AS synced_at
 FROM antigravity a
 LEFT JOIN antigravity_quota q ON q.credential_id = a.id
 LEFT JOIN antigravity_credits c ON c.credential_id = a.id
 WHERE
     (?1 = '' OR LOWER(a.id) LIKE ?1 OR LOWER(a.email) LIKE ?1 OR LOWER(a.status) LIKE ?1 OR LOWER(a.plan_type) LIKE ?1)
-    AND (?2 = '' OR a.status = ?2)
+    AND (
+        ?2 = ''
+        OR (
+            (instr(',' || ?2 || ',', ',enabled,') = 0 OR a.status = 'enabled')
+            AND (instr(',' || ?2 || ',', ',disabled,') = 0 OR a.status = 'disabled')
+            AND (instr(',' || ?2 || ',', ',throttled:all,') = 0 OR q.throttled_until_claude > datetime('now') OR q.throttled_until_pro > datetime('now') OR q.throttled_until_flash > datetime('now') OR q.throttled_until_flashlite > datetime('now') OR q.throttled_until_tab > datetime('now') OR q.throttled_until_image > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:claude,') = 0 OR q.throttled_until_claude > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:pro,') = 0 OR q.throttled_until_pro > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:flash,') = 0 OR q.throttled_until_flash > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:flashlite,') = 0 OR q.throttled_until_flashlite > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:tab,') = 0 OR q.throttled_until_tab > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:image,') = 0 OR q.throttled_until_image > datetime('now'))
+        )
+    )
     AND (?3 = '' OR LOWER(a.plan_type) = LOWER(?3))
     AND (?4 = 0 OR q.synced_at IS NULL OR q.synced_at = '')
 ORDER BY a.id
@@ -141,7 +165,7 @@ LIMIT ?6 OFFSET ?5
 
 type ListAntigravityPagedParams struct {
 	Search       interface{} `json:"search"`
-	Status       interface{} `json:"status"`
+	Statuses     interface{} `json:"statuses"`
 	PlanType     interface{} `json:"plan_type"`
 	UnsyncedOnly interface{} `json:"unsynced_only"`
 	PageOffset   int64       `json:"page_offset"`
@@ -149,37 +173,42 @@ type ListAntigravityPagedParams struct {
 }
 
 type ListAntigravityPagedRow struct {
-	ID             string  `json:"id"`
-	Status         string  `json:"status"`
-	AccessToken    string  `json:"access_token"`
-	RefreshToken   string  `json:"refresh_token"`
-	Expired        string  `json:"expired"`
-	Email          string  `json:"email"`
-	ProjectID      string  `json:"project_id"`
-	PlanType       string  `json:"plan_type"`
-	Reason         string  `json:"reason"`
-	QuotaClaude    float64 `json:"quota_claude"`
-	ResetClaude    string  `json:"reset_claude"`
-	QuotaPro       float64 `json:"quota_pro"`
-	ResetPro       string  `json:"reset_pro"`
-	QuotaFlash     float64 `json:"quota_flash"`
-	ResetFlash     string  `json:"reset_flash"`
-	QuotaFlashlite float64 `json:"quota_flashlite"`
-	ResetFlashlite string  `json:"reset_flashlite"`
-	QuotaTab       float64 `json:"quota_tab"`
-	ResetTab       string  `json:"reset_tab"`
-	QuotaImage     float64 `json:"quota_image"`
-	ResetImage     string  `json:"reset_image"`
-	CreditsAmount  float64 `json:"credits_amount"`
-	CreditTypes    string  `json:"credit_types"`
-	ThrottledUntil string  `json:"throttled_until"`
-	SyncedAt       string  `json:"synced_at"`
+	ID                      string  `json:"id"`
+	Status                  string  `json:"status"`
+	AccessToken             string  `json:"access_token"`
+	RefreshToken            string  `json:"refresh_token"`
+	Expired                 string  `json:"expired"`
+	Email                   string  `json:"email"`
+	ProjectID               string  `json:"project_id"`
+	PlanType                string  `json:"plan_type"`
+	Reason                  string  `json:"reason"`
+	QuotaClaude             float64 `json:"quota_claude"`
+	ResetClaude             string  `json:"reset_claude"`
+	QuotaPro                float64 `json:"quota_pro"`
+	ResetPro                string  `json:"reset_pro"`
+	QuotaFlash              float64 `json:"quota_flash"`
+	ResetFlash              string  `json:"reset_flash"`
+	QuotaFlashlite          float64 `json:"quota_flashlite"`
+	ResetFlashlite          string  `json:"reset_flashlite"`
+	QuotaTab                float64 `json:"quota_tab"`
+	ResetTab                string  `json:"reset_tab"`
+	QuotaImage              float64 `json:"quota_image"`
+	ResetImage              string  `json:"reset_image"`
+	CreditsAmount           float64 `json:"credits_amount"`
+	CreditTypes             string  `json:"credit_types"`
+	ThrottledUntilClaude    string  `json:"throttled_until_claude"`
+	ThrottledUntilPro       string  `json:"throttled_until_pro"`
+	ThrottledUntilFlash     string  `json:"throttled_until_flash"`
+	ThrottledUntilFlashlite string  `json:"throttled_until_flashlite"`
+	ThrottledUntilTab       string  `json:"throttled_until_tab"`
+	ThrottledUntilImage     string  `json:"throttled_until_image"`
+	SyncedAt                string  `json:"synced_at"`
 }
 
 func (q *Queries) ListAntigravityPaged(ctx context.Context, arg ListAntigravityPagedParams) ([]ListAntigravityPagedRow, error) {
 	rows, err := q.db.QueryContext(ctx, listAntigravityPaged,
 		arg.Search,
-		arg.Status,
+		arg.Statuses,
 		arg.PlanType,
 		arg.UnsyncedOnly,
 		arg.PageOffset,
@@ -216,7 +245,12 @@ func (q *Queries) ListAntigravityPaged(ctx context.Context, arg ListAntigravityP
 			&i.ResetImage,
 			&i.CreditsAmount,
 			&i.CreditTypes,
-			&i.ThrottledUntil,
+			&i.ThrottledUntilClaude,
+			&i.ThrottledUntilPro,
+			&i.ThrottledUntilFlash,
+			&i.ThrottledUntilFlashlite,
+			&i.ThrottledUntilTab,
+			&i.ThrottledUntilImage,
 			&i.SyncedAt,
 		); err != nil {
 			return nil, err
@@ -238,7 +272,20 @@ FROM antigravity a
 LEFT JOIN antigravity_quota q ON q.credential_id = a.id
 WHERE
     (?1 = '' OR LOWER(a.id) LIKE ?1 OR LOWER(a.email) LIKE ?1 OR LOWER(a.status) LIKE ?1 OR LOWER(a.plan_type) LIKE ?1)
-    AND (?2 = '' OR a.status = ?2)
+    AND (
+        ?2 = ''
+        OR (
+            (instr(',' || ?2 || ',', ',enabled,') = 0 OR a.status = 'enabled')
+            AND (instr(',' || ?2 || ',', ',disabled,') = 0 OR a.status = 'disabled')
+            AND (instr(',' || ?2 || ',', ',throttled:all,') = 0 OR q.throttled_until_claude > datetime('now') OR q.throttled_until_pro > datetime('now') OR q.throttled_until_flash > datetime('now') OR q.throttled_until_flashlite > datetime('now') OR q.throttled_until_tab > datetime('now') OR q.throttled_until_image > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:claude,') = 0 OR q.throttled_until_claude > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:pro,') = 0 OR q.throttled_until_pro > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:flash,') = 0 OR q.throttled_until_flash > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:flashlite,') = 0 OR q.throttled_until_flashlite > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:tab,') = 0 OR q.throttled_until_tab > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:image,') = 0 OR q.throttled_until_image > datetime('now'))
+        )
+    )
     AND (?3 = 0 OR q.synced_at IS NULL OR q.synced_at = '')
     AND TRIM(a.plan_type) <> ''
 ORDER BY plan_type
@@ -246,12 +293,12 @@ ORDER BY plan_type
 
 type ListAntigravityPlanTypesParams struct {
 	Search       interface{} `json:"search"`
-	Status       interface{} `json:"status"`
+	Statuses     interface{} `json:"statuses"`
 	UnsyncedOnly interface{} `json:"unsynced_only"`
 }
 
 func (q *Queries) ListAntigravityPlanTypes(ctx context.Context, arg ListAntigravityPlanTypesParams) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, listAntigravityPlanTypes, arg.Search, arg.Status, arg.UnsyncedOnly)
+	rows, err := q.db.QueryContext(ctx, listAntigravityPlanTypes, arg.Search, arg.Statuses, arg.UnsyncedOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -279,32 +326,32 @@ FROM (
     SELECT q.throttled_until_claude AS deadline
     FROM antigravity a
     JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled' AND q.throttled_until_claude > datetime('now')
+    WHERE a.status <> 'disabled' AND q.throttled_until_claude > datetime('now')
     UNION ALL
     SELECT q.throttled_until_pro AS deadline
     FROM antigravity a
     JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled' AND q.throttled_until_pro > datetime('now')
+    WHERE a.status <> 'disabled' AND q.throttled_until_pro > datetime('now')
     UNION ALL
     SELECT q.throttled_until_flash AS deadline
     FROM antigravity a
     JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled' AND q.throttled_until_flash > datetime('now')
+    WHERE a.status <> 'disabled' AND q.throttled_until_flash > datetime('now')
     UNION ALL
     SELECT q.throttled_until_flashlite AS deadline
     FROM antigravity a
     JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled' AND q.throttled_until_flashlite > datetime('now')
+    WHERE a.status <> 'disabled' AND q.throttled_until_flashlite > datetime('now')
     UNION ALL
     SELECT q.throttled_until_tab AS deadline
     FROM antigravity a
     JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled' AND q.throttled_until_tab > datetime('now')
+    WHERE a.status <> 'disabled' AND q.throttled_until_tab > datetime('now')
     UNION ALL
     SELECT q.throttled_until_image AS deadline
     FROM antigravity a
     JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled' AND q.throttled_until_image > datetime('now')
+    WHERE a.status <> 'disabled' AND q.throttled_until_image > datetime('now')
 )
 `
 
@@ -319,18 +366,6 @@ const restoreExpiredThrottledAntigravity = `-- name: RestoreExpiredThrottledAnti
 UPDATE antigravity
 SET status = 'enabled', reason = ''
 WHERE status = 'throttled'
-  AND id IN (
-    SELECT a.id
-    FROM antigravity a
-    LEFT JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled'
-      AND COALESCE(q.throttled_until_claude, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_pro, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_flash, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_flashlite, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_tab, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_image, datetime('now')) <= datetime('now')
-  )
 `
 
 func (q *Queries) RestoreExpiredThrottledAntigravity(ctx context.Context) error {

@@ -3,13 +3,14 @@ package codex
 import "time"
 
 type CachedQuotaMetric struct {
-	Available bool
-	Quota5h   float64
-	Quota7d   float64
-	Reset5h   time.Time
-	Reset7d   time.Time
-	Score     float64
-	Weight    float64
+	Available      bool
+	Quota5h        float64
+	Quota7d        float64
+	Reset5h        time.Time
+	Reset7d        time.Time
+	ThrottledUntil time.Time
+	Score          float64
+	Weight         float64
 }
 
 type CachedQuotaSnapshot struct {
@@ -18,7 +19,7 @@ type CachedQuotaSnapshot struct {
 }
 
 func (s *Scheduler) CachedQuota(id string) (CachedQuotaSnapshot, bool) {
-	if s == nil || id == "" {
+	if id == "" {
 		return CachedQuotaSnapshot{}, false
 	}
 	snap := s.available.Load()
@@ -31,22 +32,24 @@ func (s *Scheduler) CachedQuota(id string) (CachedQuotaSnapshot, bool) {
 		}
 		return CachedQuotaSnapshot{
 			Default: CachedQuotaMetric{
-				Available: row.Score >= 0,
-				Quota5h:   row.Quota5h,
-				Quota7d:   row.Quota7d,
-				Reset5h:   row.Reset5h,
-				Reset7d:   row.Reset7d,
-				Score:     row.Score,
-				Weight:    row.Weight,
+				Available:      row.Score >= 0,
+				Quota5h:        row.Quota5h,
+				Quota7d:        row.Quota7d,
+				Reset5h:        row.Reset5h,
+				Reset7d:        row.Reset7d,
+				ThrottledUntil: row.ThrottledUntil,
+				Score:          row.Score,
+				Weight:         row.Weight,
 			},
 			Spark: CachedQuotaMetric{
-				Available: row.ScoreSpark >= 0,
-				Quota5h:   row.QuotaSpark5h,
-				Quota7d:   row.QuotaSpark7d,
-				Reset5h:   row.ResetSpark5h,
-				Reset7d:   row.ResetSpark7d,
-				Score:     row.ScoreSpark,
-				Weight:    row.WeightSpark,
+				Available:      row.ScoreSpark >= 0,
+				Quota5h:        row.QuotaSpark5h,
+				Quota7d:        row.QuotaSpark7d,
+				Reset5h:        row.ResetSpark5h,
+				Reset7d:        row.ResetSpark7d,
+				ThrottledUntil: row.ThrottledUntilSpark,
+				Score:          row.ScoreSpark,
+				Weight:         row.WeightSpark,
 			},
 		}, true
 	}

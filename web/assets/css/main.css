@@ -769,7 +769,10 @@ pre {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
-.stack-list,
+.stack-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+}
+
 .model-grid,
 .key-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
@@ -784,10 +787,15 @@ pre {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
-.detail-grid,
 .quota-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 12px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
   gap: 12px;
 }
 
@@ -854,6 +862,58 @@ pre {
 .filter-select {
   flex: 0 0 188px;
   align-self: start;
+}
+
+.status-filter-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.throttle-filter-group {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+}
+
+.throttle-filter-children {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.throttle-chip-toggle {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  margin-inline-start: 4px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+
+.throttle-chip-toggle .v-icon {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+}
+
+.throttle-chip-toggle .v-icon__svg {
+  display: block;
+}
+
+.throttle-chip-toggle:hover,
+.throttle-chip-toggle:focus-visible {
+  background: rgba(var(--v-theme-on-surface), 0.1);
+  outline: none;
 }
 
 .v-overlay-container .admin-select-menu {
@@ -1017,12 +1077,19 @@ pre {
   background: rgba(var(--v-theme-surface-container-high), 0.76);
 }
 
+.quota-card {
+  position: relative;
+  container-type: inline-size;
+  min-width: 0;
+}
+
 .stack-card-body,
 .key-card-body {
   display: grid;
   gap: 16px;
   padding: 18px !important;
   min-width: 0;
+  container-type: inline-size;
 }
 
 .stack-card-copy,
@@ -1076,14 +1143,111 @@ pre {
 }
 
 .detail-value,
-.quota-caption {
+.quota-footer {
   line-height: 1.6;
   word-break: break-word;
+}
+
+.quota-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.quota-caption {
+  display: flex;
+  flex: 1 1 13rem;
+  flex-wrap: nowrap;
+  gap: 4px 12px;
+  align-items: center;
+  min-width: min(100%, 13rem);
+  overflow: visible;
+}
+
+.quota-caption > span {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.quota-caption-text {
+  display: inline-block;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.quota-caption > span + span::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -7px;
+  width: 1px;
+  height: 14px;
+  transform: translateY(-50%);
+  background: rgba(var(--v-theme-outline), 0.28);
 }
 
 .quota-value {
   font-size: 0.875rem;
   white-space: nowrap;
+}
+
+.quota-score {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  padding: 3px 8px;
+  border: 1px solid rgba(var(--v-theme-outline), 0.2);
+  border-radius: 999px;
+  background: rgba(var(--v-theme-surface-container-highest), 0.92);
+  box-shadow: 0 1px 2px rgba(var(--v-theme-shadow), 0.08);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: rgb(var(--v-theme-on-surface));
+  white-space: nowrap;
+}
+
+.quota-footer:has(.quota-caption > span + span) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.quota-footer:has(.quota-caption > span + span) .quota-caption {
+  display: grid;
+  flex: 1 1 14rem;
+  min-width: min(100%, 14rem);
+  gap: 2px;
+  overflow: visible;
+}
+
+.quota-footer:has(.quota-caption > span + span) .quota-caption > span {
+  display: block;
+}
+
+.quota-footer:has(.quota-caption > span + span) .quota-caption-text {
+  display: block;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.quota-footer:has(.quota-caption > span + span) .quota-caption > span + span::before {
+  content: none;
+}
+
+.quota-footer:has(.quota-caption > span + span) .quota-score {
+  align-self: center;
+  margin-inline-start: auto;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* --- Disabled reason block --- */
@@ -1606,8 +1770,7 @@ pre {
     justify-content: flex-start;
   }
 
-  .detail-grid,
-  .quota-grid {
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 

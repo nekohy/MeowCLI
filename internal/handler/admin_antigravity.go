@@ -19,23 +19,22 @@ import (
 )
 
 type antigravityListItem struct {
-	Handler        string                `json:"handler"`
-	ID             string                `json:"id"`
-	Status         string                `json:"status"`
-	Email          string                `json:"email"`
-	ProjectID      string                `json:"project_id"`
-	PlanType       string                `json:"plan_type"`
-	Expired        time.Time             `json:"expired"`
-	Reason         string                `json:"reason"`
-	ThrottledUntil time.Time             `json:"throttled_until"`
-	SyncedAt       time.Time             `json:"synced_at"`
-	Claude         quotaSchedulingMetric `json:"claude"`
-	Pro            quotaSchedulingMetric `json:"pro"`
-	Flash          quotaSchedulingMetric `json:"flash"`
-	Flashlite      quotaSchedulingMetric `json:"flashlite"`
-	Tab            quotaSchedulingMetric `json:"tab"`
-	Image          quotaSchedulingMetric `json:"image"`
-	Credits        antigravityCredits    `json:"credits"`
+	Handler   string                `json:"handler"`
+	ID        string                `json:"id"`
+	Status    []string              `json:"status"`
+	Email     string                `json:"email"`
+	ProjectID string                `json:"project_id"`
+	PlanType  string                `json:"plan_type"`
+	Expired   time.Time             `json:"expired"`
+	Reason    string                `json:"reason"`
+	SyncedAt  time.Time             `json:"synced_at"`
+	Claude    quotaSchedulingMetric `json:"claude"`
+	Pro       quotaSchedulingMetric `json:"pro"`
+	Flash     quotaSchedulingMetric `json:"flash"`
+	Flashlite quotaSchedulingMetric `json:"flashlite"`
+	Tab       quotaSchedulingMetric `json:"tab"`
+	Image     quotaSchedulingMetric `json:"image"`
+	Credits   antigravityCredits    `json:"credits"`
 }
 
 type antigravityCredits struct {
@@ -76,16 +75,21 @@ func (a *AdminHandler) ListAntigravity(c *gin.Context) {
 }
 
 func antigravityCredentialFiltersFromRequest(c *gin.Context) db.CredentialFilterParams {
-	status := strings.TrimSpace(c.Query("status"))
-	if status != "enabled" && status != "disabled" && status != "throttled" {
-		status = ""
-	}
 	return db.CredentialFilterParams{
 		Search:   strings.TrimSpace(c.Query("search")),
-		Status:   status,
+		Statuses: credentialStatusesFromRequest(c, antigravityThrottleStatusTiers),
 		PlanType: utils.NormalizeCodeAssistPlanType(c.Query("plan_type")),
 	}
 }
+
+var antigravityThrottleStatusTiers = stringSet(
+	coreantigravity.ModelTierClaude,
+	coreantigravity.ModelTierPro,
+	coreantigravity.ModelTierFlash,
+	coreantigravity.ModelTierFlashLite,
+	coreantigravity.ModelTierTab,
+	coreantigravity.ModelTierImage,
+)
 
 func (a *AdminHandler) BatchCreateAntigravity(c *gin.Context) {
 	if a == nil || a.antigravityAPI == nil {
@@ -113,59 +117,14 @@ func (a *AdminHandler) BatchCreateAntigravity(c *gin.Context) {
 }
 
 func (a *AdminHandler) BatchUpdateAntigravityStatus(c *gin.Context) {
-	var req batchUpdateStatusReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx := c.Request.Context()
-	updated := make([]string, 0, len(req.IDs))
-	errs := make([]batchError, 0)
-	for _, id := range req.IDs {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		_, err := a.store.UpdateAntigravityStatus(ctx, id, req.Status, "")
-		if err != nil {
-			errs = append(errs, batchError{Input: id, Error: storeErrorMessage(err, "credential not found", "")})
-			continue
-		}
-		updated = append(updated, id)
-	}
-
-	a.refreshCredentials(ctx, utils.HandlerAntigravity, updated)
-	if req.Status == "enabled" {
-		a.syncCredentialQuotas(ctx, utils.HandlerAntigravity, updated)
-	}
-	c.JSON(http.StatusOK, gin.H{"updated": updated, "errors": errs})
+	a.batchUpdateCredentialStatus(c, utils.HandlerAntigravity, func(ctx context.Context, id, status, reason string) error {
+		_, err := a.store.UpdateAntigravityStatus(ctx, id, status, reason)
+		return err
+	})
 }
 
 func (a *AdminHandler) BatchDeleteAntigravity(c *gin.Context) {
-	var req batchDeleteReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx := c.Request.Context()
-	deleted := make([]string, 0, len(req.IDs))
-	errs := make([]batchError, 0)
-	for _, id := range req.IDs {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		if err := a.store.DeleteAntigravity(ctx, id); err != nil {
-			errs = append(errs, batchError{Input: id, Error: storeErrorMessage(err, "credential not found", "")})
-			continue
-		}
-		deleted = append(deleted, id)
-	}
-
-	a.refreshCredentials(ctx, utils.HandlerAntigravity, deleted)
-	c.JSON(http.StatusOK, gin.H{"deleted": deleted, "errors": errs})
+	a.batchDeleteCredentials(c, utils.HandlerAntigravity, a.store.DeleteAntigravity)
 }
 
 func (a *AdminHandler) listAntigravityCredentials(ctx context.Context, page, pageSize int, filters db.CredentialFilterParams, sortOptions credentialSortOptions) (int64, []antigravityListItem, error) {
@@ -261,57 +220,69 @@ func (a *AdminHandler) listAntigravityCredentials(ctx context.Context, page, pag
 		wImage := scheduling.CalcWeight(erImage)
 
 		items[i] = antigravityListItem{
-			Handler:        string(utils.HandlerAntigravity),
-			ID:             row.ID,
-			Status:         row.Status,
-			Email:          row.Email,
-			ProjectID:      row.ProjectID,
-			PlanType:       utils.NormalizeCodeAssistPlanType(row.PlanType),
-			Expired:        row.Expired,
-			Reason:         row.Reason,
-			ThrottledUntil: row.ThrottledUntil,
-			SyncedAt:       row.SyncedAt,
+			Handler: string(utils.HandlerAntigravity),
+			ID:      row.ID,
+			Status: credentialStatusList(row.Status,
+				throttleStatusDeadline{Tier: coreantigravity.ModelTierClaude, Deadline: row.ThrottledUntilClaude},
+				throttleStatusDeadline{Tier: coreantigravity.ModelTierPro, Deadline: row.ThrottledUntilPro},
+				throttleStatusDeadline{Tier: coreantigravity.ModelTierFlash, Deadline: row.ThrottledUntilFlash},
+				throttleStatusDeadline{Tier: coreantigravity.ModelTierFlashLite, Deadline: row.ThrottledUntilFlashlite},
+				throttleStatusDeadline{Tier: coreantigravity.ModelTierTab, Deadline: row.ThrottledUntilTab},
+				throttleStatusDeadline{Tier: coreantigravity.ModelTierImage, Deadline: row.ThrottledUntilImage},
+			),
+			Email:     row.Email,
+			ProjectID: row.ProjectID,
+			PlanType:  utils.NormalizeCodeAssistPlanType(row.PlanType),
+			Expired:   row.Expired,
+			Reason:    row.Reason,
+			SyncedAt:  row.SyncedAt,
 			Claude: quotaSchedulingMetric{
-				Available: scoreClaude >= 0,
-				Quota:     row.QuotaClaude,
-				Reset:     row.ResetClaude,
-				Score:     scoreClaude,
-				Weight:    wClaude,
+				Available:      scoreClaude >= 0,
+				Quota:          row.QuotaClaude,
+				Reset:          row.ResetClaude,
+				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilClaude),
+				Score:          scoreClaude,
+				Weight:         wClaude,
 			},
 			Pro: quotaSchedulingMetric{
-				Available: scorePro >= 0,
-				Quota:     row.QuotaPro,
-				Reset:     row.ResetPro,
-				Score:     scorePro,
-				Weight:    wPro,
+				Available:      scorePro >= 0,
+				Quota:          row.QuotaPro,
+				Reset:          row.ResetPro,
+				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilPro),
+				Score:          scorePro,
+				Weight:         wPro,
 			},
 			Flash: quotaSchedulingMetric{
-				Available: scoreFlash >= 0,
-				Quota:     row.QuotaFlash,
-				Reset:     row.ResetFlash,
-				Score:     scoreFlash,
-				Weight:    wFlash,
+				Available:      scoreFlash >= 0,
+				Quota:          row.QuotaFlash,
+				Reset:          row.ResetFlash,
+				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilFlash),
+				Score:          scoreFlash,
+				Weight:         wFlash,
 			},
 			Flashlite: quotaSchedulingMetric{
-				Available: scoreFlashlite >= 0,
-				Quota:     row.QuotaFlashlite,
-				Reset:     row.ResetFlashlite,
-				Score:     scoreFlashlite,
-				Weight:    wFlashlite,
+				Available:      scoreFlashlite >= 0,
+				Quota:          row.QuotaFlashlite,
+				Reset:          row.ResetFlashlite,
+				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilFlashlite),
+				Score:          scoreFlashlite,
+				Weight:         wFlashlite,
 			},
 			Tab: quotaSchedulingMetric{
-				Available: scoreTab >= 0,
-				Quota:     row.QuotaTab,
-				Reset:     row.ResetTab,
-				Score:     scoreTab,
-				Weight:    wTab,
+				Available:      scoreTab >= 0,
+				Quota:          row.QuotaTab,
+				Reset:          row.ResetTab,
+				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilTab),
+				Score:          scoreTab,
+				Weight:         wTab,
 			},
 			Image: quotaSchedulingMetric{
-				Available: scoreImage >= 0,
-				Quota:     row.QuotaImage,
-				Reset:     row.ResetImage,
-				Score:     scoreImage,
-				Weight:    wImage,
+				Available:      scoreImage >= 0,
+				Quota:          row.QuotaImage,
+				Reset:          row.ResetImage,
+				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilImage),
+				Score:          scoreImage,
+				Weight:         wImage,
 			},
 			Credits: antigravityCredits{
 				Available: row.CreditsAmount > 0 && strings.TrimSpace(row.CreditTypes) != "",

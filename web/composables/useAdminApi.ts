@@ -16,7 +16,6 @@ import type {
   SetupResult,
   StatusResponse,
 } from '~/types/admin'
-import type { KnownCredentialStatus } from '~/lib/credentialStatus'
 
 const PRIMARY_TOKEN_KEY = 'meowcli_admin_token'
 
@@ -38,7 +37,7 @@ interface RequestOptions {
   token?: string
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
-  query?: Record<string, string | number | boolean | undefined | null>
+  query?: Record<string, string | number | boolean | string[] | undefined | null>
 }
 
 type QueryOptions = NonNullable<RequestOptions['query']>
@@ -47,6 +46,12 @@ function buildUrl(path: string, query?: RequestOptions['query']) {
   const url = new URL(`/admin/api${path}`, window.location.origin)
   if (query) {
     Object.entries(query).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        if (value.length) {
+          url.searchParams.set(key, value.join(','))
+        }
+        return
+      }
       if (value !== undefined && value !== null && value !== '') {
         url.searchParams.set(key, String(value))
       }
@@ -121,7 +126,7 @@ type CredentialQuery = {
   page: number
   pageSize: number
   search?: string
-  status?: KnownCredentialStatus
+  status?: string[]
   planType?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'

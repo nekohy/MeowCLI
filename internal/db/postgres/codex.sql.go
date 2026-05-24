@@ -28,14 +28,23 @@ FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE
     ($1 = '' OR LOWER(c.id) LIKE $1 OR LOWER(c.status) LIKE $1 OR LOWER(c.plan_type) LIKE $1)
-    AND ($2 = '' OR c.status = $2)
+    AND (
+        $2 = ''
+        OR (
+            (strpos(',' || $2 || ',', ',enabled,') = 0 OR c.status = 'enabled')
+            AND (strpos(',' || $2 || ',', ',disabled,') = 0 OR c.status = 'disabled')
+            AND (strpos(',' || $2 || ',', ',throttled:all,') = 0 OR q.throttled_until > NOW() OR q.throttled_until_spark > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:default,') = 0 OR q.throttled_until > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:spark,') = 0 OR q.throttled_until_spark > NOW())
+        )
+    )
     AND ($3 = '' OR LOWER(c.plan_type) = LOWER($3))
     AND ((NOT $4::boolean) OR q.synced_at IS NULL OR q.synced_at <= '0001-01-01'::timestamptz)
 `
 
 type CountCodexFilteredParams struct {
 	Search       interface{} `json:"search"`
-	Status       interface{} `json:"status"`
+	Statuses     interface{} `json:"statuses"`
 	PlanType     interface{} `json:"plan_type"`
 	UnsyncedOnly bool        `json:"unsynced_only"`
 }
@@ -43,7 +52,7 @@ type CountCodexFilteredParams struct {
 func (q *Queries) CountCodexFiltered(ctx context.Context, arg CountCodexFilteredParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countCodexFiltered,
 		arg.Search,
-		arg.Status,
+		arg.Statuses,
 		arg.PlanType,
 		arg.UnsyncedOnly,
 	)
@@ -147,7 +156,8 @@ SELECT
     COALESCE(q.reset_7d, '0001-01-01'::timestamptz) AS reset_7d,
     COALESCE(q.reset_spark_5h, '0001-01-01'::timestamptz) AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '0001-01-01'::timestamptz) AS reset_spark_7d,
-    GREATEST(COALESCE(q.throttled_until, '0001-01-01'::timestamptz), COALESCE(q.throttled_until_spark, '0001-01-01'::timestamptz))::timestamptz AS throttled_until,
+    COALESCE(q.throttled_until, '0001-01-01'::timestamptz) AS throttled_until_default,
+    COALESCE(q.throttled_until_spark, '0001-01-01'::timestamptz) AS throttled_until_spark,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
@@ -155,23 +165,24 @@ ORDER BY c.id
 `
 
 type ListCodexRow struct {
-	ID             string             `json:"id"`
-	Status         string             `json:"status"`
-	AccessToken    string             `json:"access_token"`
-	Expired        pgtype.Timestamptz `json:"expired"`
-	RefreshToken   string             `json:"refresh_token"`
-	PlanType       string             `json:"plan_type"`
-	Reason         string             `json:"reason"`
-	Quota5h        float64            `json:"quota_5h"`
-	Quota7d        float64            `json:"quota_7d"`
-	QuotaSpark5h   float64            `json:"quota_spark_5h"`
-	QuotaSpark7d   float64            `json:"quota_spark_7d"`
-	Reset5h        pgtype.Timestamptz `json:"reset_5h"`
-	Reset7d        pgtype.Timestamptz `json:"reset_7d"`
-	ResetSpark5h   pgtype.Timestamptz `json:"reset_spark_5h"`
-	ResetSpark7d   pgtype.Timestamptz `json:"reset_spark_7d"`
-	ThrottledUntil pgtype.Timestamptz `json:"throttled_until"`
-	SyncedAt       pgtype.Timestamptz `json:"synced_at"`
+	ID                    string             `json:"id"`
+	Status                string             `json:"status"`
+	AccessToken           string             `json:"access_token"`
+	Expired               pgtype.Timestamptz `json:"expired"`
+	RefreshToken          string             `json:"refresh_token"`
+	PlanType              string             `json:"plan_type"`
+	Reason                string             `json:"reason"`
+	Quota5h               float64            `json:"quota_5h"`
+	Quota7d               float64            `json:"quota_7d"`
+	QuotaSpark5h          float64            `json:"quota_spark_5h"`
+	QuotaSpark7d          float64            `json:"quota_spark_7d"`
+	Reset5h               pgtype.Timestamptz `json:"reset_5h"`
+	Reset7d               pgtype.Timestamptz `json:"reset_7d"`
+	ResetSpark5h          pgtype.Timestamptz `json:"reset_spark_5h"`
+	ResetSpark7d          pgtype.Timestamptz `json:"reset_spark_7d"`
+	ThrottledUntilDefault pgtype.Timestamptz `json:"throttled_until_default"`
+	ThrottledUntilSpark   pgtype.Timestamptz `json:"throttled_until_spark"`
+	SyncedAt              pgtype.Timestamptz `json:"synced_at"`
 }
 
 func (q *Queries) ListCodex(ctx context.Context) ([]ListCodexRow, error) {
@@ -199,7 +210,8 @@ func (q *Queries) ListCodex(ctx context.Context) ([]ListCodexRow, error) {
 			&i.Reset7d,
 			&i.ResetSpark5h,
 			&i.ResetSpark7d,
-			&i.ThrottledUntil,
+			&i.ThrottledUntilDefault,
+			&i.ThrottledUntilSpark,
 			&i.SyncedAt,
 		); err != nil {
 			return nil, err
@@ -223,13 +235,23 @@ SELECT
     COALESCE(q.reset_7d, '0001-01-01'::timestamptz) AS reset_7d,
     COALESCE(q.reset_spark_5h, '0001-01-01'::timestamptz) AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '0001-01-01'::timestamptz) AS reset_spark_7d,
-    GREATEST(COALESCE(q.throttled_until, '0001-01-01'::timestamptz), COALESCE(q.throttled_until_spark, '0001-01-01'::timestamptz))::timestamptz AS throttled_until,
+    COALESCE(q.throttled_until, '0001-01-01'::timestamptz) AS throttled_until_default,
+    COALESCE(q.throttled_until_spark, '0001-01-01'::timestamptz) AS throttled_until_spark,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE
     ($1 = '' OR LOWER(c.id) LIKE $1 OR LOWER(c.status) LIKE $1 OR LOWER(c.plan_type) LIKE $1)
-    AND ($2 = '' OR c.status = $2)
+    AND (
+        $2 = ''
+        OR (
+            (strpos(',' || $2 || ',', ',enabled,') = 0 OR c.status = 'enabled')
+            AND (strpos(',' || $2 || ',', ',disabled,') = 0 OR c.status = 'disabled')
+            AND (strpos(',' || $2 || ',', ',throttled:all,') = 0 OR q.throttled_until > NOW() OR q.throttled_until_spark > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:default,') = 0 OR q.throttled_until > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:spark,') = 0 OR q.throttled_until_spark > NOW())
+        )
+    )
     AND ($3 = '' OR LOWER(c.plan_type) = LOWER($3))
     AND ((NOT $4::boolean) OR q.synced_at IS NULL OR q.synced_at <= '0001-01-01'::timestamptz)
 ORDER BY c.id
@@ -238,7 +260,7 @@ LIMIT $6 OFFSET $5
 
 type ListCodexPagedParams struct {
 	Search       interface{} `json:"search"`
-	Status       interface{} `json:"status"`
+	Statuses     interface{} `json:"statuses"`
 	PlanType     interface{} `json:"plan_type"`
 	UnsyncedOnly bool        `json:"unsynced_only"`
 	PageOffset   int32       `json:"page_offset"`
@@ -246,29 +268,30 @@ type ListCodexPagedParams struct {
 }
 
 type ListCodexPagedRow struct {
-	ID             string             `json:"id"`
-	Status         string             `json:"status"`
-	AccessToken    string             `json:"access_token"`
-	Expired        pgtype.Timestamptz `json:"expired"`
-	RefreshToken   string             `json:"refresh_token"`
-	PlanType       string             `json:"plan_type"`
-	Reason         string             `json:"reason"`
-	Quota5h        float64            `json:"quota_5h"`
-	Quota7d        float64            `json:"quota_7d"`
-	QuotaSpark5h   float64            `json:"quota_spark_5h"`
-	QuotaSpark7d   float64            `json:"quota_spark_7d"`
-	Reset5h        pgtype.Timestamptz `json:"reset_5h"`
-	Reset7d        pgtype.Timestamptz `json:"reset_7d"`
-	ResetSpark5h   pgtype.Timestamptz `json:"reset_spark_5h"`
-	ResetSpark7d   pgtype.Timestamptz `json:"reset_spark_7d"`
-	ThrottledUntil pgtype.Timestamptz `json:"throttled_until"`
-	SyncedAt       pgtype.Timestamptz `json:"synced_at"`
+	ID                    string             `json:"id"`
+	Status                string             `json:"status"`
+	AccessToken           string             `json:"access_token"`
+	Expired               pgtype.Timestamptz `json:"expired"`
+	RefreshToken          string             `json:"refresh_token"`
+	PlanType              string             `json:"plan_type"`
+	Reason                string             `json:"reason"`
+	Quota5h               float64            `json:"quota_5h"`
+	Quota7d               float64            `json:"quota_7d"`
+	QuotaSpark5h          float64            `json:"quota_spark_5h"`
+	QuotaSpark7d          float64            `json:"quota_spark_7d"`
+	Reset5h               pgtype.Timestamptz `json:"reset_5h"`
+	Reset7d               pgtype.Timestamptz `json:"reset_7d"`
+	ResetSpark5h          pgtype.Timestamptz `json:"reset_spark_5h"`
+	ResetSpark7d          pgtype.Timestamptz `json:"reset_spark_7d"`
+	ThrottledUntilDefault pgtype.Timestamptz `json:"throttled_until_default"`
+	ThrottledUntilSpark   pgtype.Timestamptz `json:"throttled_until_spark"`
+	SyncedAt              pgtype.Timestamptz `json:"synced_at"`
 }
 
 func (q *Queries) ListCodexPaged(ctx context.Context, arg ListCodexPagedParams) ([]ListCodexPagedRow, error) {
 	rows, err := q.db.Query(ctx, listCodexPaged,
 		arg.Search,
-		arg.Status,
+		arg.Statuses,
 		arg.PlanType,
 		arg.UnsyncedOnly,
 		arg.PageOffset,
@@ -297,7 +320,8 @@ func (q *Queries) ListCodexPaged(ctx context.Context, arg ListCodexPagedParams) 
 			&i.Reset7d,
 			&i.ResetSpark5h,
 			&i.ResetSpark7d,
-			&i.ThrottledUntil,
+			&i.ThrottledUntilDefault,
+			&i.ThrottledUntilSpark,
 			&i.SyncedAt,
 		); err != nil {
 			return nil, err
@@ -316,7 +340,16 @@ FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE
     ($1 = '' OR LOWER(c.id) LIKE $1 OR LOWER(c.status) LIKE $1 OR LOWER(c.plan_type) LIKE $1)
-    AND ($2 = '' OR c.status = $2)
+    AND (
+        $2 = ''
+        OR (
+            (strpos(',' || $2 || ',', ',enabled,') = 0 OR c.status = 'enabled')
+            AND (strpos(',' || $2 || ',', ',disabled,') = 0 OR c.status = 'disabled')
+            AND (strpos(',' || $2 || ',', ',throttled:all,') = 0 OR q.throttled_until > NOW() OR q.throttled_until_spark > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:default,') = 0 OR q.throttled_until > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:spark,') = 0 OR q.throttled_until_spark > NOW())
+        )
+    )
     AND ((NOT $3::boolean) OR q.synced_at IS NULL OR q.synced_at <= '0001-01-01'::timestamptz)
     AND TRIM(c.plan_type) <> ''
 ORDER BY plan_type
@@ -324,12 +357,12 @@ ORDER BY plan_type
 
 type ListCodexPlanTypesParams struct {
 	Search       interface{} `json:"search"`
-	Status       interface{} `json:"status"`
+	Statuses     interface{} `json:"statuses"`
 	UnsyncedOnly bool        `json:"unsynced_only"`
 }
 
 func (q *Queries) ListCodexPlanTypes(ctx context.Context, arg ListCodexPlanTypesParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, listCodexPlanTypes, arg.Search, arg.Status, arg.UnsyncedOnly)
+	rows, err := q.db.Query(ctx, listCodexPlanTypes, arg.Search, arg.Statuses, arg.UnsyncedOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -354,12 +387,12 @@ FROM (
     SELECT q.throttled_until AS deadline
     FROM codex c
     JOIN codex_quota q ON q.credential_id = c.id
-    WHERE c.status = 'throttled' AND q.throttled_until > NOW()
+    WHERE c.status <> 'disabled' AND q.throttled_until > NOW()
     UNION ALL
     SELECT q.throttled_until_spark AS deadline
     FROM codex c
     JOIN codex_quota q ON q.credential_id = c.id
-    WHERE c.status = 'throttled' AND q.throttled_until_spark > NOW()
+    WHERE c.status <> 'disabled' AND q.throttled_until_spark > NOW()
 ) deadlines
 `
 
@@ -374,14 +407,6 @@ const restoreExpiredThrottledCodex = `-- name: RestoreExpiredThrottledCodex :exe
 UPDATE codex
 SET status = 'enabled', reason = ''
 WHERE status = 'throttled'
-  AND id IN (
-    SELECT c.id
-    FROM codex c
-    LEFT JOIN codex_quota q ON q.credential_id = c.id
-    WHERE c.status = 'throttled'
-      AND COALESCE(q.throttled_until, NOW()) <= NOW()
-      AND COALESCE(q.throttled_until_spark, NOW()) <= NOW()
-  )
 `
 
 func (q *Queries) RestoreExpiredThrottledCodex(ctx context.Context) error {

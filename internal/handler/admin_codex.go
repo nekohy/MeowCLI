@@ -25,16 +25,15 @@ type batchError struct {
 }
 
 type codexListItem struct {
-	Handler        string                `json:"handler"`
-	ID             string                `json:"id"`
-	Status         string                `json:"status"`
-	Expired        time.Time             `json:"expired"`
-	PlanType       string                `json:"plan_type"`
-	Reason         string                `json:"reason"`
-	ThrottledUntil time.Time             `json:"throttled_until"`
-	SyncedAt       time.Time             `json:"synced_at"`
-	Default        codexSchedulingMetric `json:"default"`
-	Spark          codexSchedulingMetric `json:"spark"`
+	Handler  string                `json:"handler"`
+	ID       string                `json:"id"`
+	Status   []string              `json:"status"`
+	Expired  time.Time             `json:"expired"`
+	PlanType string                `json:"plan_type"`
+	Reason   string                `json:"reason"`
+	SyncedAt time.Time             `json:"synced_at"`
+	Default  codexSchedulingMetric `json:"default"`
+	Spark    codexSchedulingMetric `json:"spark"`
 }
 
 func (a *AdminHandler) ListCodex(c *gin.Context) {
@@ -97,15 +96,12 @@ func credentialPlanTypeFilter(filters db.CredentialFilterParams) db.CredentialFi
 	return filters
 }
 
-func codexFiltersFromRequest(c *gin.Context) db.CredentialFilterParams {
-	status := strings.TrimSpace(c.Query("status"))
-	if status != "enabled" && status != "disabled" && status != "throttled" {
-		status = ""
-	}
+var codexThrottleStatusTiers = stringSet(corecodex.ModelTierDefault, corecodex.ModelTierSpark)
 
+func codexFiltersFromRequest(c *gin.Context) db.CredentialFilterParams {
 	return db.CredentialFilterParams{
 		Search:       strings.TrimSpace(c.Query("search")),
-		Status:       status,
+		Statuses:     credentialStatusesFromRequest(c, codexThrottleStatusTiers),
 		PlanType:     corecodex.NormalizePlanType(c.Query("plan_type")),
 		UnsyncedOnly: c.Query("unsynced") == "true",
 	}
@@ -244,75 +240,14 @@ func (a *AdminHandler) upsertCodexFromTokenData(ctx context.Context, accessToken
 }
 
 func (a *AdminHandler) BatchUpdateStatus(c *gin.Context) {
-	var req batchUpdateStatusReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx := c.Request.Context()
-	updated := make([]string, 0, len(req.IDs))
-	errs := make([]batchError, 0)
-
-	for _, id := range req.IDs {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-
-		_, err := a.store.UpdateCodexStatus(ctx, id, req.Status, "")
-		if err != nil {
-			errs = append(errs, batchError{
-				Input: id,
-				Error: storeErrorMessage(err, "credential not found", ""),
-			})
-			continue
-		}
-		updated = append(updated, id)
-	}
-
-	a.refreshCredentials(ctx, utils.HandlerCodex, updated)
-	if req.Status == "enabled" {
-		a.syncCredentialQuotas(ctx, utils.HandlerCodex, updated)
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"updated": updated,
-		"errors":  errs,
+	a.batchUpdateCredentialStatus(c, utils.HandlerCodex, func(ctx context.Context, id, status, reason string) error {
+		_, err := a.store.UpdateCodexStatus(ctx, id, status, reason)
+		return err
 	})
 }
 
 func (a *AdminHandler) BatchDeleteCodex(c *gin.Context) {
-	var req batchDeleteReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx := c.Request.Context()
-	deleted := make([]string, 0, len(req.IDs))
-	errs := make([]batchError, 0)
-
-	for _, id := range req.IDs {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-
-		if err := a.store.DeleteCodex(ctx, id); err != nil {
-			errs = append(errs, batchError{
-				Input: id,
-				Error: storeErrorMessage(err, "credential not found", ""),
-			})
-			continue
-		}
-		deleted = append(deleted, id)
-	}
-
-	a.refreshCredentials(ctx, utils.HandlerCodex, deleted)
-	c.JSON(http.StatusOK, gin.H{
-		"deleted": deleted,
-		"errors":  errs,
-	})
+	a.batchDeleteCredentials(c, utils.HandlerCodex, a.store.DeleteCodex)
 }
 
 func (a *AdminHandler) serializeCodexRows(ctx context.Context, rows []db.ListCodexRow) []codexListItem {
@@ -352,31 +287,35 @@ func (a *AdminHandler) serializeCodexRows(ctx context.Context, rows []db.ListCod
 		wSpark := scheduling.CalcWeight(erSpark)
 
 		items = append(items, codexListItem{
-			Handler:        string(utils.HandlerCodex),
-			ID:             row.ID,
-			Status:         row.Status,
-			Expired:        row.Expired,
-			PlanType:       corecodex.NormalizePlanType(row.PlanType),
-			Reason:         row.Reason,
-			ThrottledUntil: row.ThrottledUntil,
-			SyncedAt:       row.SyncedAt,
+			Handler: string(utils.HandlerCodex),
+			ID:      row.ID,
+			Status: credentialStatusList(row.Status,
+				throttleStatusDeadline{Tier: corecodex.ModelTierDefault, Deadline: row.ThrottledUntilDefault},
+				throttleStatusDeadline{Tier: corecodex.ModelTierSpark, Deadline: row.ThrottledUntilSpark},
+			),
+			Expired:  row.Expired,
+			PlanType: corecodex.NormalizePlanType(row.PlanType),
+			Reason:   row.Reason,
+			SyncedAt: row.SyncedAt,
 			Default: codexSchedulingMetric{
-				Available: score >= 0,
-				Quota5h:   row.Quota5h,
-				Quota7d:   row.Quota7d,
-				Reset5h:   row.Reset5h,
-				Reset7d:   row.Reset7d,
-				Score:     score,
-				Weight:    w,
+				Available:      score >= 0,
+				Quota5h:        row.Quota5h,
+				Quota7d:        row.Quota7d,
+				Reset5h:        row.Reset5h,
+				Reset7d:        row.Reset7d,
+				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilDefault),
+				Score:          score,
+				Weight:         w,
 			},
 			Spark: codexSchedulingMetric{
-				Available: scoreSpark >= 0,
-				Quota5h:   row.QuotaSpark5h,
-				Quota7d:   row.QuotaSpark7d,
-				Reset5h:   row.ResetSpark5h,
-				Reset7d:   row.ResetSpark7d,
-				Score:     scoreSpark,
-				Weight:    wSpark,
+				Available:      scoreSpark >= 0,
+				Quota5h:        row.QuotaSpark5h,
+				Quota7d:        row.QuotaSpark7d,
+				Reset5h:        row.ResetSpark5h,
+				Reset7d:        row.ResetSpark7d,
+				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilSpark),
+				Score:          scoreSpark,
+				Weight:         wSpark,
 			},
 		})
 	}

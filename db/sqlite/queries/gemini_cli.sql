@@ -18,7 +18,17 @@ FROM gemini g
 LEFT JOIN gemini_quota q ON q.credential_id = g.id
 WHERE
     (sqlc.arg(search) = '' OR LOWER(g.id) LIKE sqlc.arg(search) OR LOWER(g.email) LIKE sqlc.arg(search) OR LOWER(g.status) LIKE sqlc.arg(search) OR LOWER(g.plan_type) LIKE sqlc.arg(search))
-    AND (sqlc.arg(status) = '' OR g.status = sqlc.arg(status))
+    AND (
+        sqlc.arg(statuses) = ''
+        OR (
+            (instr(',' || sqlc.arg(statuses) || ',', ',enabled,') = 0 OR g.status = 'enabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',disabled,') = 0 OR g.status = 'disabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:all,') = 0 OR q.throttled_until_pro > datetime('now') OR q.throttled_until_flash > datetime('now') OR q.throttled_until_flashlite > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:pro,') = 0 OR q.throttled_until_pro > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:flash,') = 0 OR q.throttled_until_flash > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:flashlite,') = 0 OR q.throttled_until_flashlite > datetime('now'))
+        )
+    )
     AND (sqlc.arg(plan_type) = '' OR LOWER(g.plan_type) = LOWER(sqlc.arg(plan_type)))
     AND (sqlc.arg(unsynced_only) = 0 OR q.synced_at IS NULL OR q.synced_at = '');
 
@@ -28,7 +38,17 @@ FROM gemini g
 LEFT JOIN gemini_quota q ON q.credential_id = g.id
 WHERE
     (sqlc.arg(search) = '' OR LOWER(g.id) LIKE sqlc.arg(search) OR LOWER(g.email) LIKE sqlc.arg(search) OR LOWER(g.status) LIKE sqlc.arg(search) OR LOWER(g.plan_type) LIKE sqlc.arg(search))
-    AND (sqlc.arg(status) = '' OR g.status = sqlc.arg(status))
+    AND (
+        sqlc.arg(statuses) = ''
+        OR (
+            (instr(',' || sqlc.arg(statuses) || ',', ',enabled,') = 0 OR g.status = 'enabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',disabled,') = 0 OR g.status = 'disabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:all,') = 0 OR q.throttled_until_pro > datetime('now') OR q.throttled_until_flash > datetime('now') OR q.throttled_until_flashlite > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:pro,') = 0 OR q.throttled_until_pro > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:flash,') = 0 OR q.throttled_until_flash > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:flashlite,') = 0 OR q.throttled_until_flashlite > datetime('now'))
+        )
+    )
     AND (sqlc.arg(unsynced_only) = 0 OR q.synced_at IS NULL OR q.synced_at = '')
     AND TRIM(g.plan_type) <> ''
 ORDER BY plan_type;
@@ -43,7 +63,9 @@ SELECT
     COALESCE(q.reset_flash, datetime('now')) AS reset_flash,
     COALESCE(q.quota_flashlite, 1.0) AS quota_flashlite,
     COALESCE(q.reset_flashlite, datetime('now')) AS reset_flashlite,
-    CAST(max(COALESCE(q.throttled_until_pro, ''), COALESCE(q.throttled_until_flash, ''), COALESCE(q.throttled_until_flashlite, '')) AS TEXT) AS throttled_until,
+    COALESCE(q.throttled_until_pro, '') AS throttled_until_pro,
+    COALESCE(q.throttled_until_flash, '') AS throttled_until_flash,
+    COALESCE(q.throttled_until_flashlite, '') AS throttled_until_flashlite,
     COALESCE(q.synced_at, '') AS synced_at
 FROM gemini g
 LEFT JOIN gemini_quota q ON q.credential_id = g.id
@@ -59,13 +81,25 @@ SELECT
     COALESCE(q.reset_flash, datetime('now')) AS reset_flash,
     COALESCE(q.quota_flashlite, 1.0) AS quota_flashlite,
     COALESCE(q.reset_flashlite, datetime('now')) AS reset_flashlite,
-    CAST(max(COALESCE(q.throttled_until_pro, ''), COALESCE(q.throttled_until_flash, ''), COALESCE(q.throttled_until_flashlite, '')) AS TEXT) AS throttled_until,
+    COALESCE(q.throttled_until_pro, '') AS throttled_until_pro,
+    COALESCE(q.throttled_until_flash, '') AS throttled_until_flash,
+    COALESCE(q.throttled_until_flashlite, '') AS throttled_until_flashlite,
     COALESCE(q.synced_at, '') AS synced_at
 FROM gemini g
 LEFT JOIN gemini_quota q ON q.credential_id = g.id
 WHERE
     (sqlc.arg(search) = '' OR LOWER(g.id) LIKE sqlc.arg(search) OR LOWER(g.email) LIKE sqlc.arg(search) OR LOWER(g.status) LIKE sqlc.arg(search) OR LOWER(g.plan_type) LIKE sqlc.arg(search))
-    AND (sqlc.arg(status) = '' OR g.status = sqlc.arg(status))
+    AND (
+        sqlc.arg(statuses) = ''
+        OR (
+            (instr(',' || sqlc.arg(statuses) || ',', ',enabled,') = 0 OR g.status = 'enabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',disabled,') = 0 OR g.status = 'disabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:all,') = 0 OR q.throttled_until_pro > datetime('now') OR q.throttled_until_flash > datetime('now') OR q.throttled_until_flashlite > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:pro,') = 0 OR q.throttled_until_pro > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:flash,') = 0 OR q.throttled_until_flash > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:flashlite,') = 0 OR q.throttled_until_flashlite > datetime('now'))
+        )
+    )
     AND (sqlc.arg(plan_type) = '' OR LOWER(g.plan_type) = LOWER(sqlc.arg(plan_type)))
     AND (sqlc.arg(unsynced_only) = 0 OR q.synced_at IS NULL OR q.synced_at = '')
 ORDER BY g.id
@@ -122,16 +156,7 @@ RETURNING *;
 -- name: RestoreExpiredThrottledGeminiCLI :exec
 UPDATE gemini
 SET status = 'enabled', reason = ''
-WHERE status = 'throttled'
-  AND id IN (
-    SELECT g.id
-    FROM gemini g
-    LEFT JOIN gemini_quota q ON q.credential_id = g.id
-    WHERE g.status = 'throttled'
-      AND COALESCE(q.throttled_until_pro, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_flash, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_flashlite, datetime('now')) <= datetime('now')
-  );
+WHERE status = 'throttled';
 
 -- name: NextGeminiThrottleDeadline :one
 SELECT CAST(COALESCE(MIN(deadline), '') AS TEXT) AS deadline
@@ -139,15 +164,15 @@ FROM (
     SELECT q.throttled_until_pro AS deadline
     FROM gemini g
     JOIN gemini_quota q ON q.credential_id = g.id
-    WHERE g.status = 'throttled' AND q.throttled_until_pro > datetime('now')
+    WHERE g.status <> 'disabled' AND q.throttled_until_pro > datetime('now')
     UNION ALL
     SELECT q.throttled_until_flash AS deadline
     FROM gemini g
     JOIN gemini_quota q ON q.credential_id = g.id
-    WHERE g.status = 'throttled' AND q.throttled_until_flash > datetime('now')
+    WHERE g.status <> 'disabled' AND q.throttled_until_flash > datetime('now')
     UNION ALL
     SELECT q.throttled_until_flashlite AS deadline
     FROM gemini g
     JOIN gemini_quota q ON q.credential_id = g.id
-    WHERE g.status = 'throttled' AND q.throttled_until_flashlite > datetime('now')
+    WHERE g.status <> 'disabled' AND q.throttled_until_flashlite > datetime('now')
 );

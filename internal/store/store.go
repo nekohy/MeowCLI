@@ -87,6 +87,26 @@ type InsertLogParams struct {
 	Error        string
 }
 
+func CredentialStatusFilterValue(statuses []string) string {
+	values := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		status = strings.TrimSpace(strings.ToLower(status))
+		if status != "" {
+			values = append(values, status)
+		}
+	}
+	return strings.Join(values, ",")
+}
+
+func ShouldClearCredentialThrottle(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "enabled", "disabled":
+		return true
+	default:
+		return false
+	}
+}
+
 func LogJSONError(body string) string {
 	trimmed := strings.TrimSpace(body)
 	if trimmed == "" || !json.Valid([]byte(trimmed)) {
@@ -190,23 +210,24 @@ type ListAvailableCodexRow struct {
 }
 
 type ListCodexRow struct {
-	ID             string    `json:"id"`
-	Status         string    `json:"status"`
-	AccessToken    string    `json:"-"`
-	Expired        time.Time `json:"expired"`
-	RefreshToken   string    `json:"-"`
-	PlanType       string    `json:"plan_type"`
-	Reason         string    `json:"reason"`
-	Quota5h        float64   `json:"quota_5h"`
-	Quota7d        float64   `json:"quota_7d"`
-	QuotaSpark5h   float64   `json:"quota_spark_5h"`
-	QuotaSpark7d   float64   `json:"quota_spark_7d"`
-	Reset5h        time.Time `json:"reset_5h"`
-	Reset7d        time.Time `json:"reset_7d"`
-	ResetSpark5h   time.Time `json:"reset_spark_5h"`
-	ResetSpark7d   time.Time `json:"reset_spark_7d"`
-	ThrottledUntil time.Time `json:"throttled_until"`
-	SyncedAt       time.Time `json:"synced_at"`
+	ID                    string    `json:"id"`
+	Status                string    `json:"status"`
+	AccessToken           string    `json:"-"`
+	Expired               time.Time `json:"expired"`
+	RefreshToken          string    `json:"-"`
+	PlanType              string    `json:"plan_type"`
+	Reason                string    `json:"reason"`
+	Quota5h               float64   `json:"quota_5h"`
+	Quota7d               float64   `json:"quota_7d"`
+	QuotaSpark5h          float64   `json:"quota_spark_5h"`
+	QuotaSpark7d          float64   `json:"quota_spark_7d"`
+	Reset5h               time.Time `json:"reset_5h"`
+	Reset7d               time.Time `json:"reset_7d"`
+	ResetSpark5h          time.Time `json:"reset_spark_5h"`
+	ResetSpark7d          time.Time `json:"reset_spark_7d"`
+	ThrottledUntilDefault time.Time `json:"throttled_until_default"`
+	ThrottledUntilSpark   time.Time `json:"throttled_until_spark"`
+	SyncedAt              time.Time `json:"synced_at"`
 }
 
 type ListAvailableGeminiCLIRow struct {
@@ -228,23 +249,25 @@ type ListAvailableGeminiCLIRow struct {
 }
 
 type ListGeminiCLIRow struct {
-	ID             string    `json:"id"`
-	Status         string    `json:"status"`
-	AccessToken    string    `json:"-"`
-	RefreshToken   string    `json:"-"`
-	Expired        time.Time `json:"expired"`
-	Email          string    `json:"email"`
-	ProjectID      string    `json:"project_id"`
-	PlanType       string    `json:"plan_type"`
-	Reason         string    `json:"reason"`
-	QuotaPro       float64   `json:"quota_pro"`
-	ResetPro       time.Time `json:"reset_pro"`
-	QuotaFlash     float64   `json:"quota_flash"`
-	ResetFlash     time.Time `json:"reset_flash"`
-	QuotaFlashlite float64   `json:"quota_flashlite"`
-	ResetFlashlite time.Time `json:"reset_flashlite"`
-	ThrottledUntil time.Time `json:"throttled_until"`
-	SyncedAt       time.Time `json:"synced_at"`
+	ID                      string    `json:"id"`
+	Status                  string    `json:"status"`
+	AccessToken             string    `json:"-"`
+	RefreshToken            string    `json:"-"`
+	Expired                 time.Time `json:"expired"`
+	Email                   string    `json:"email"`
+	ProjectID               string    `json:"project_id"`
+	PlanType                string    `json:"plan_type"`
+	Reason                  string    `json:"reason"`
+	QuotaPro                float64   `json:"quota_pro"`
+	ResetPro                time.Time `json:"reset_pro"`
+	QuotaFlash              float64   `json:"quota_flash"`
+	ResetFlash              time.Time `json:"reset_flash"`
+	QuotaFlashlite          float64   `json:"quota_flashlite"`
+	ResetFlashlite          time.Time `json:"reset_flashlite"`
+	ThrottledUntilPro       time.Time `json:"throttled_until_pro"`
+	ThrottledUntilFlash     time.Time `json:"throttled_until_flash"`
+	ThrottledUntilFlashlite time.Time `json:"throttled_until_flashlite"`
+	SyncedAt                time.Time `json:"synced_at"`
 }
 
 type ListAvailableAntigravityRow struct {
@@ -277,31 +300,36 @@ type ListAvailableAntigravityRow struct {
 }
 
 type ListAntigravityRow struct {
-	ID             string    `json:"id"`
-	Status         string    `json:"status"`
-	AccessToken    string    `json:"-"`
-	RefreshToken   string    `json:"-"`
-	Expired        time.Time `json:"expired"`
-	Email          string    `json:"email"`
-	ProjectID      string    `json:"project_id"`
-	PlanType       string    `json:"plan_type"`
-	Reason         string    `json:"reason"`
-	QuotaClaude    float64   `json:"quota_claude"`
-	ResetClaude    time.Time `json:"reset_claude"`
-	QuotaPro       float64   `json:"quota_pro"`
-	ResetPro       time.Time `json:"reset_pro"`
-	QuotaFlash     float64   `json:"quota_flash"`
-	ResetFlash     time.Time `json:"reset_flash"`
-	QuotaFlashlite float64   `json:"quota_flashlite"`
-	ResetFlashlite time.Time `json:"reset_flashlite"`
-	QuotaTab       float64   `json:"quota_tab"`
-	ResetTab       time.Time `json:"reset_tab"`
-	QuotaImage     float64   `json:"quota_image"`
-	ResetImage     time.Time `json:"reset_image"`
-	CreditsAmount  float64   `json:"credits_amount"`
-	CreditTypes    string    `json:"credit_types"`
-	ThrottledUntil time.Time `json:"throttled_until"`
-	SyncedAt       time.Time `json:"synced_at"`
+	ID                      string    `json:"id"`
+	Status                  string    `json:"status"`
+	AccessToken             string    `json:"-"`
+	RefreshToken            string    `json:"-"`
+	Expired                 time.Time `json:"expired"`
+	Email                   string    `json:"email"`
+	ProjectID               string    `json:"project_id"`
+	PlanType                string    `json:"plan_type"`
+	Reason                  string    `json:"reason"`
+	QuotaClaude             float64   `json:"quota_claude"`
+	ResetClaude             time.Time `json:"reset_claude"`
+	QuotaPro                float64   `json:"quota_pro"`
+	ResetPro                time.Time `json:"reset_pro"`
+	QuotaFlash              float64   `json:"quota_flash"`
+	ResetFlash              time.Time `json:"reset_flash"`
+	QuotaFlashlite          float64   `json:"quota_flashlite"`
+	ResetFlashlite          time.Time `json:"reset_flashlite"`
+	QuotaTab                float64   `json:"quota_tab"`
+	ResetTab                time.Time `json:"reset_tab"`
+	QuotaImage              float64   `json:"quota_image"`
+	ResetImage              time.Time `json:"reset_image"`
+	CreditsAmount           float64   `json:"credits_amount"`
+	CreditTypes             string    `json:"credit_types"`
+	ThrottledUntilClaude    time.Time `json:"throttled_until_claude"`
+	ThrottledUntilPro       time.Time `json:"throttled_until_pro"`
+	ThrottledUntilFlash     time.Time `json:"throttled_until_flash"`
+	ThrottledUntilFlashlite time.Time `json:"throttled_until_flashlite"`
+	ThrottledUntilTab       time.Time `json:"throttled_until_tab"`
+	ThrottledUntilImage     time.Time `json:"throttled_until_image"`
+	SyncedAt                time.Time `json:"synced_at"`
 }
 
 type CreateCodexParams struct {
@@ -380,7 +408,7 @@ type LogRow struct {
 
 type CredentialFilterParams struct {
 	Search       string
-	Status       string
+	Statuses     []string
 	PlanType     string
 	UnsyncedOnly bool
 }
