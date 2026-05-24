@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
 import {
-  CREDENTIAL_STATUS_FILTER_ALL,
+  CREDENTIAL_THROTTLE_STATUS_ALL,
+  credentialBaseStatus,
   credentialReasonLabel,
-  credentialStatusFilterOptions,
+  credentialStatusBadges,
   credentialStatusIcon,
   credentialStatusQueryValue,
   shouldShowCredentialReason,
@@ -27,6 +28,7 @@ import type {
   AntigravityCredentialItem,
   CodexItem,
   CredentialItem,
+  CredentialThrottleStatusOption,
   GeminiCredentialItem,
   UiTone,
 } from '~/types/admin'
@@ -48,7 +50,8 @@ const pageSize = ref(6)
 const loading = ref(false)
 const searchInput = ref('')
 const searchQuery = ref('')
-const statusFilter = ref<CredentialStatusFilter>(CREDENTIAL_STATUS_FILTER_ALL)
+const statusFilter = ref<CredentialStatusFilter[]>([])
+const throttleFiltersExpanded = ref(false)
 const planFilter = ref('all')
 const sortBy = ref('')
 const sortOrder = ref<'desc' | 'asc'>('desc')
@@ -140,16 +143,37 @@ watch(availablePlanTypes, (planTypes) => {
   }
 })
 
-const availableStatusFilters = computed(() => {
-  const statuses = new Set<string>()
-  admin.activeHandler.value?.credential_status_options?.forEach((status) => {
-    statuses.add(status)
-  })
-  rows.value.forEach((item) => {
-    statuses.add(item.status)
-  })
-  return credentialStatusFilterOptions(statuses)
+const baseStatusFilters = computed(() => (
+  ['enabled', 'disabled'].map((status) => ({ value: status, label: statusText(status) }))
+))
+const throttleStatusFilters = computed(() => (
+  throttleTiersForHandler(credentialHandlerKey.value)
+    .map((tier) => ({ value: tier.status, label: statusText(tier.status) }))
+))
+const hasThrottleStatusFilters = computed(() => throttleStatusFilters.value.length > 0)
+const selectedThrottleStatusFilters = computed(() => {
+  const throttleValues = new Set(throttleStatusFilters.value.map((option) => option.value))
+  return statusFilter.value.filter((status) => throttleValues.has(status))
 })
+const throttleFilterActive = computed(() => (
+  statusFilter.value.includes(CREDENTIAL_THROTTLE_STATUS_ALL)
+  || selectedThrottleStatusFilters.value.length > 0
+))
+const allStatusFilterActive = computed(() => statusFilter.value.length === 0)
+
+type ThrottleTierDetail = {
+  status: string
+  label: string
+  metric: string
+}
+
+function throttleTierDetailFromOption(option: CredentialThrottleStatusOption): ThrottleTierDetail {
+  return {
+    status: option.value,
+    label: option.label,
+    metric: option.metric,
+  }
+}
 
 const defaultSortOption = { title: '默认', value: '' }
 
@@ -162,7 +186,8 @@ const codexSortOptions = [
   { title: 'Spark错误率', value: 'spark_error_rate' },
   { title: 'Spark 5h额度', value: 'spark_quota_5h' },
   { title: 'Spark 7d额度', value: 'spark_quota_7d' },
-  { title: '退避截止', value: 'throttled_until' },
+  { title: 'Default退避', value: 'default_throttled_until' },
+  { title: 'Spark退避', value: 'spark_throttled_until' },
 ]
 
 const geminiSortOptions = [
@@ -175,7 +200,9 @@ const geminiSortOptions = [
   { title: 'Lite Score', value: 'flashlite_score' },
   { title: 'Lite错误率', value: 'flashlite_error_rate' },
   { title: 'Lite额度', value: 'flashlite_quota' },
-  { title: '退避截止', value: 'throttled_until' },
+  { title: 'Pro退避', value: 'pro_throttled_until' },
+  { title: 'Flash退避', value: 'flash_throttled_until' },
+  { title: 'Lite退避', value: 'flashlite_throttled_until' },
 ]
 
 const antigravitySortOptions = [
@@ -197,7 +224,12 @@ const antigravitySortOptions = [
   { title: 'Image Score', value: 'image_score' },
   { title: 'Image错误率', value: 'image_error_rate' },
   { title: 'Image额度', value: 'image_quota' },
-  { title: '退避截止', value: 'throttled_until' },
+  { title: 'Claude退避', value: 'claude_throttled_until' },
+  { title: 'Pro退避', value: 'pro_throttled_until' },
+  { title: 'Flash退避', value: 'flash_throttled_until' },
+  { title: 'Lite退避', value: 'flashlite_throttled_until' },
+  { title: 'Tab退避', value: 'tab_throttled_until' },
+  { title: 'Image退避', value: 'image_throttled_until' },
 ]
 
 const sortOrderOptions = [
@@ -212,7 +244,7 @@ const credentialSortOptions = computed(() => [
 
 const hasActiveFilters = computed(() => (
   Boolean(searchInput.value.trim())
-  || statusFilter.value !== 'all'
+  || statusFilter.value.length > 0
   || planFilter.value !== 'all'
 ))
 const emptyStateTitle = computed(() => {
@@ -263,8 +295,52 @@ function genericDetailEntries(item: CredentialItem) {
     { label: '套餐类型', value: planTypeText(item.plan_type || '') },
     { label: 'AT到期', value: item.expired ? formatTime(String(item.expired)) : '-' },
     { label: '最近同步', value: item.synced_at ? formatTime(String(item.synced_at)) : '-' },
-    { label: '退避截止', value: item.throttled_until && !isPastTime(String(item.throttled_until)) ? formatTime(String(item.throttled_until)) : '-' },
   ].filter((entry) => entry.value && entry.value !== 'unknown')
+}
+
+function throttleTiersForHandler(handler: string) {
+  const overview = admin.handlers.value.find((item) => item.key === handler)
+  return (overview?.credential_throttle_status_options || []).map(throttleTierDetailFromOption)
+}
+
+function clearStatusFilters() {
+  statusFilter.value = []
+}
+
+function toggleBaseStatusFilter(status: string) {
+  const baseValues = new Set(baseStatusFilters.value.map((option) => option.value))
+  if (statusFilter.value.includes(status)) {
+    statusFilter.value = statusFilter.value.filter((value) => value !== status)
+    return
+  }
+  statusFilter.value = [
+    ...statusFilter.value.filter((value) => !baseValues.has(value)),
+    status,
+  ]
+}
+
+function toggleThrottleAllFilter() {
+  const throttleValues = new Set(throttleStatusFilters.value.map((option) => option.value))
+  if (throttleFilterActive.value) {
+    statusFilter.value = statusFilter.value.filter((status) => (
+      status !== CREDENTIAL_THROTTLE_STATUS_ALL && !throttleValues.has(status)
+    ))
+    return
+  }
+  statusFilter.value = [...statusFilter.value, CREDENTIAL_THROTTLE_STATUS_ALL]
+}
+
+function toggleThrottleTierFilter(status: string) {
+  statusFilter.value = statusFilter.value.includes(status)
+    ? statusFilter.value.filter((value) => value !== status)
+    : [
+        ...statusFilter.value.filter((value) => value !== CREDENTIAL_THROTTLE_STATUS_ALL),
+        status,
+      ]
+}
+
+function toggleThrottleFiltersExpanded() {
+  throttleFiltersExpanded.value = !throttleFiltersExpanded.value
 }
 
 function closeImportModal() {
@@ -423,7 +499,9 @@ function geminiQuotaPercentValue(metric: GeminiCredentialItem['pro']) {
   return Math.max(0, Math.min(100, Math.round((metric.quota || 0) * 100)))
 }
 
-function quotaTone(percent: number | null) {
+type QuotaColor = 'success' | 'warning' | 'error' | 'secondary' | 'tertiary'
+
+function quotaTone(percent: number | null): QuotaColor {
   if (percent === null) {
     return 'secondary'
   }
@@ -433,7 +511,23 @@ function quotaTone(percent: number | null) {
   if (percent >= 30) {
     return 'warning'
   }
-  return 'danger'
+  return 'error'
+}
+
+function throttledQuotaTone(): QuotaColor {
+  return 'tertiary'
+}
+
+function activeThrottleUntil(value?: string | null) {
+  return value && !isPastTime(value) ? value : ''
+}
+
+function quotaCaption(reset: string, throttledUntil?: string) {
+  const parts = [`重置 ${formatTime(reset)}`]
+  if (throttledUntil) {
+    parts.push(`退避至 ${formatTime(throttledUntil)}`)
+  }
+  return parts
 }
 
 function renderCodexQuotaValue(metric: CodexItem['default'], quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
@@ -452,12 +546,15 @@ function renderGeminiQuotaValue(metric: GeminiCredentialItem['pro']) {
 
 function codexQuotaCard(label: string, metric: CodexItem['default'], quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
   const percent = codexQuotaPercentValue(metric, quotaKey, resetKey)
+  const throttledUntil = activeThrottleUntil(metric.throttled_until)
+  const tone = quotaTone(percent)
   return {
     label,
+    score: quotaScoreLabel(metric),
     percent,
-    tone: quotaTone(percent),
+    tone: throttledUntil ? throttledQuotaTone() : tone,
     value: renderCodexQuotaValue(metric, quotaKey, resetKey),
-    reset: metric[resetKey],
+    caption: quotaCaption(metric[resetKey], throttledUntil),
   }
 }
 
@@ -477,12 +574,15 @@ function codexQuotaCards(item: CodexItem) {
 
 function geminiQuotaCard(label: string, metric: GeminiCredentialItem['pro']) {
   const percent = geminiQuotaPercentValue(metric)
+  const throttledUntil = activeThrottleUntil(metric.throttled_until)
+  const tone = quotaTone(percent)
   return {
     label,
+    score: quotaScoreLabel(metric),
     percent,
-    tone: quotaTone(percent),
+    tone: throttledUntil ? throttledQuotaTone() : tone,
     value: renderGeminiQuotaValue(metric),
-    reset: metric.reset,
+    caption: quotaCaption(metric.reset, throttledUntil),
   }
 }
 
@@ -509,16 +609,6 @@ function isSparkAvailable(item: CodexItem) {
   return item.spark.available
 }
 
-function errorRateTone(rate: number): UiTone {
-  if (rate <= 0) return 'success'
-  if (rate < 0.2) return 'warning'
-  return 'danger'
-}
-
-function errorRateFromWeight(metric: { weight: number }) {
-  return Math.max(0, Math.min(1, 1 - metric.weight))
-}
-
 function formatScore(value: number) {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return '-'
@@ -526,8 +616,12 @@ function formatScore(value: number) {
   return value.toFixed(2)
 }
 
-function scoreBadgeLabel(metric: { score: number; weight: number }) {
-  return `Score: ${formatScore(metric.score)}(${formatPercent(errorRateFromWeight(metric))})`
+function errorRateFromWeight(metric: { weight: number }) {
+  return Math.max(0, Math.min(1, 1 - metric.weight))
+}
+
+function quotaScoreLabel(metric: { score: number; weight: number }) {
+  return `Score ${formatScore(metric.score)}(${formatPercent(errorRateFromWeight(metric))})`
 }
 
 function formatCreditsAmount(value: number) {
@@ -732,11 +826,12 @@ watch(
 watch(
   () => admin.selectedHandler.value,
   () => {
-    statusFilter.value = CREDENTIAL_STATUS_FILTER_ALL
+    statusFilter.value = []
     planFilter.value = 'all'
     planTypes.value = []
     sortBy.value = ''
     sortOrder.value = 'desc'
+    throttleFiltersExpanded.value = false
     searchInput.value = ''
     searchQuery.value = ''
     if (!admin.activeHandler.value?.supports_credentials) {
@@ -746,7 +841,7 @@ watch(
 )
 
 watch(
-  () => [searchQuery.value, statusFilter.value, planFilter.value, sortBy.value, sortOrder.value, credentialHandlerKey.value],
+  () => [searchQuery.value, statusFilter.value.join(','), planFilter.value, sortBy.value, sortOrder.value, credentialHandlerKey.value],
   () => {
     if (admin.authReady.value && admin.activeHandler.value?.supports_credentials) {
       void loadCredentials(1, pageSize.value)
@@ -872,16 +967,62 @@ onBeforeUnmount(() => {
               />
             </div>
 
-            <VChipGroup v-model="statusFilter" mandatory color="primary">
+            <div class="status-filter-groups">
               <VChip
-                v-for="status in availableStatusFilters"
-                :key="status.value"
-                :value="status.value"
+                :color="allStatusFilterActive ? 'primary' : undefined"
+                :class="{ 'text-primary v-chip--selected': allStatusFilterActive }"
                 filter
+                @click="clearStatusFilters"
+              >
+                全部
+              </VChip>
+              <VChip
+                v-for="status in baseStatusFilters"
+                :key="status.value"
+                :color="statusFilter.includes(status.value) ? 'primary' : undefined"
+                :class="{ 'text-primary v-chip--selected': statusFilter.includes(status.value) }"
+                filter
+                @click="toggleBaseStatusFilter(status.value)"
               >
                 {{ status.label }}
               </VChip>
-            </VChipGroup>
+
+              <div v-if="hasThrottleStatusFilters" class="throttle-filter-group">
+                <VChip
+                  :color="throttleFilterActive ? 'primary' : undefined"
+                  :class="{ 'text-primary v-chip--selected': throttleFilterActive }"
+                  filter
+                  @click="toggleThrottleAllFilter"
+                >
+                  <span>{{ statusText(CREDENTIAL_THROTTLE_STATUS_ALL) }}</span>
+                  <button
+                    type="button"
+                    class="throttle-chip-toggle"
+                    :aria-label="throttleFiltersExpanded ? '收起节流子项' : '展开节流子项'"
+                    :aria-expanded="throttleFiltersExpanded"
+                    @click.stop="toggleThrottleFiltersExpanded"
+                  >
+                    <VIcon
+                      :icon="throttleFiltersExpanded ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+                      size="16"
+                    />
+                  </button>
+                </VChip>
+
+                <div v-if="throttleFiltersExpanded" class="throttle-filter-children">
+                  <VChip
+                    v-for="status in throttleStatusFilters"
+                    :key="status.value"
+                    :color="statusFilter.includes(status.value) ? 'primary' : undefined"
+                    :class="{ 'text-primary v-chip--selected': statusFilter.includes(status.value) }"
+                    filter
+                    @click="toggleThrottleTierFilter(status.value)"
+                  >
+                    {{ status.label }}
+                  </VChip>
+                </div>
+              </div>
+            </div>
 
             <VChipGroup v-if="availablePlanTypes.length > 1 || planFilter !== 'all'" v-model="planFilter" mandatory color="secondary">
               <VChip value="all" filter>全部套餐</VChip>
@@ -938,17 +1079,14 @@ onBeforeUnmount(() => {
                             <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
                               {{ planTypeText(item.plan_type) }}
                             </AdminBadge>
-                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="credentialStatusIcon(item.status)">
-                              {{ statusText(item.status) }}
-                            </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.default))" subtle icon="mdi-chart-line">
-                              {{ scoreBadgeLabel(item.default) }}
-                            </AdminBadge>
-                            <AdminBadge v-if="isSparkAvailable(item)" :tone="errorRateTone(errorRateFromWeight(item.spark))" subtle icon="mdi-chart-line">
-                              Spark {{ scoreBadgeLabel(item.spark) }}
-                            </AdminBadge>
-                            <AdminBadge v-else tone="secondary" subtle icon="mdi-cancel">
-                              Spark不可用
+                            <AdminBadge
+                              v-for="status in credentialStatusBadges(item.status)"
+                              :key="status"
+                              :tone="toneForStatus(status)"
+                              subtle
+                              :icon="credentialStatusIcon(status)"
+                            >
+                              {{ statusText(status) }}
                             </AdminBadge>
                           </div>
                         </div>
@@ -969,8 +1107,13 @@ onBeforeUnmount(() => {
                           rounded
                           height="8"
                         />
-                        <div class="quota-caption text-medium-emphasis">
-                          重置 {{ formatTime(quota.reset) }}
+                        <div class="quota-footer text-medium-emphasis">
+                          <div class="quota-caption">
+                            <span v-for="caption in quota.caption" :key="caption">
+                              <span class="quota-caption-text">{{ caption }}</span>
+                            </span>
+                          </div>
+                          <div class="quota-score">{{ quota.score }}</div>
                         </div>
                       </div>
                     </div>
@@ -987,10 +1130,6 @@ onBeforeUnmount(() => {
                       <div class="detail-block">
                         <div class="detail-label text-medium-emphasis">最近同步</div>
                         <div class="detail-value">{{ formatTime(item.synced_at) }}</div>
-                      </div>
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">退避截止</div>
-                        <div class="detail-value">{{ isPastTime(item.throttled_until) ? '-' : formatTime(item.throttled_until) }}</div>
                       </div>
                     </div>
 
@@ -1022,17 +1161,14 @@ onBeforeUnmount(() => {
                             <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
                               {{ planTypeText(item.plan_type) }}
                             </AdminBadge>
-                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="credentialStatusIcon(item.status)">
-                              {{ statusText(item.status) }}
-                            </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.pro))" subtle icon="mdi-chart-line">
-                              Pro {{ scoreBadgeLabel(item.pro) }}
-                            </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.flash))" subtle icon="mdi-chart-line">
-                              Flash {{ scoreBadgeLabel(item.flash) }}
-                            </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.flashlite))" subtle icon="mdi-chart-line">
-                              Lite {{ scoreBadgeLabel(item.flashlite) }}
+                            <AdminBadge
+                              v-for="status in credentialStatusBadges(item.status)"
+                              :key="status"
+                              :tone="toneForStatus(status)"
+                              subtle
+                              :icon="credentialStatusIcon(status)"
+                            >
+                              {{ statusText(status) }}
                             </AdminBadge>
                           </div>
                         </div>
@@ -1053,8 +1189,13 @@ onBeforeUnmount(() => {
                           rounded
                           height="8"
                         />
-                        <div class="quota-caption text-medium-emphasis">
-                          重置 {{ formatTime(quota.reset) }}
+                        <div class="quota-footer text-medium-emphasis">
+                          <div class="quota-caption">
+                            <span v-for="caption in quota.caption" :key="caption">
+                              <span class="quota-caption-text">{{ caption }}</span>
+                            </span>
+                          </div>
+                          <div class="quota-score">{{ quota.score }}</div>
                         </div>
                       </div>
                     </div>
@@ -1071,10 +1212,6 @@ onBeforeUnmount(() => {
                       <div class="detail-block">
                         <div class="detail-label text-medium-emphasis">最近同步</div>
                         <div class="detail-value">{{ item.synced_at ? formatTime(item.synced_at) : '-' }}</div>
-                      </div>
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">退避截止</div>
-                        <div class="detail-value">{{ item.throttled_until && !isPastTime(item.throttled_until) ? formatTime(item.throttled_until) : '-' }}</div>
                       </div>
                     </div>
 
@@ -1106,26 +1243,14 @@ onBeforeUnmount(() => {
                             <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
                               {{ planTypeText(item.plan_type) }}
                             </AdminBadge>
-                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="credentialStatusIcon(item.status)">
-                              {{ statusText(item.status) }}
-                            </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.claude))" subtle icon="mdi-chart-line">
-                              Claude {{ scoreBadgeLabel(item.claude) }}
-                            </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.pro))" subtle icon="mdi-chart-line">
-                              Pro {{ scoreBadgeLabel(item.pro) }}
-                            </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.flash))" subtle icon="mdi-chart-line">
-                              Flash {{ scoreBadgeLabel(item.flash) }}
-                            </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.flashlite))" subtle icon="mdi-chart-line">
-                              Lite {{ scoreBadgeLabel(item.flashlite) }}
-                            </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.tab))" subtle icon="mdi-chart-line">
-                              Tab {{ scoreBadgeLabel(item.tab) }}
-                            </AdminBadge>
-                            <AdminBadge :tone="errorRateTone(errorRateFromWeight(item.image))" subtle icon="mdi-chart-line">
-                              Image {{ scoreBadgeLabel(item.image) }}
+                            <AdminBadge
+                              v-for="status in credentialStatusBadges(item.status)"
+                              :key="status"
+                              :tone="toneForStatus(status)"
+                              subtle
+                              :icon="credentialStatusIcon(status)"
+                            >
+                              {{ statusText(status) }}
                             </AdminBadge>
                           </div>
                         </div>
@@ -1162,8 +1287,13 @@ onBeforeUnmount(() => {
                           rounded
                           height="8"
                         />
-                        <div class="quota-caption text-medium-emphasis">
-                          重置 {{ formatTime(quota.reset) }}
+                        <div class="quota-footer text-medium-emphasis">
+                          <div class="quota-caption">
+                            <span v-for="caption in quota.caption" :key="caption">
+                              <span class="quota-caption-text">{{ caption }}</span>
+                            </span>
+                          </div>
+                          <div class="quota-score">{{ quota.score }}</div>
                         </div>
                       </div>
                     </div>
@@ -1181,13 +1311,9 @@ onBeforeUnmount(() => {
                         <div class="detail-label text-medium-emphasis">最近同步</div>
                         <div class="detail-value">{{ item.synced_at ? formatTime(item.synced_at) : '-' }}</div>
                       </div>
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">退避截止</div>
-                        <div class="detail-value">{{ item.throttled_until && !isPastTime(item.throttled_until) ? formatTime(item.throttled_until) : '-' }}</div>
-                      </div>
                     </div>
 
-                    <div v-if="item.status === 'disabled' && item.reason" class="reason-block">
+                    <div v-if="credentialBaseStatus(item.status) === 'disabled' && item.reason" class="reason-block">
                       <div class="reason-label">停用原因</div>
                       <div class="reason-value">{{ item.reason }}</div>
                     </div>
@@ -1215,8 +1341,14 @@ onBeforeUnmount(() => {
                             <AdminBadge v-if="item.plan_type" tone="secondary" subtle icon="mdi-star-circle-outline">
                               {{ planTypeText(item.plan_type) }}
                             </AdminBadge>
-                            <AdminBadge :tone="toneForStatus(item.status)" subtle :icon="credentialStatusIcon(item.status)">
-                              {{ statusText(item.status) }}
+                            <AdminBadge
+                              v-for="status in credentialStatusBadges(item.status)"
+                              :key="status"
+                              :tone="toneForStatus(status)"
+                              subtle
+                              :icon="credentialStatusIcon(status)"
+                            >
+                              {{ statusText(status) }}
                             </AdminBadge>
                           </div>
                         </div>

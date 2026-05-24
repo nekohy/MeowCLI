@@ -36,6 +36,12 @@ export interface CredentialField {
   preferred?: boolean
 }
 
+export interface CredentialThrottleStatusOption {
+  value: string
+  label: string
+  metric: string
+}
+
 export interface PluginInfo {
   name: string
   label: string
@@ -54,6 +60,7 @@ export interface HandlerOverview {
   credential_endpoint?: string
   credential_fields?: CredentialField[]
   credential_status_options?: string[]
+  credential_throttle_status_options?: CredentialThrottleStatusOption[]
   plugins?: PluginInfo[]
   models_total: number
   credentials_total: number
@@ -155,6 +162,7 @@ export interface CodexSchedulingMetric {
   quota_7d: number
   reset_5h: string
   reset_7d: string
+  throttled_until?: string
   score: number
   weight: number
 }
@@ -163,6 +171,7 @@ export interface GeminiSchedulingMetric {
   available: boolean
   quota: number
   reset: string
+  throttled_until?: string
   score: number
   weight: number
 }
@@ -176,10 +185,9 @@ export interface AntigravityCreditsMetric {
 export interface CodexItem {
   handler: 'codex'
   id: string
-  status: string
+  status: string[]
   expired: string
   synced_at: string
-  throttled_until: string
   plan_type: string | null
   reason: string
   default: CodexSchedulingMetric
@@ -189,14 +197,13 @@ export interface CodexItem {
 export interface GeminiCredentialItem {
   handler: 'gemini'
   id: string
-  status: string
+  status: string[]
   email: string
   project_id: string
   plan_type: string
   expired: string
   reason: string
   synced_at: string
-  throttled_until: string
   pro: GeminiSchedulingMetric
   flash: GeminiSchedulingMetric
   flashlite: GeminiSchedulingMetric
@@ -205,14 +212,13 @@ export interface GeminiCredentialItem {
 export interface AntigravityCredentialItem {
   handler: 'antigravity'
   id: string
-  status: string
+  status: string[]
   email: string
   project_id: string
   plan_type: string
   expired: string
   reason: string
   synced_at: string
-  throttled_until: string
   claude: GeminiSchedulingMetric
   pro: GeminiSchedulingMetric
   flash: GeminiSchedulingMetric
@@ -225,11 +231,10 @@ export interface AntigravityCredentialItem {
 export interface GenericCredentialItem {
   handler: string
   id: string
-  status: string
+  status: string[]
   plan_type?: string | null
   expired?: string
   synced_at?: string
-  throttled_until?: string
   reason?: string
   [key: string]: unknown
 }

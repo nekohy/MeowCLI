@@ -41,14 +41,24 @@ FROM gemini g
 LEFT JOIN gemini_quota q ON q.credential_id = g.id
 WHERE
     ($1 = '' OR LOWER(g.id) LIKE $1 OR LOWER(g.email) LIKE $1 OR LOWER(g.status) LIKE $1 OR LOWER(g.plan_type) LIKE $1)
-    AND ($2 = '' OR g.status = $2)
+    AND (
+        $2 = ''
+        OR (
+            (strpos(',' || $2 || ',', ',enabled,') = 0 OR g.status = 'enabled')
+            AND (strpos(',' || $2 || ',', ',disabled,') = 0 OR g.status = 'disabled')
+            AND (strpos(',' || $2 || ',', ',throttled:all,') = 0 OR q.throttled_until_pro > NOW() OR q.throttled_until_flash > NOW() OR q.throttled_until_flashlite > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:pro,') = 0 OR q.throttled_until_pro > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:flash,') = 0 OR q.throttled_until_flash > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:flashlite,') = 0 OR q.throttled_until_flashlite > NOW())
+        )
+    )
     AND ($3 = '' OR LOWER(g.plan_type) = LOWER($3))
     AND ($4 = false OR q.synced_at IS NULL OR q.synced_at <= '0001-01-01'::timestamptz)
 `
 
 type CountGeminiCLIFilteredParams struct {
 	Search       interface{} `json:"search"`
-	Status       interface{} `json:"status"`
+	Statuses     interface{} `json:"statuses"`
 	PlanType     interface{} `json:"plan_type"`
 	UnsyncedOnly interface{} `json:"unsynced_only"`
 }
@@ -56,7 +66,7 @@ type CountGeminiCLIFilteredParams struct {
 func (q *Queries) CountGeminiCLIFiltered(ctx context.Context, arg CountGeminiCLIFilteredParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countGeminiCLIFiltered,
 		arg.Search,
-		arg.Status,
+		arg.Statuses,
 		arg.PlanType,
 		arg.UnsyncedOnly,
 	)
@@ -112,7 +122,9 @@ SELECT
     COALESCE(q.reset_flash, NOW()) AS reset_flash,
     COALESCE(q.quota_flashlite, 1.0) AS quota_flashlite,
     COALESCE(q.reset_flashlite, NOW()) AS reset_flashlite,
-    GREATEST(COALESCE(q.throttled_until_pro, '0001-01-01'::timestamptz), COALESCE(q.throttled_until_flash, '0001-01-01'::timestamptz), COALESCE(q.throttled_until_flashlite, '0001-01-01'::timestamptz))::timestamptz AS throttled_until,
+    COALESCE(q.throttled_until_pro, '0001-01-01'::timestamptz) AS throttled_until_pro,
+    COALESCE(q.throttled_until_flash, '0001-01-01'::timestamptz) AS throttled_until_flash,
+    COALESCE(q.throttled_until_flashlite, '0001-01-01'::timestamptz) AS throttled_until_flashlite,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
 FROM gemini g
 LEFT JOIN gemini_quota q ON q.credential_id = g.id
@@ -120,23 +132,25 @@ ORDER BY g.id
 `
 
 type ListGeminiCLIRow struct {
-	ID             string             `json:"id"`
-	Status         string             `json:"status"`
-	AccessToken    string             `json:"access_token"`
-	RefreshToken   string             `json:"refresh_token"`
-	Expired        pgtype.Timestamptz `json:"expired"`
-	Email          string             `json:"email"`
-	ProjectID      string             `json:"project_id"`
-	PlanType       string             `json:"plan_type"`
-	Reason         string             `json:"reason"`
-	QuotaPro       float64            `json:"quota_pro"`
-	ResetPro       pgtype.Timestamptz `json:"reset_pro"`
-	QuotaFlash     float64            `json:"quota_flash"`
-	ResetFlash     pgtype.Timestamptz `json:"reset_flash"`
-	QuotaFlashlite float64            `json:"quota_flashlite"`
-	ResetFlashlite pgtype.Timestamptz `json:"reset_flashlite"`
-	ThrottledUntil pgtype.Timestamptz `json:"throttled_until"`
-	SyncedAt       pgtype.Timestamptz `json:"synced_at"`
+	ID                      string             `json:"id"`
+	Status                  string             `json:"status"`
+	AccessToken             string             `json:"access_token"`
+	RefreshToken            string             `json:"refresh_token"`
+	Expired                 pgtype.Timestamptz `json:"expired"`
+	Email                   string             `json:"email"`
+	ProjectID               string             `json:"project_id"`
+	PlanType                string             `json:"plan_type"`
+	Reason                  string             `json:"reason"`
+	QuotaPro                float64            `json:"quota_pro"`
+	ResetPro                pgtype.Timestamptz `json:"reset_pro"`
+	QuotaFlash              float64            `json:"quota_flash"`
+	ResetFlash              pgtype.Timestamptz `json:"reset_flash"`
+	QuotaFlashlite          float64            `json:"quota_flashlite"`
+	ResetFlashlite          pgtype.Timestamptz `json:"reset_flashlite"`
+	ThrottledUntilPro       pgtype.Timestamptz `json:"throttled_until_pro"`
+	ThrottledUntilFlash     pgtype.Timestamptz `json:"throttled_until_flash"`
+	ThrottledUntilFlashlite pgtype.Timestamptz `json:"throttled_until_flashlite"`
+	SyncedAt                pgtype.Timestamptz `json:"synced_at"`
 }
 
 func (q *Queries) ListGeminiCLI(ctx context.Context) ([]ListGeminiCLIRow, error) {
@@ -164,7 +178,9 @@ func (q *Queries) ListGeminiCLI(ctx context.Context) ([]ListGeminiCLIRow, error)
 			&i.ResetFlash,
 			&i.QuotaFlashlite,
 			&i.ResetFlashlite,
-			&i.ThrottledUntil,
+			&i.ThrottledUntilPro,
+			&i.ThrottledUntilFlash,
+			&i.ThrottledUntilFlashlite,
 			&i.SyncedAt,
 		); err != nil {
 			return nil, err
@@ -187,13 +203,25 @@ SELECT
     COALESCE(q.reset_flash, NOW()) AS reset_flash,
     COALESCE(q.quota_flashlite, 1.0) AS quota_flashlite,
     COALESCE(q.reset_flashlite, NOW()) AS reset_flashlite,
-    GREATEST(COALESCE(q.throttled_until_pro, '0001-01-01'::timestamptz), COALESCE(q.throttled_until_flash, '0001-01-01'::timestamptz), COALESCE(q.throttled_until_flashlite, '0001-01-01'::timestamptz))::timestamptz AS throttled_until,
+    COALESCE(q.throttled_until_pro, '0001-01-01'::timestamptz) AS throttled_until_pro,
+    COALESCE(q.throttled_until_flash, '0001-01-01'::timestamptz) AS throttled_until_flash,
+    COALESCE(q.throttled_until_flashlite, '0001-01-01'::timestamptz) AS throttled_until_flashlite,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
 FROM gemini g
 LEFT JOIN gemini_quota q ON q.credential_id = g.id
 WHERE
     ($1 = '' OR LOWER(g.id) LIKE $1 OR LOWER(g.email) LIKE $1 OR LOWER(g.status) LIKE $1 OR LOWER(g.plan_type) LIKE $1)
-    AND ($2 = '' OR g.status = $2)
+    AND (
+        $2 = ''
+        OR (
+            (strpos(',' || $2 || ',', ',enabled,') = 0 OR g.status = 'enabled')
+            AND (strpos(',' || $2 || ',', ',disabled,') = 0 OR g.status = 'disabled')
+            AND (strpos(',' || $2 || ',', ',throttled:all,') = 0 OR q.throttled_until_pro > NOW() OR q.throttled_until_flash > NOW() OR q.throttled_until_flashlite > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:pro,') = 0 OR q.throttled_until_pro > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:flash,') = 0 OR q.throttled_until_flash > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:flashlite,') = 0 OR q.throttled_until_flashlite > NOW())
+        )
+    )
     AND ($3 = '' OR LOWER(g.plan_type) = LOWER($3))
     AND ($4 = false OR q.synced_at IS NULL OR q.synced_at <= '0001-01-01'::timestamptz)
 ORDER BY g.id
@@ -202,7 +230,7 @@ LIMIT $6 OFFSET $5
 
 type ListGeminiCLIPagedParams struct {
 	Search       interface{} `json:"search"`
-	Status       interface{} `json:"status"`
+	Statuses     interface{} `json:"statuses"`
 	PlanType     interface{} `json:"plan_type"`
 	UnsyncedOnly interface{} `json:"unsynced_only"`
 	PageOffset   int32       `json:"page_offset"`
@@ -210,29 +238,31 @@ type ListGeminiCLIPagedParams struct {
 }
 
 type ListGeminiCLIPagedRow struct {
-	ID             string             `json:"id"`
-	Status         string             `json:"status"`
-	AccessToken    string             `json:"access_token"`
-	RefreshToken   string             `json:"refresh_token"`
-	Expired        pgtype.Timestamptz `json:"expired"`
-	Email          string             `json:"email"`
-	ProjectID      string             `json:"project_id"`
-	PlanType       string             `json:"plan_type"`
-	Reason         string             `json:"reason"`
-	QuotaPro       float64            `json:"quota_pro"`
-	ResetPro       pgtype.Timestamptz `json:"reset_pro"`
-	QuotaFlash     float64            `json:"quota_flash"`
-	ResetFlash     pgtype.Timestamptz `json:"reset_flash"`
-	QuotaFlashlite float64            `json:"quota_flashlite"`
-	ResetFlashlite pgtype.Timestamptz `json:"reset_flashlite"`
-	ThrottledUntil pgtype.Timestamptz `json:"throttled_until"`
-	SyncedAt       pgtype.Timestamptz `json:"synced_at"`
+	ID                      string             `json:"id"`
+	Status                  string             `json:"status"`
+	AccessToken             string             `json:"access_token"`
+	RefreshToken            string             `json:"refresh_token"`
+	Expired                 pgtype.Timestamptz `json:"expired"`
+	Email                   string             `json:"email"`
+	ProjectID               string             `json:"project_id"`
+	PlanType                string             `json:"plan_type"`
+	Reason                  string             `json:"reason"`
+	QuotaPro                float64            `json:"quota_pro"`
+	ResetPro                pgtype.Timestamptz `json:"reset_pro"`
+	QuotaFlash              float64            `json:"quota_flash"`
+	ResetFlash              pgtype.Timestamptz `json:"reset_flash"`
+	QuotaFlashlite          float64            `json:"quota_flashlite"`
+	ResetFlashlite          pgtype.Timestamptz `json:"reset_flashlite"`
+	ThrottledUntilPro       pgtype.Timestamptz `json:"throttled_until_pro"`
+	ThrottledUntilFlash     pgtype.Timestamptz `json:"throttled_until_flash"`
+	ThrottledUntilFlashlite pgtype.Timestamptz `json:"throttled_until_flashlite"`
+	SyncedAt                pgtype.Timestamptz `json:"synced_at"`
 }
 
 func (q *Queries) ListGeminiCLIPaged(ctx context.Context, arg ListGeminiCLIPagedParams) ([]ListGeminiCLIPagedRow, error) {
 	rows, err := q.db.Query(ctx, listGeminiCLIPaged,
 		arg.Search,
-		arg.Status,
+		arg.Statuses,
 		arg.PlanType,
 		arg.UnsyncedOnly,
 		arg.PageOffset,
@@ -261,7 +291,9 @@ func (q *Queries) ListGeminiCLIPaged(ctx context.Context, arg ListGeminiCLIPaged
 			&i.ResetFlash,
 			&i.QuotaFlashlite,
 			&i.ResetFlashlite,
-			&i.ThrottledUntil,
+			&i.ThrottledUntilPro,
+			&i.ThrottledUntilFlash,
+			&i.ThrottledUntilFlashlite,
 			&i.SyncedAt,
 		); err != nil {
 			return nil, err
@@ -280,7 +312,17 @@ FROM gemini g
 LEFT JOIN gemini_quota q ON q.credential_id = g.id
 WHERE
     ($1 = '' OR LOWER(g.id) LIKE $1 OR LOWER(g.email) LIKE $1 OR LOWER(g.status) LIKE $1 OR LOWER(g.plan_type) LIKE $1)
-    AND ($2 = '' OR g.status = $2)
+    AND (
+        $2 = ''
+        OR (
+            (strpos(',' || $2 || ',', ',enabled,') = 0 OR g.status = 'enabled')
+            AND (strpos(',' || $2 || ',', ',disabled,') = 0 OR g.status = 'disabled')
+            AND (strpos(',' || $2 || ',', ',throttled:all,') = 0 OR q.throttled_until_pro > NOW() OR q.throttled_until_flash > NOW() OR q.throttled_until_flashlite > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:pro,') = 0 OR q.throttled_until_pro > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:flash,') = 0 OR q.throttled_until_flash > NOW())
+            AND (strpos(',' || $2 || ',', ',throttled:flashlite,') = 0 OR q.throttled_until_flashlite > NOW())
+        )
+    )
     AND ($3 = false OR q.synced_at IS NULL OR q.synced_at <= '0001-01-01'::timestamptz)
     AND TRIM(g.plan_type) <> ''
 ORDER BY plan_type
@@ -288,12 +330,12 @@ ORDER BY plan_type
 
 type ListGeminiCLIPlanTypesParams struct {
 	Search       interface{} `json:"search"`
-	Status       interface{} `json:"status"`
+	Statuses     interface{} `json:"statuses"`
 	UnsyncedOnly interface{} `json:"unsynced_only"`
 }
 
 func (q *Queries) ListGeminiCLIPlanTypes(ctx context.Context, arg ListGeminiCLIPlanTypesParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, listGeminiCLIPlanTypes, arg.Search, arg.Status, arg.UnsyncedOnly)
+	rows, err := q.db.Query(ctx, listGeminiCLIPlanTypes, arg.Search, arg.Statuses, arg.UnsyncedOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -318,17 +360,17 @@ FROM (
     SELECT q.throttled_until_pro AS deadline
     FROM gemini g
     JOIN gemini_quota q ON q.credential_id = g.id
-    WHERE g.status = 'throttled' AND q.throttled_until_pro > NOW()
+    WHERE g.status <> 'disabled' AND q.throttled_until_pro > NOW()
     UNION ALL
     SELECT q.throttled_until_flash AS deadline
     FROM gemini g
     JOIN gemini_quota q ON q.credential_id = g.id
-    WHERE g.status = 'throttled' AND q.throttled_until_flash > NOW()
+    WHERE g.status <> 'disabled' AND q.throttled_until_flash > NOW()
     UNION ALL
     SELECT q.throttled_until_flashlite AS deadline
     FROM gemini g
     JOIN gemini_quota q ON q.credential_id = g.id
-    WHERE g.status = 'throttled' AND q.throttled_until_flashlite > NOW()
+    WHERE g.status <> 'disabled' AND q.throttled_until_flashlite > NOW()
 ) deadlines
 `
 
@@ -343,15 +385,6 @@ const restoreExpiredThrottledGeminiCLI = `-- name: RestoreExpiredThrottledGemini
 UPDATE gemini
 SET status = 'enabled', reason = ''
 WHERE status = 'throttled'
-  AND id IN (
-    SELECT g.id
-    FROM gemini g
-    LEFT JOIN gemini_quota q ON q.credential_id = g.id
-    WHERE g.status = 'throttled'
-      AND COALESCE(q.throttled_until_pro, NOW()) <= NOW()
-      AND COALESCE(q.throttled_until_flash, NOW()) <= NOW()
-      AND COALESCE(q.throttled_until_flashlite, NOW()) <= NOW()
-  )
 `
 
 func (q *Queries) RestoreExpiredThrottledGeminiCLI(ctx context.Context) error {

@@ -38,7 +38,16 @@ FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE
     (sqlc.arg(search) = '' OR LOWER(c.id) LIKE sqlc.arg(search) OR LOWER(c.status) LIKE sqlc.arg(search) OR LOWER(c.plan_type) LIKE sqlc.arg(search))
-    AND (sqlc.arg(status) = '' OR c.status = sqlc.arg(status))
+    AND (
+        sqlc.arg(statuses) = ''
+        OR (
+            (instr(',' || sqlc.arg(statuses) || ',', ',enabled,') = 0 OR c.status = 'enabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',disabled,') = 0 OR c.status = 'disabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:all,') = 0 OR q.throttled_until > datetime('now') OR q.throttled_until_spark > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:default,') = 0 OR q.throttled_until > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:spark,') = 0 OR q.throttled_until_spark > datetime('now'))
+        )
+    )
     AND (sqlc.arg(plan_type) = '' OR LOWER(c.plan_type) = LOWER(sqlc.arg(plan_type)))
     AND (sqlc.arg(unsynced_only) = 0 OR q.synced_at IS NULL OR q.synced_at = '');
 
@@ -48,7 +57,16 @@ FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE
     (sqlc.arg(search) = '' OR LOWER(c.id) LIKE sqlc.arg(search) OR LOWER(c.status) LIKE sqlc.arg(search) OR LOWER(c.plan_type) LIKE sqlc.arg(search))
-    AND (sqlc.arg(status) = '' OR c.status = sqlc.arg(status))
+    AND (
+        sqlc.arg(statuses) = ''
+        OR (
+            (instr(',' || sqlc.arg(statuses) || ',', ',enabled,') = 0 OR c.status = 'enabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',disabled,') = 0 OR c.status = 'disabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:all,') = 0 OR q.throttled_until > datetime('now') OR q.throttled_until_spark > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:default,') = 0 OR q.throttled_until > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:spark,') = 0 OR q.throttled_until_spark > datetime('now'))
+        )
+    )
     AND (sqlc.arg(unsynced_only) = 0 OR q.synced_at IS NULL OR q.synced_at = '')
     AND TRIM(c.plan_type) <> ''
 ORDER BY plan_type;
@@ -64,7 +82,8 @@ SELECT
     COALESCE(q.reset_7d, '') AS reset_7d,
     COALESCE(q.reset_spark_5h, '') AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '') AS reset_spark_7d,
-    CAST(max(COALESCE(q.throttled_until, ''), COALESCE(q.throttled_until_spark, '')) AS TEXT) AS throttled_until,
+    COALESCE(q.throttled_until, '') AS throttled_until_default,
+    COALESCE(q.throttled_until_spark, '') AS throttled_until_spark,
     COALESCE(q.synced_at, '') AS synced_at
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
@@ -81,13 +100,23 @@ SELECT
     COALESCE(q.reset_7d, '') AS reset_7d,
     COALESCE(q.reset_spark_5h, '') AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '') AS reset_spark_7d,
-    CAST(max(COALESCE(q.throttled_until, ''), COALESCE(q.throttled_until_spark, '')) AS TEXT) AS throttled_until,
+    COALESCE(q.throttled_until, '') AS throttled_until_default,
+    COALESCE(q.throttled_until_spark, '') AS throttled_until_spark,
     COALESCE(q.synced_at, '') AS synced_at
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE
     (sqlc.arg(search) = '' OR LOWER(c.id) LIKE sqlc.arg(search) OR LOWER(c.status) LIKE sqlc.arg(search) OR LOWER(c.plan_type) LIKE sqlc.arg(search))
-    AND (sqlc.arg(status) = '' OR c.status = sqlc.arg(status))
+    AND (
+        sqlc.arg(statuses) = ''
+        OR (
+            (instr(',' || sqlc.arg(statuses) || ',', ',enabled,') = 0 OR c.status = 'enabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',disabled,') = 0 OR c.status = 'disabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:all,') = 0 OR q.throttled_until > datetime('now') OR q.throttled_until_spark > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:default,') = 0 OR q.throttled_until > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:spark,') = 0 OR q.throttled_until_spark > datetime('now'))
+        )
+    )
     AND (sqlc.arg(plan_type) = '' OR LOWER(c.plan_type) = LOWER(sqlc.arg(plan_type)))
     AND (sqlc.arg(unsynced_only) = 0 OR q.synced_at IS NULL OR q.synced_at = '')
 ORDER BY c.id
@@ -108,15 +137,7 @@ RETURNING *;
 -- name: RestoreExpiredThrottledCodex :exec
 UPDATE codex
 SET status = 'enabled', reason = ''
-WHERE status = 'throttled'
-  AND id IN (
-    SELECT c.id
-    FROM codex c
-    LEFT JOIN codex_quota q ON q.credential_id = c.id
-    WHERE c.status = 'throttled'
-      AND COALESCE(q.throttled_until, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_spark, datetime('now')) <= datetime('now')
-  );
+WHERE status = 'throttled';
 
 -- name: NextCodexThrottleDeadline :one
 SELECT CAST(COALESCE(MIN(deadline), '') AS TEXT) AS deadline
@@ -124,10 +145,10 @@ FROM (
     SELECT q.throttled_until AS deadline
     FROM codex c
     JOIN codex_quota q ON q.credential_id = c.id
-    WHERE c.status = 'throttled' AND q.throttled_until > datetime('now')
+    WHERE c.status <> 'disabled' AND q.throttled_until > datetime('now')
     UNION ALL
     SELECT q.throttled_until_spark AS deadline
     FROM codex c
     JOIN codex_quota q ON q.credential_id = c.id
-    WHERE c.status = 'throttled' AND q.throttled_until_spark > datetime('now')
+    WHERE c.status <> 'disabled' AND q.throttled_until_spark > datetime('now')
 );

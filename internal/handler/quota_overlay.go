@@ -23,18 +23,23 @@ func overlayCodexQuotaCache(items []codexListItem, overlay quotaCacheOverlay) {
 		}
 		items[i].Default = codexMetricFromCache(cached.Default)
 		items[i].Spark = codexMetricFromCache(cached.Spark)
+		items[i].Status = credentialStatusList(baseCredentialStatus(items[i].Status),
+			throttleStatusDeadline{Tier: corecodex.ModelTierDefault, Deadline: throttleDeadlineValue(items[i].Default.ThrottledUntil)},
+			throttleStatusDeadline{Tier: corecodex.ModelTierSpark, Deadline: throttleDeadlineValue(items[i].Spark.ThrottledUntil)},
+		)
 	}
 }
 
 func codexMetricFromCache(metric corecodex.CachedQuotaMetric) codexSchedulingMetric {
 	return codexSchedulingMetric{
-		Available: metric.Available,
-		Quota5h:   metric.Quota5h,
-		Quota7d:   metric.Quota7d,
-		Reset5h:   metric.Reset5h,
-		Reset7d:   metric.Reset7d,
-		Score:     metric.Score,
-		Weight:    metric.Weight,
+		Available:      metric.Available,
+		Quota5h:        metric.Quota5h,
+		Quota7d:        metric.Quota7d,
+		Reset5h:        metric.Reset5h,
+		Reset7d:        metric.Reset7d,
+		ThrottledUntil: activeThrottleDeadline(metric.ThrottledUntil),
+		Score:          metric.Score,
+		Weight:         metric.Weight,
 	}
 }
 
@@ -50,16 +55,22 @@ func overlayGeminiQuotaCache(items []geminiListItem, overlay quotaCacheOverlay) 
 		items[i].Pro = geminiMetricFromCache(cached.Pro)
 		items[i].Flash = geminiMetricFromCache(cached.Flash)
 		items[i].Flashlite = geminiMetricFromCache(cached.FlashLite)
+		items[i].Status = credentialStatusList(baseCredentialStatus(items[i].Status),
+			throttleStatusDeadline{Tier: coregemini.ModelTierPro, Deadline: throttleDeadlineValue(items[i].Pro.ThrottledUntil)},
+			throttleStatusDeadline{Tier: coregemini.ModelTierFlash, Deadline: throttleDeadlineValue(items[i].Flash.ThrottledUntil)},
+			throttleStatusDeadline{Tier: coregemini.ModelTierFlashLite, Deadline: throttleDeadlineValue(items[i].Flashlite.ThrottledUntil)},
+		)
 	}
 }
 
 func geminiMetricFromCache(metric coregemini.CachedQuotaMetric) quotaSchedulingMetric {
 	return quotaSchedulingMetric{
-		Available: metric.Available,
-		Quota:     metric.Quota,
-		Reset:     metric.Reset,
-		Score:     metric.Score,
-		Weight:    metric.Weight,
+		Available:      metric.Available,
+		Quota:          metric.Quota,
+		Reset:          metric.Reset,
+		ThrottledUntil: activeThrottleDeadline(metric.ThrottledUntil),
+		Score:          metric.Score,
+		Weight:         metric.Weight,
 	}
 }
 
@@ -78,15 +89,24 @@ func overlayAntigravityQuotaCache(items []antigravityListItem, overlay quotaCach
 		items[i].Flashlite = antigravityMetricFromCache(cached.FlashLite)
 		items[i].Tab = antigravityMetricFromCache(cached.Tab)
 		items[i].Image = antigravityMetricFromCache(cached.Image)
+		items[i].Status = credentialStatusList(baseCredentialStatus(items[i].Status),
+			throttleStatusDeadline{Tier: coreantigravity.ModelTierClaude, Deadline: throttleDeadlineValue(items[i].Claude.ThrottledUntil)},
+			throttleStatusDeadline{Tier: coreantigravity.ModelTierPro, Deadline: throttleDeadlineValue(items[i].Pro.ThrottledUntil)},
+			throttleStatusDeadline{Tier: coreantigravity.ModelTierFlash, Deadline: throttleDeadlineValue(items[i].Flash.ThrottledUntil)},
+			throttleStatusDeadline{Tier: coreantigravity.ModelTierFlashLite, Deadline: throttleDeadlineValue(items[i].Flashlite.ThrottledUntil)},
+			throttleStatusDeadline{Tier: coreantigravity.ModelTierTab, Deadline: throttleDeadlineValue(items[i].Tab.ThrottledUntil)},
+			throttleStatusDeadline{Tier: coreantigravity.ModelTierImage, Deadline: throttleDeadlineValue(items[i].Image.ThrottledUntil)},
+		)
 	}
 }
 
 func antigravityMetricFromCache(metric coreantigravity.CachedQuotaMetric) quotaSchedulingMetric {
 	return quotaSchedulingMetric{
-		Available: metric.Available,
-		Quota:     metric.Quota,
-		Reset:     metric.Reset,
-		Score:     metric.Score,
-		Weight:    metric.Weight,
+		Available:      metric.Available,
+		Quota:          metric.Quota,
+		Reset:          metric.Reset,
+		ThrottledUntil: activeThrottleDeadline(metric.ThrottledUntil),
+		Score:          metric.Score,
+		Weight:         metric.Weight,
 	}
 }

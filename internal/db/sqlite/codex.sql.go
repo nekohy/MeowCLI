@@ -26,14 +26,23 @@ FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE
     (?1 = '' OR LOWER(c.id) LIKE ?1 OR LOWER(c.status) LIKE ?1 OR LOWER(c.plan_type) LIKE ?1)
-    AND (?2 = '' OR c.status = ?2)
+    AND (
+        ?2 = ''
+        OR (
+            (instr(',' || ?2 || ',', ',enabled,') = 0 OR c.status = 'enabled')
+            AND (instr(',' || ?2 || ',', ',disabled,') = 0 OR c.status = 'disabled')
+            AND (instr(',' || ?2 || ',', ',throttled:all,') = 0 OR q.throttled_until > datetime('now') OR q.throttled_until_spark > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:default,') = 0 OR q.throttled_until > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:spark,') = 0 OR q.throttled_until_spark > datetime('now'))
+        )
+    )
     AND (?3 = '' OR LOWER(c.plan_type) = LOWER(?3))
     AND (?4 = 0 OR q.synced_at IS NULL OR q.synced_at = '')
 `
 
 type CountCodexFilteredParams struct {
 	Search       interface{} `json:"search"`
-	Status       interface{} `json:"status"`
+	Statuses     interface{} `json:"statuses"`
 	PlanType     interface{} `json:"plan_type"`
 	UnsyncedOnly interface{} `json:"unsynced_only"`
 }
@@ -41,7 +50,7 @@ type CountCodexFilteredParams struct {
 func (q *Queries) CountCodexFiltered(ctx context.Context, arg CountCodexFilteredParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countCodexFiltered,
 		arg.Search,
-		arg.Status,
+		arg.Statuses,
 		arg.PlanType,
 		arg.UnsyncedOnly,
 	)
@@ -145,7 +154,8 @@ SELECT
     COALESCE(q.reset_7d, '') AS reset_7d,
     COALESCE(q.reset_spark_5h, '') AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '') AS reset_spark_7d,
-    CAST(max(COALESCE(q.throttled_until, ''), COALESCE(q.throttled_until_spark, '')) AS TEXT) AS throttled_until,
+    COALESCE(q.throttled_until, '') AS throttled_until_default,
+    COALESCE(q.throttled_until_spark, '') AS throttled_until_spark,
     COALESCE(q.synced_at, '') AS synced_at
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
@@ -153,23 +163,24 @@ ORDER BY c.id
 `
 
 type ListCodexRow struct {
-	ID             string  `json:"id"`
-	Status         string  `json:"status"`
-	AccessToken    string  `json:"access_token"`
-	Expired        string  `json:"expired"`
-	RefreshToken   string  `json:"refresh_token"`
-	PlanType       string  `json:"plan_type"`
-	Reason         string  `json:"reason"`
-	Quota5h        float64 `json:"quota_5h"`
-	Quota7d        float64 `json:"quota_7d"`
-	QuotaSpark5h   float64 `json:"quota_spark_5h"`
-	QuotaSpark7d   float64 `json:"quota_spark_7d"`
-	Reset5h        string  `json:"reset_5h"`
-	Reset7d        string  `json:"reset_7d"`
-	ResetSpark5h   string  `json:"reset_spark_5h"`
-	ResetSpark7d   string  `json:"reset_spark_7d"`
-	ThrottledUntil string  `json:"throttled_until"`
-	SyncedAt       string  `json:"synced_at"`
+	ID                    string  `json:"id"`
+	Status                string  `json:"status"`
+	AccessToken           string  `json:"access_token"`
+	Expired               string  `json:"expired"`
+	RefreshToken          string  `json:"refresh_token"`
+	PlanType              string  `json:"plan_type"`
+	Reason                string  `json:"reason"`
+	Quota5h               float64 `json:"quota_5h"`
+	Quota7d               float64 `json:"quota_7d"`
+	QuotaSpark5h          float64 `json:"quota_spark_5h"`
+	QuotaSpark7d          float64 `json:"quota_spark_7d"`
+	Reset5h               string  `json:"reset_5h"`
+	Reset7d               string  `json:"reset_7d"`
+	ResetSpark5h          string  `json:"reset_spark_5h"`
+	ResetSpark7d          string  `json:"reset_spark_7d"`
+	ThrottledUntilDefault string  `json:"throttled_until_default"`
+	ThrottledUntilSpark   string  `json:"throttled_until_spark"`
+	SyncedAt              string  `json:"synced_at"`
 }
 
 func (q *Queries) ListCodex(ctx context.Context) ([]ListCodexRow, error) {
@@ -197,7 +208,8 @@ func (q *Queries) ListCodex(ctx context.Context) ([]ListCodexRow, error) {
 			&i.Reset7d,
 			&i.ResetSpark5h,
 			&i.ResetSpark7d,
-			&i.ThrottledUntil,
+			&i.ThrottledUntilDefault,
+			&i.ThrottledUntilSpark,
 			&i.SyncedAt,
 		); err != nil {
 			return nil, err
@@ -224,13 +236,23 @@ SELECT
     COALESCE(q.reset_7d, '') AS reset_7d,
     COALESCE(q.reset_spark_5h, '') AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '') AS reset_spark_7d,
-    CAST(max(COALESCE(q.throttled_until, ''), COALESCE(q.throttled_until_spark, '')) AS TEXT) AS throttled_until,
+    COALESCE(q.throttled_until, '') AS throttled_until_default,
+    COALESCE(q.throttled_until_spark, '') AS throttled_until_spark,
     COALESCE(q.synced_at, '') AS synced_at
 FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE
     (?1 = '' OR LOWER(c.id) LIKE ?1 OR LOWER(c.status) LIKE ?1 OR LOWER(c.plan_type) LIKE ?1)
-    AND (?2 = '' OR c.status = ?2)
+    AND (
+        ?2 = ''
+        OR (
+            (instr(',' || ?2 || ',', ',enabled,') = 0 OR c.status = 'enabled')
+            AND (instr(',' || ?2 || ',', ',disabled,') = 0 OR c.status = 'disabled')
+            AND (instr(',' || ?2 || ',', ',throttled:all,') = 0 OR q.throttled_until > datetime('now') OR q.throttled_until_spark > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:default,') = 0 OR q.throttled_until > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:spark,') = 0 OR q.throttled_until_spark > datetime('now'))
+        )
+    )
     AND (?3 = '' OR LOWER(c.plan_type) = LOWER(?3))
     AND (?4 = 0 OR q.synced_at IS NULL OR q.synced_at = '')
 ORDER BY c.id
@@ -239,7 +261,7 @@ LIMIT ?6 OFFSET ?5
 
 type ListCodexPagedParams struct {
 	Search       interface{} `json:"search"`
-	Status       interface{} `json:"status"`
+	Statuses     interface{} `json:"statuses"`
 	PlanType     interface{} `json:"plan_type"`
 	UnsyncedOnly interface{} `json:"unsynced_only"`
 	PageOffset   int64       `json:"page_offset"`
@@ -247,29 +269,30 @@ type ListCodexPagedParams struct {
 }
 
 type ListCodexPagedRow struct {
-	ID             string  `json:"id"`
-	Status         string  `json:"status"`
-	AccessToken    string  `json:"access_token"`
-	Expired        string  `json:"expired"`
-	RefreshToken   string  `json:"refresh_token"`
-	PlanType       string  `json:"plan_type"`
-	Reason         string  `json:"reason"`
-	Quota5h        float64 `json:"quota_5h"`
-	Quota7d        float64 `json:"quota_7d"`
-	QuotaSpark5h   float64 `json:"quota_spark_5h"`
-	QuotaSpark7d   float64 `json:"quota_spark_7d"`
-	Reset5h        string  `json:"reset_5h"`
-	Reset7d        string  `json:"reset_7d"`
-	ResetSpark5h   string  `json:"reset_spark_5h"`
-	ResetSpark7d   string  `json:"reset_spark_7d"`
-	ThrottledUntil string  `json:"throttled_until"`
-	SyncedAt       string  `json:"synced_at"`
+	ID                    string  `json:"id"`
+	Status                string  `json:"status"`
+	AccessToken           string  `json:"access_token"`
+	Expired               string  `json:"expired"`
+	RefreshToken          string  `json:"refresh_token"`
+	PlanType              string  `json:"plan_type"`
+	Reason                string  `json:"reason"`
+	Quota5h               float64 `json:"quota_5h"`
+	Quota7d               float64 `json:"quota_7d"`
+	QuotaSpark5h          float64 `json:"quota_spark_5h"`
+	QuotaSpark7d          float64 `json:"quota_spark_7d"`
+	Reset5h               string  `json:"reset_5h"`
+	Reset7d               string  `json:"reset_7d"`
+	ResetSpark5h          string  `json:"reset_spark_5h"`
+	ResetSpark7d          string  `json:"reset_spark_7d"`
+	ThrottledUntilDefault string  `json:"throttled_until_default"`
+	ThrottledUntilSpark   string  `json:"throttled_until_spark"`
+	SyncedAt              string  `json:"synced_at"`
 }
 
 func (q *Queries) ListCodexPaged(ctx context.Context, arg ListCodexPagedParams) ([]ListCodexPagedRow, error) {
 	rows, err := q.db.QueryContext(ctx, listCodexPaged,
 		arg.Search,
-		arg.Status,
+		arg.Statuses,
 		arg.PlanType,
 		arg.UnsyncedOnly,
 		arg.PageOffset,
@@ -298,7 +321,8 @@ func (q *Queries) ListCodexPaged(ctx context.Context, arg ListCodexPagedParams) 
 			&i.Reset7d,
 			&i.ResetSpark5h,
 			&i.ResetSpark7d,
-			&i.ThrottledUntil,
+			&i.ThrottledUntilDefault,
+			&i.ThrottledUntilSpark,
 			&i.SyncedAt,
 		); err != nil {
 			return nil, err
@@ -320,7 +344,16 @@ FROM codex c
 LEFT JOIN codex_quota q ON q.credential_id = c.id
 WHERE
     (?1 = '' OR LOWER(c.id) LIKE ?1 OR LOWER(c.status) LIKE ?1 OR LOWER(c.plan_type) LIKE ?1)
-    AND (?2 = '' OR c.status = ?2)
+    AND (
+        ?2 = ''
+        OR (
+            (instr(',' || ?2 || ',', ',enabled,') = 0 OR c.status = 'enabled')
+            AND (instr(',' || ?2 || ',', ',disabled,') = 0 OR c.status = 'disabled')
+            AND (instr(',' || ?2 || ',', ',throttled:all,') = 0 OR q.throttled_until > datetime('now') OR q.throttled_until_spark > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:default,') = 0 OR q.throttled_until > datetime('now'))
+            AND (instr(',' || ?2 || ',', ',throttled:spark,') = 0 OR q.throttled_until_spark > datetime('now'))
+        )
+    )
     AND (?3 = 0 OR q.synced_at IS NULL OR q.synced_at = '')
     AND TRIM(c.plan_type) <> ''
 ORDER BY plan_type
@@ -328,12 +361,12 @@ ORDER BY plan_type
 
 type ListCodexPlanTypesParams struct {
 	Search       interface{} `json:"search"`
-	Status       interface{} `json:"status"`
+	Statuses     interface{} `json:"statuses"`
 	UnsyncedOnly interface{} `json:"unsynced_only"`
 }
 
 func (q *Queries) ListCodexPlanTypes(ctx context.Context, arg ListCodexPlanTypesParams) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, listCodexPlanTypes, arg.Search, arg.Status, arg.UnsyncedOnly)
+	rows, err := q.db.QueryContext(ctx, listCodexPlanTypes, arg.Search, arg.Statuses, arg.UnsyncedOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -361,12 +394,12 @@ FROM (
     SELECT q.throttled_until AS deadline
     FROM codex c
     JOIN codex_quota q ON q.credential_id = c.id
-    WHERE c.status = 'throttled' AND q.throttled_until > datetime('now')
+    WHERE c.status <> 'disabled' AND q.throttled_until > datetime('now')
     UNION ALL
     SELECT q.throttled_until_spark AS deadline
     FROM codex c
     JOIN codex_quota q ON q.credential_id = c.id
-    WHERE c.status = 'throttled' AND q.throttled_until_spark > datetime('now')
+    WHERE c.status <> 'disabled' AND q.throttled_until_spark > datetime('now')
 )
 `
 
@@ -381,14 +414,6 @@ const restoreExpiredThrottledCodex = `-- name: RestoreExpiredThrottledCodex :exe
 UPDATE codex
 SET status = 'enabled', reason = ''
 WHERE status = 'throttled'
-  AND id IN (
-    SELECT c.id
-    FROM codex c
-    LEFT JOIN codex_quota q ON q.credential_id = c.id
-    WHERE c.status = 'throttled'
-      AND COALESCE(q.throttled_until, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_spark, datetime('now')) <= datetime('now')
-  )
 `
 
 func (q *Queries) RestoreExpiredThrottledCodex(ctx context.Context) error {

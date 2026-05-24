@@ -2,27 +2,38 @@ import type { UiTone } from '../types/admin'
 
 export const CREDENTIAL_STATUS_FILTER_ALL = 'all' as const
 
-export const KNOWN_CREDENTIAL_STATUSES = ['enabled', 'disabled', 'throttled'] as const
+export const KNOWN_CREDENTIAL_STATUSES = ['enabled', 'disabled'] as const
+export const KNOWN_THROTTLE_STATUS_PREFIX = 'throttled:' as const
+export const CREDENTIAL_THROTTLE_STATUS_ALL = `${KNOWN_THROTTLE_STATUS_PREFIX}all` as const
 
 export type KnownCredentialStatus = typeof KNOWN_CREDENTIAL_STATUSES[number]
-export type CredentialStatusFilter = typeof CREDENTIAL_STATUS_FILTER_ALL | KnownCredentialStatus
+export type CredentialStatusFilter = string
 
 const CREDENTIAL_STATUS_LABELS: Record<KnownCredentialStatus, string> = {
   enabled: '启用',
   disabled: '停用',
-  throttled: '节流中',
 }
 
 const CREDENTIAL_STATUS_TONES: Record<KnownCredentialStatus, UiTone> = {
   enabled: 'success',
   disabled: 'danger',
-  throttled: 'warning',
 }
 
 const CREDENTIAL_STATUS_ICONS: Record<KnownCredentialStatus, string> = {
   enabled: 'mdi-check',
   disabled: 'mdi-close-circle',
-  throttled: 'mdi-timer-sand',
+}
+
+const THROTTLE_TIER_LABELS: Record<string, string> = {
+  all: '节流中',
+  default: '主节流',
+  spark: 'Spark节流',
+  pro: 'Pro节流',
+  flash: 'Flash节流',
+  flashlite: 'Lite节流',
+  claude: 'Claude节流',
+  tab: 'Tab节流',
+  image: 'Image节流',
 }
 
 export function isKnownCredentialStatus(status?: string | null): status is KnownCredentialStatus {
@@ -33,12 +44,19 @@ export function credentialStatusLabel(status?: string | null) {
   if (isKnownCredentialStatus(status)) {
     return CREDENTIAL_STATUS_LABELS[status]
   }
+  if (isThrottleTierStatus(status)) {
+    const value = String(status)
+    return THROTTLE_TIER_LABELS[value.slice(KNOWN_THROTTLE_STATUS_PREFIX.length)] || value
+  }
   return status || '-'
 }
 
 export function credentialStatusTone(status?: string | null): UiTone {
   if (isKnownCredentialStatus(status)) {
     return CREDENTIAL_STATUS_TONES[status]
+  }
+  if (isThrottleTierStatus(status)) {
+    return 'warning'
   }
   return 'neutral'
 }
@@ -47,38 +65,55 @@ export function credentialStatusIcon(status?: string | null) {
   if (isKnownCredentialStatus(status)) {
     return CREDENTIAL_STATUS_ICONS[status]
   }
+  if (isThrottleTierStatus(status)) {
+    return 'mdi-timer-sand'
+  }
   return 'mdi-close-circle'
 }
 
-export function credentialStatusQueryValue(status: CredentialStatusFilter): KnownCredentialStatus | undefined {
-  return isKnownCredentialStatus(status) ? status : undefined
+export function isThrottleTierStatus(status?: string | null) {
+  return String(status || '').startsWith(KNOWN_THROTTLE_STATUS_PREFIX)
+}
+
+export function credentialStatusQueryValue(statuses: CredentialStatusFilter[]): string[] | undefined {
+  const selected = statuses.filter((status) => status && status !== CREDENTIAL_STATUS_FILTER_ALL)
+  return selected.length ? selected : undefined
 }
 
 export function credentialStatusFilterOptions(statuses: Iterable<string>) {
-  const available = new Set<KnownCredentialStatus>()
+  const available = new Set<string>()
   for (const status of statuses) {
-    if (isKnownCredentialStatus(status)) {
+    if (isKnownCredentialStatus(status) || isThrottleTierStatus(status)) {
       available.add(status)
     }
   }
 
   return [
     { value: CREDENTIAL_STATUS_FILTER_ALL, label: '全部状态' },
-    ...KNOWN_CREDENTIAL_STATUSES
+    ...[...KNOWN_CREDENTIAL_STATUSES, ...Array.from(available).filter(isThrottleTierStatus).sort()]
       .filter((status) => available.has(status))
       .map((status) => ({ value: status, label: credentialStatusLabel(status) })),
   ]
 }
 
-export function shouldShowCredentialReason(status?: string | null) {
-  return status === 'disabled' || status === 'throttled'
+export function credentialBaseStatus(statuses?: string[] | string | null) {
+  const list = Array.isArray(statuses) ? statuses : [String(statuses || '')]
+  return list.find(isKnownCredentialStatus) || ''
 }
 
-export function credentialReasonLabel(status?: string | null) {
-  if (status === 'throttled') {
-    return '节流原因'
-  }
-  if (status === 'disabled') {
+export function credentialStatusBadges(statuses?: string[] | string | null) {
+  const list = Array.isArray(statuses) ? statuses : [String(statuses || '')]
+  return list.filter((status) => isKnownCredentialStatus(status) || isThrottleTierStatus(status))
+}
+
+export function shouldShowCredentialReason(statuses?: string[] | string | null) {
+  const baseStatus = credentialBaseStatus(statuses)
+  return baseStatus === 'disabled'
+}
+
+export function credentialReasonLabel(statuses?: string[] | string | null) {
+  const baseStatus = credentialBaseStatus(statuses)
+  if (baseStatus === 'disabled') {
     return '停用原因'
   }
   return '状态原因'

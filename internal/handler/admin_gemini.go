@@ -29,19 +29,18 @@ type geminiCodeAssistPlanLoader interface {
 }
 
 type geminiListItem struct {
-	Handler        string                `json:"handler"`
-	ID             string                `json:"id"`
-	Status         string                `json:"status"`
-	Email          string                `json:"email"`
-	ProjectID      string                `json:"project_id"`
-	PlanType       string                `json:"plan_type"`
-	Expired        time.Time             `json:"expired"`
-	Reason         string                `json:"reason"`
-	ThrottledUntil time.Time             `json:"throttled_until"`
-	SyncedAt       time.Time             `json:"synced_at"`
-	Pro            quotaSchedulingMetric `json:"pro"`
-	Flash          quotaSchedulingMetric `json:"flash"`
-	Flashlite      quotaSchedulingMetric `json:"flashlite"`
+	Handler   string                `json:"handler"`
+	ID        string                `json:"id"`
+	Status    []string              `json:"status"`
+	Email     string                `json:"email"`
+	ProjectID string                `json:"project_id"`
+	PlanType  string                `json:"plan_type"`
+	Expired   time.Time             `json:"expired"`
+	Reason    string                `json:"reason"`
+	SyncedAt  time.Time             `json:"synced_at"`
+	Pro       quotaSchedulingMetric `json:"pro"`
+	Flash     quotaSchedulingMetric `json:"flash"`
+	Flashlite quotaSchedulingMetric `json:"flashlite"`
 }
 
 func (a *AdminHandler) ListGemini(c *gin.Context) {
@@ -77,17 +76,18 @@ func (a *AdminHandler) ListGemini(c *gin.Context) {
 }
 
 func geminiCredentialFiltersFromRequest(c *gin.Context) db.CredentialFilterParams {
-	status := strings.TrimSpace(c.Query("status"))
-	if status != "enabled" && status != "disabled" && status != "throttled" {
-		status = ""
-	}
-
 	return db.CredentialFilterParams{
 		Search:   strings.TrimSpace(c.Query("search")),
-		Status:   status,
+		Statuses: credentialStatusesFromRequest(c, geminiThrottleStatusTiers),
 		PlanType: utils.NormalizeCodeAssistPlanType(c.Query("plan_type")),
 	}
 }
+
+var geminiThrottleStatusTiers = stringSet(
+	coregemini.ModelTierPro,
+	coregemini.ModelTierFlash,
+	coregemini.ModelTierFlashLite,
+)
 
 func (a *AdminHandler) BatchCreateGemini(c *gin.Context) {
 	if a == nil || a.geminiAPI == nil {
@@ -116,75 +116,14 @@ func (a *AdminHandler) BatchCreateGemini(c *gin.Context) {
 }
 
 func (a *AdminHandler) BatchUpdateGeminiStatus(c *gin.Context) {
-	var req batchUpdateStatusReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx := c.Request.Context()
-	updated := make([]string, 0, len(req.IDs))
-	errs := make([]batchError, 0)
-
-	for _, id := range req.IDs {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-
-		_, err := a.store.UpdateGeminiCLIStatus(ctx, id, req.Status, "")
-		if err != nil {
-			errs = append(errs, batchError{
-				Input: id,
-				Error: storeErrorMessage(err, "credential not found", ""),
-			})
-			continue
-		}
-		updated = append(updated, id)
-	}
-
-	a.refreshCredentials(ctx, utils.HandlerGemini, updated)
-	if req.Status == "enabled" {
-		a.syncCredentialQuotas(ctx, utils.HandlerGemini, updated)
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"updated": updated,
-		"errors":  errs,
+	a.batchUpdateCredentialStatus(c, utils.HandlerGemini, func(ctx context.Context, id, status, reason string) error {
+		_, err := a.store.UpdateGeminiCLIStatus(ctx, id, status, reason)
+		return err
 	})
 }
 
 func (a *AdminHandler) BatchDeleteGemini(c *gin.Context) {
-	var req batchDeleteReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx := c.Request.Context()
-	deleted := make([]string, 0, len(req.IDs))
-	errs := make([]batchError, 0)
-
-	for _, id := range req.IDs {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-
-		if err := a.store.DeleteGeminiCLI(ctx, id); err != nil {
-			errs = append(errs, batchError{
-				Input: id,
-				Error: storeErrorMessage(err, "credential not found", ""),
-			})
-			continue
-		}
-		deleted = append(deleted, id)
-	}
-
-	a.refreshCredentials(ctx, utils.HandlerGemini, deleted)
-	c.JSON(http.StatusOK, gin.H{
-		"deleted": deleted,
-		"errors":  errs,
-	})
+	a.batchDeleteCredentials(c, utils.HandlerGemini, a.store.DeleteGeminiCLI)
 }
 
 func (a *AdminHandler) listGeminiCredentials(ctx context.Context, page, pageSize int, filters db.CredentialFilterParams, sortOptions credentialSortOptions) (int64, []geminiListItem, error) {
@@ -253,36 +192,42 @@ func (a *AdminHandler) listGeminiCredentials(ctx context.Context, page, pageSize
 		wFlashlite := scheduling.CalcWeight(erFlashlite)
 
 		items[i] = geminiListItem{
-			Handler:        string(utils.HandlerGemini),
-			ID:             row.ID,
-			Status:         row.Status,
-			Email:          row.Email,
-			ProjectID:      row.ProjectID,
-			PlanType:       row.PlanType,
-			Expired:        row.Expired,
-			Reason:         row.Reason,
-			ThrottledUntil: row.ThrottledUntil,
-			SyncedAt:       row.SyncedAt,
+			Handler: string(utils.HandlerGemini),
+			ID:      row.ID,
+			Status: credentialStatusList(row.Status,
+				throttleStatusDeadline{Tier: coregemini.ModelTierPro, Deadline: row.ThrottledUntilPro},
+				throttleStatusDeadline{Tier: coregemini.ModelTierFlash, Deadline: row.ThrottledUntilFlash},
+				throttleStatusDeadline{Tier: coregemini.ModelTierFlashLite, Deadline: row.ThrottledUntilFlashlite},
+			),
+			Email:     row.Email,
+			ProjectID: row.ProjectID,
+			PlanType:  row.PlanType,
+			Expired:   row.Expired,
+			Reason:    row.Reason,
+			SyncedAt:  row.SyncedAt,
 			Pro: quotaSchedulingMetric{
-				Available: scorePro >= 0,
-				Quota:     row.QuotaPro,
-				Reset:     row.ResetPro,
-				Score:     scorePro,
-				Weight:    wPro,
+				Available:      scorePro >= 0,
+				Quota:          row.QuotaPro,
+				Reset:          row.ResetPro,
+				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilPro),
+				Score:          scorePro,
+				Weight:         wPro,
 			},
 			Flash: quotaSchedulingMetric{
-				Available: scoreFlash >= 0,
-				Quota:     row.QuotaFlash,
-				Reset:     row.ResetFlash,
-				Score:     scoreFlash,
-				Weight:    wFlash,
+				Available:      scoreFlash >= 0,
+				Quota:          row.QuotaFlash,
+				Reset:          row.ResetFlash,
+				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilFlash),
+				Score:          scoreFlash,
+				Weight:         wFlash,
 			},
 			Flashlite: quotaSchedulingMetric{
-				Available: scoreFlashlite >= 0,
-				Quota:     row.QuotaFlashlite,
-				Reset:     row.ResetFlashlite,
-				Score:     scoreFlashlite,
-				Weight:    wFlashlite,
+				Available:      scoreFlashlite >= 0,
+				Quota:          row.QuotaFlashlite,
+				Reset:          row.ResetFlashlite,
+				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilFlashlite),
+				Score:          scoreFlashlite,
+				Weight:         wFlashlite,
 			},
 		}
 	}

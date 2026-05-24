@@ -5,7 +5,7 @@ import type {
   ThemeMode,
   UiTone,
 } from '~/types/admin'
-import { credentialStatusLabel, credentialStatusTone, isKnownCredentialStatus } from './credentialStatus'
+import { credentialStatusLabel, credentialStatusTone, isKnownCredentialStatus, isThrottleTierStatus } from './credentialStatus'
 
 export const THEME_STORAGE_KEY = 'meowcli-admin-theme'
 const THEME_META_COLORS: Record<ThemeMode, string> = {
@@ -194,7 +194,7 @@ export function formatPercent(value?: number | null) {
 }
 
 export function statusText(status?: string | null) {
-  if (isKnownCredentialStatus(status)) {
+  if (isKnownCredentialStatus(status) || isThrottleTierStatus(status)) {
     return credentialStatusLabel(status)
   }
   return STATUS_LABELS[status ?? ''] || status || '-'
@@ -205,7 +205,7 @@ export function roleText(role?: string | null) {
 }
 
 export function toneForStatus(status?: string | null): UiTone {
-  if (isKnownCredentialStatus(status)) {
+  if (isKnownCredentialStatus(status) || isThrottleTierStatus(status)) {
     return credentialStatusTone(status)
   }
   switch (status) {

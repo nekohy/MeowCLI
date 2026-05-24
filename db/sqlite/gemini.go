@@ -20,7 +20,7 @@ func (s *Store) CountGeminiCLI(ctx context.Context) (int64, error) {
 func (s *Store) CountGeminiCLIFiltered(ctx context.Context, filter db.CredentialFilterParams) (int64, error) {
 	return s.queries.CountGeminiCLIFiltered(ctx, sqlcsqlite.CountGeminiCLIFilteredParams{
 		Search:       sqliteCodexSearchPattern(filter.Search),
-		Status:       strings.TrimSpace(filter.Status),
+		Statuses:     db.CredentialStatusFilterValue(filter.Statuses),
 		PlanType:     strings.TrimSpace(filter.PlanType),
 		UnsyncedOnly: sqliteBool(filter.UnsyncedOnly),
 	})
@@ -60,7 +60,7 @@ func (s *Store) UpdateGeminiTokens(ctx context.Context, arg db.UpdateGeminiToken
 	if err != nil {
 		return db.GeminiCredential{}, wrapError(err)
 	}
-	if shouldClearCredentialThrottle(arg.Status) {
+	if db.ShouldClearCredentialThrottle(arg.Status) {
 		if err := queries.ClearGeminiQuotaThrottle(ctx, arg.ID); err != nil {
 			return db.GeminiCredential{}, wrapError(err)
 		}
@@ -106,7 +106,9 @@ func (s *Store) ListGeminiCLI(ctx context.Context) ([]db.ListGeminiCLIRow, error
 			row.ResetPro,
 			row.ResetFlash,
 			row.ResetFlashlite,
-			row.ThrottledUntil,
+			row.ThrottledUntilPro,
+			row.ThrottledUntilFlash,
+			row.ThrottledUntilFlashlite,
 			row.SyncedAt,
 		)
 	}
@@ -116,7 +118,7 @@ func (s *Store) ListGeminiCLI(ctx context.Context) ([]db.ListGeminiCLIRow, error
 func (s *Store) ListGeminiCLIPaged(ctx context.Context, arg db.ListCredentialPagedParams) ([]db.ListGeminiCLIRow, error) {
 	rows, err := s.queries.ListGeminiCLIPaged(ctx, sqlcsqlite.ListGeminiCLIPagedParams{
 		Search:       sqliteCodexSearchPattern(arg.Search),
-		Status:       strings.TrimSpace(arg.Status),
+		Statuses:     db.CredentialStatusFilterValue(arg.Statuses),
 		PlanType:     strings.TrimSpace(arg.PlanType),
 		UnsyncedOnly: sqliteBool(arg.UnsyncedOnly),
 		PageOffset:   int64(arg.Offset),
@@ -143,7 +145,9 @@ func (s *Store) ListGeminiCLIPaged(ctx context.Context, arg db.ListCredentialPag
 			row.ResetPro,
 			row.ResetFlash,
 			row.ResetFlashlite,
-			row.ThrottledUntil,
+			row.ThrottledUntilPro,
+			row.ThrottledUntilFlash,
+			row.ThrottledUntilFlashlite,
 			row.SyncedAt,
 		)
 	}
@@ -153,7 +157,7 @@ func (s *Store) ListGeminiCLIPaged(ctx context.Context, arg db.ListCredentialPag
 func (s *Store) ListGeminiCLIPlanTypes(ctx context.Context, filter db.CredentialFilterParams) ([]string, error) {
 	return s.queries.ListGeminiCLIPlanTypes(ctx, sqlcsqlite.ListGeminiCLIPlanTypesParams{
 		Search:       sqliteCodexSearchPattern(filter.Search),
-		Status:       strings.TrimSpace(filter.Status),
+		Statuses:     db.CredentialStatusFilterValue(filter.Statuses),
 		UnsyncedOnly: sqliteBool(filter.UnsyncedOnly),
 	})
 }
@@ -185,7 +189,7 @@ func (s *Store) UpsertGeminiCLI(ctx context.Context, arg db.UpsertGeminiCLIParam
 	if err != nil {
 		return db.GeminiCredential{}, wrapError(err)
 	}
-	if shouldClearCredentialThrottle(arg.Status) {
+	if db.ShouldClearCredentialThrottle(arg.Status) {
 		if err := queries.ClearGeminiQuotaThrottle(ctx, arg.ID); err != nil {
 			return db.GeminiCredential{}, wrapError(err)
 		}
@@ -229,7 +233,7 @@ func (s *Store) UpdateGeminiCLIStatus(ctx context.Context, id string, status str
 	if err != nil {
 		return db.GeminiCredential{}, wrapError(err)
 	}
-	if shouldClearCredentialThrottle(status) {
+	if db.ShouldClearCredentialThrottle(status) {
 		if err := queries.ClearGeminiQuotaThrottle(ctx, id); err != nil {
 			return db.GeminiCredential{}, wrapError(err)
 		}

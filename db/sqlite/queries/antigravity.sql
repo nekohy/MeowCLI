@@ -18,7 +18,20 @@ FROM antigravity a
 LEFT JOIN antigravity_quota q ON q.credential_id = a.id
 WHERE
     (sqlc.arg(search) = '' OR LOWER(a.id) LIKE sqlc.arg(search) OR LOWER(a.email) LIKE sqlc.arg(search) OR LOWER(a.status) LIKE sqlc.arg(search) OR LOWER(a.plan_type) LIKE sqlc.arg(search))
-    AND (sqlc.arg(status) = '' OR a.status = sqlc.arg(status))
+    AND (
+        sqlc.arg(statuses) = ''
+        OR (
+            (instr(',' || sqlc.arg(statuses) || ',', ',enabled,') = 0 OR a.status = 'enabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',disabled,') = 0 OR a.status = 'disabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:all,') = 0 OR q.throttled_until_claude > datetime('now') OR q.throttled_until_pro > datetime('now') OR q.throttled_until_flash > datetime('now') OR q.throttled_until_flashlite > datetime('now') OR q.throttled_until_tab > datetime('now') OR q.throttled_until_image > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:claude,') = 0 OR q.throttled_until_claude > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:pro,') = 0 OR q.throttled_until_pro > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:flash,') = 0 OR q.throttled_until_flash > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:flashlite,') = 0 OR q.throttled_until_flashlite > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:tab,') = 0 OR q.throttled_until_tab > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:image,') = 0 OR q.throttled_until_image > datetime('now'))
+        )
+    )
     AND (sqlc.arg(plan_type) = '' OR LOWER(a.plan_type) = LOWER(sqlc.arg(plan_type)))
     AND (sqlc.arg(unsynced_only) = 0 OR q.synced_at IS NULL OR q.synced_at = '');
 
@@ -28,7 +41,20 @@ FROM antigravity a
 LEFT JOIN antigravity_quota q ON q.credential_id = a.id
 WHERE
     (sqlc.arg(search) = '' OR LOWER(a.id) LIKE sqlc.arg(search) OR LOWER(a.email) LIKE sqlc.arg(search) OR LOWER(a.status) LIKE sqlc.arg(search) OR LOWER(a.plan_type) LIKE sqlc.arg(search))
-    AND (sqlc.arg(status) = '' OR a.status = sqlc.arg(status))
+    AND (
+        sqlc.arg(statuses) = ''
+        OR (
+            (instr(',' || sqlc.arg(statuses) || ',', ',enabled,') = 0 OR a.status = 'enabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',disabled,') = 0 OR a.status = 'disabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:all,') = 0 OR q.throttled_until_claude > datetime('now') OR q.throttled_until_pro > datetime('now') OR q.throttled_until_flash > datetime('now') OR q.throttled_until_flashlite > datetime('now') OR q.throttled_until_tab > datetime('now') OR q.throttled_until_image > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:claude,') = 0 OR q.throttled_until_claude > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:pro,') = 0 OR q.throttled_until_pro > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:flash,') = 0 OR q.throttled_until_flash > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:flashlite,') = 0 OR q.throttled_until_flashlite > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:tab,') = 0 OR q.throttled_until_tab > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:image,') = 0 OR q.throttled_until_image > datetime('now'))
+        )
+    )
     AND (sqlc.arg(unsynced_only) = 0 OR q.synced_at IS NULL OR q.synced_at = '')
     AND TRIM(a.plan_type) <> ''
 ORDER BY plan_type;
@@ -51,21 +77,32 @@ SELECT
     COALESCE(q.reset_image, datetime('now')) AS reset_image,
     COALESCE(c.credits_amount, 0) AS credits_amount,
     COALESCE(c.credit_types, '') AS credit_types,
-    CAST(max(
-        COALESCE(q.throttled_until_claude, datetime('now')),
-        COALESCE(q.throttled_until_pro, datetime('now')),
-        COALESCE(q.throttled_until_flash, datetime('now')),
-        COALESCE(q.throttled_until_flashlite, datetime('now')),
-        COALESCE(q.throttled_until_tab, datetime('now')),
-        COALESCE(q.throttled_until_image, datetime('now'))
-    ) AS TEXT) AS throttled_until,
+    COALESCE(q.throttled_until_claude, '') AS throttled_until_claude,
+    COALESCE(q.throttled_until_pro, '') AS throttled_until_pro,
+    COALESCE(q.throttled_until_flash, '') AS throttled_until_flash,
+    COALESCE(q.throttled_until_flashlite, '') AS throttled_until_flashlite,
+    COALESCE(q.throttled_until_tab, '') AS throttled_until_tab,
+    COALESCE(q.throttled_until_image, '') AS throttled_until_image,
     COALESCE(q.synced_at, '') AS synced_at
 FROM antigravity a
 LEFT JOIN antigravity_quota q ON q.credential_id = a.id
 LEFT JOIN antigravity_credits c ON c.credential_id = a.id
 WHERE
     (sqlc.arg(search) = '' OR LOWER(a.id) LIKE sqlc.arg(search) OR LOWER(a.email) LIKE sqlc.arg(search) OR LOWER(a.status) LIKE sqlc.arg(search) OR LOWER(a.plan_type) LIKE sqlc.arg(search))
-    AND (sqlc.arg(status) = '' OR a.status = sqlc.arg(status))
+    AND (
+        sqlc.arg(statuses) = ''
+        OR (
+            (instr(',' || sqlc.arg(statuses) || ',', ',enabled,') = 0 OR a.status = 'enabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',disabled,') = 0 OR a.status = 'disabled')
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:all,') = 0 OR q.throttled_until_claude > datetime('now') OR q.throttled_until_pro > datetime('now') OR q.throttled_until_flash > datetime('now') OR q.throttled_until_flashlite > datetime('now') OR q.throttled_until_tab > datetime('now') OR q.throttled_until_image > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:claude,') = 0 OR q.throttled_until_claude > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:pro,') = 0 OR q.throttled_until_pro > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:flash,') = 0 OR q.throttled_until_flash > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:flashlite,') = 0 OR q.throttled_until_flashlite > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:tab,') = 0 OR q.throttled_until_tab > datetime('now'))
+            AND (instr(',' || sqlc.arg(statuses) || ',', ',throttled:image,') = 0 OR q.throttled_until_image > datetime('now'))
+        )
+    )
     AND (sqlc.arg(plan_type) = '' OR LOWER(a.plan_type) = LOWER(sqlc.arg(plan_type)))
     AND (sqlc.arg(unsynced_only) = 0 OR q.synced_at IS NULL OR q.synced_at = '')
 ORDER BY a.id
@@ -114,19 +151,7 @@ RETURNING *;
 -- name: RestoreExpiredThrottledAntigravity :exec
 UPDATE antigravity
 SET status = 'enabled', reason = ''
-WHERE status = 'throttled'
-  AND id IN (
-    SELECT a.id
-    FROM antigravity a
-    LEFT JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled'
-      AND COALESCE(q.throttled_until_claude, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_pro, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_flash, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_flashlite, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_tab, datetime('now')) <= datetime('now')
-      AND COALESCE(q.throttled_until_image, datetime('now')) <= datetime('now')
-  );
+WHERE status = 'throttled';
 
 -- name: NextAntigravityThrottleDeadline :one
 SELECT CAST(COALESCE(MIN(deadline), '') AS TEXT) AS deadline
@@ -134,30 +159,30 @@ FROM (
     SELECT q.throttled_until_claude AS deadline
     FROM antigravity a
     JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled' AND q.throttled_until_claude > datetime('now')
+    WHERE a.status <> 'disabled' AND q.throttled_until_claude > datetime('now')
     UNION ALL
     SELECT q.throttled_until_pro AS deadline
     FROM antigravity a
     JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled' AND q.throttled_until_pro > datetime('now')
+    WHERE a.status <> 'disabled' AND q.throttled_until_pro > datetime('now')
     UNION ALL
     SELECT q.throttled_until_flash AS deadline
     FROM antigravity a
     JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled' AND q.throttled_until_flash > datetime('now')
+    WHERE a.status <> 'disabled' AND q.throttled_until_flash > datetime('now')
     UNION ALL
     SELECT q.throttled_until_flashlite AS deadline
     FROM antigravity a
     JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled' AND q.throttled_until_flashlite > datetime('now')
+    WHERE a.status <> 'disabled' AND q.throttled_until_flashlite > datetime('now')
     UNION ALL
     SELECT q.throttled_until_tab AS deadline
     FROM antigravity a
     JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled' AND q.throttled_until_tab > datetime('now')
+    WHERE a.status <> 'disabled' AND q.throttled_until_tab > datetime('now')
     UNION ALL
     SELECT q.throttled_until_image AS deadline
     FROM antigravity a
     JOIN antigravity_quota q ON q.credential_id = a.id
-    WHERE a.status = 'throttled' AND q.throttled_until_image > datetime('now')
+    WHERE a.status <> 'disabled' AND q.throttled_until_image > datetime('now')
 );

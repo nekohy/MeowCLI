@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	antigravityapi "github.com/nekohy/MeowCLI/api/antigravity"
@@ -22,6 +23,11 @@ var ErrNoAvailableCredential = fmt.Errorf("no available antigravity credential")
 const quotaRefreshFailureBackoff = time.Minute
 
 const creditsFallbackBaseScore = 0.001
+
+type throttleState struct {
+	consecutive int
+	until       time.Time
+}
 
 type availableRow struct {
 	ID              string
@@ -67,13 +73,14 @@ type Scheduler struct {
 	logStore db.LogStore
 	settings settings.Provider
 
-	mu              sync.Mutex
-	available       []availableRow
-	throttle        map[string]time.Time
-	failures        map[string]int
-	quotaRefreshing map[string]struct{}
-	quotaRefreshSem chan struct{}
-	planTypes       *planTypeCodec
+	mu               sync.Mutex
+	available        atomic.Pointer[[]availableRow]
+	throttle         map[string]*throttleState
+	checking         map[string]struct{}
+	quotaRefreshing  map[string]struct{}
+	quotaRefreshSem  chan struct{}
+	planTypes        *planTypeCodec
+	verifyCredential func(string)
 }
 
 type SchedulerStore interface {
@@ -89,8 +96,8 @@ func NewScheduler(store SchedulerStore, manager *Manager) *Scheduler {
 	return &Scheduler{
 		store:           store,
 		manager:         manager,
-		throttle:        make(map[string]time.Time),
-		failures:        make(map[string]int),
+		throttle:        make(map[string]*throttleState),
+		checking:        make(map[string]struct{}),
 		quotaRefreshing: make(map[string]struct{}),
 		quotaRefreshSem: make(chan struct{}, 8),
 		planTypes:       newPlanTypeCodec(),
@@ -214,6 +221,9 @@ func (s *Scheduler) refreshAvailableFromRows(_ context.Context, dbRows []db.List
 	now := time.Now()
 	rows := make([]availableRow, 0, len(dbRows))
 	for _, r := range dbRows {
+		if s.isCredentialUnderValidation(r.ID) {
+			continue
+		}
 		if r.SyncedAt.IsZero() {
 			continue
 		}
@@ -273,8 +283,9 @@ func (s *Scheduler) refreshAvailableFromRows(_ context.Context, dbRows []db.List
 		}
 		rows = append(rows, row)
 	}
+	s.applyMemoryThrottles(rows, now)
+	s.available.Store(&rows)
 	s.mu.Lock()
-	s.available = rows
 	s.clearExpiredThrottlesLocked(now)
 	s.mu.Unlock()
 	if s.manager != nil {
@@ -312,7 +323,7 @@ func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.C
 	now := time.Now()
 	if preferred := strings.TrimSpace(selection.PreferredCredentialID); preferred != "" {
 		for _, row := range rows {
-			if row.ID == preferred && s.credentialUsable(row, modelTier, allowedPlans, now) {
+			if row.ID == preferred && s.credentialUsable(row, modelTier, allowedPlans) {
 				return row.ID, nil
 			}
 		}
@@ -330,7 +341,7 @@ func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.C
 			continue
 		}
 		if row, ok := scheduling.PickWeightedFromBest(rows, scheduling.DefaultWeightedBestCount, func(row availableRow) float64 {
-			if codec.code(row.PlanType) != planCode || !s.credentialUsable(row, modelTier, allowedPlans, now) {
+			if codec.code(row.PlanType) != planCode || !s.credentialUsable(row, modelTier, allowedPlans) {
 				return -1
 			}
 			return weightedTierScore(row, modelTier)
@@ -339,7 +350,7 @@ func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.C
 		}
 	}
 	if row, ok := scheduling.PickWeightedFromBest(rows, scheduling.DefaultWeightedBestCount, func(row availableRow) float64 {
-		if !s.credentialUsable(row, modelTier, allowedPlans, now) {
+		if !s.credentialUsable(row, modelTier, allowedPlans) {
 			return -1
 		}
 		return weightedTierScore(row, modelTier)
@@ -412,23 +423,39 @@ func (s *Scheduler) InvalidateCredential(credentialID string) {
 	s.manager.InvalidateCredential(credentialID)
 }
 
-func (s *Scheduler) RecordSuccess(_ context.Context, credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) {
+func (s *Scheduler) RecordSuccess(ctx context.Context, credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) {
+	tier := normalizeModelTier(modelTier)
+	key := throttleStateKey(credentialID, tier)
 	s.mu.Lock()
-	delete(s.failures, credentialID)
-	delete(s.throttle, credentialID)
+	delete(s.throttle, key)
 	s.mu.Unlock()
-	if err := s.insertLog(context.Background(), db.NewInsertLogParams(string(utils.HandlerAntigravity), credentialID, statusCode, modelTier, metrics)); err != nil {
+	opCtx, cancel := scheduling.WithDefaultWriteTimeout(ctx)
+	defer cancel()
+	if err := s.insertLog(opCtx, db.NewInsertLogParams(string(utils.HandlerAntigravity), credentialID, statusCode, modelTier, metrics)); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("antigravity scheduler: insert success log")
 	}
 }
 
-func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, statusCode int32, modelTier string, retryAfter time.Duration, metrics db.LogRequestMetrics) {
+func (s *Scheduler) RecordFailure(ctx context.Context, credentialID string, statusCode int32, modelTier string, retryAfter time.Duration, metrics db.LogRequestMetrics) {
+	throttleTier := normalizeModelTier(modelTier)
+	key := throttleStateKey(credentialID, throttleTier)
+	now := time.Now()
 	s.mu.Lock()
-	s.failures[credentialID]++
-	consecutive := s.failures[credentialID]
+	state, ok := s.throttle[key]
+	if !ok {
+		state = &throttleState{}
+		s.throttle[key] = state
+	}
+	if !state.until.IsZero() && !now.Before(state.until) {
+		state.consecutive = 0
+	}
+	state.consecutive++
+	consecutive := state.consecutive
 	s.mu.Unlock()
 
-	if err := s.insertLog(context.Background(), db.NewInsertLogParams(string(utils.HandlerAntigravity), credentialID, statusCode, modelTier, metrics)); err != nil {
+	opCtx, cancel := scheduling.WithDefaultWriteTimeout(ctx)
+	defer cancel()
+	if err := s.insertLog(opCtx, db.NewInsertLogParams(string(utils.HandlerAntigravity), credentialID, statusCode, modelTier, metrics)); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("antigravity scheduler: insert failure log")
 	}
 
@@ -436,39 +463,61 @@ func (s *Scheduler) RecordFailure(_ context.Context, credentialID string, status
 	if !decision.Throttle {
 		return
 	}
-	throttleTier := ""
-	if strings.TrimSpace(modelTier) != "" {
-		throttleTier = normalizeModelTier(modelTier)
-	}
-	throttledUntil := time.Now().Add(decision.Backoff)
-	if err := s.store.SetAntigravityQuotaThrottled(context.Background(), credentialID, throttleTier, throttledUntil); err != nil {
+	throttledUntil := now.Add(decision.Backoff)
+	if err := s.store.SetAntigravityQuotaThrottled(opCtx, credentialID, throttleTier, throttledUntil); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("antigravity scheduler: set throttled")
 	}
-	if _, err := s.store.UpdateAntigravityStatus(context.Background(), credentialID, string(utils.StatusThrottled), utils.TemporaryThrottleReason(decision.Reason)); err != nil {
-		log.Error().Err(err).Str("credential", credentialID).Msg("antigravity scheduler: update throttled credential status")
-	}
-	s.rememberThrottleUntil(credentialID, throttledUntil)
-	if throttleTier != "" {
-		s.suspendCredentialTier(credentialID, throttleTier)
-		log.Warn().Str("credential", credentialID).Str("model_tier", throttleTier).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Msg("antigravity credential tier throttled")
-		return
-	}
-	s.evictCredential(credentialID)
-	log.Warn().Str("credential", credentialID).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Msg("antigravity credential throttled")
+	s.rememberThrottleUntil(credentialID, throttleTier, throttledUntil)
+	log.Warn().Str("credential", credentialID).Str("model_tier", throttleTier).Dur("backoff", decision.Backoff).Str("reason", decision.Reason).Msg("antigravity credential tier throttled")
 }
 
 func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) bool {
 	if statusCode == http.StatusPaymentRequired || statusCode == http.StatusForbidden {
-		s.disableCredential(context.Background(), credentialID, fmt.Sprintf("credential rejected (%d)", statusCode))
+		opCtx, cancel := scheduling.WithDefaultWriteTimeout(ctx)
+		defer cancel()
+		s.mu.Lock()
+		deleteCredentialThrottleStates(s.throttle, credentialID)
+		delete(s.checking, credentialID)
+		s.mu.Unlock()
+		s.disableCredential(opCtx, credentialID, fmt.Sprintf("credential rejected (%d)", statusCode))
 		return true
 	}
 	if statusCode != http.StatusUnauthorized {
 		return false
 	}
-	if err := s.insertLog(context.Background(), db.NewInsertLogParams(string(utils.HandlerAntigravity), credentialID, statusCode, modelTier, metrics)); err != nil {
+	opCtx, cancel := scheduling.WithDefaultWriteTimeout(ctx)
+	defer cancel()
+	if err := s.insertLog(opCtx, db.NewInsertLogParams(string(utils.HandlerAntigravity), credentialID, statusCode, modelTier, metrics)); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("antigravity scheduler: insert auth rejection log")
 	}
+	s.mu.Lock()
+	deleteCredentialThrottleStates(s.throttle, credentialID)
+	_, alreadyChecking := s.checking[credentialID]
+	if !alreadyChecking {
+		s.checking[credentialID] = struct{}{}
+	}
+	s.mu.Unlock()
+
 	s.InvalidateCredential(credentialID)
+	s.evictCredential(credentialID)
+	if alreadyChecking {
+		log.Warn().
+			Str("credential", credentialID).
+			Int32("status", statusCode).
+			Msg("antigravity credential already under refresh verification after auth rejection response")
+		return true
+	}
+	if s.verifyCredential != nil {
+		go s.verifyCredential(credentialID)
+		return true
+	}
+	if s.manager == nil {
+		log.Warn().
+			Str("credential", credentialID).
+			Int32("status", statusCode).
+			Msg("antigravity credential verification skipped because manager is unavailable")
+		return true
+	}
 	go s.validateCredentialAfterUnauthorized(credentialID, statusCode)
 	return true
 }
@@ -496,24 +545,24 @@ func (s *Scheduler) QueueQuotaRefresh(_ context.Context, credentialID string, mo
 		defer cancel()
 		token, err := s.manager.AccessToken(refreshCtx, credentialID, scheduling.UseCached)
 		if err != nil {
-			s.rememberThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			s.rememberThrottleUntil(credentialID, tier, time.Now().Add(quotaRefreshFailureBackoff))
 			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", tier).Msg("antigravity scheduler: quota refresh get token")
 			return
 		}
 		projectID, err := s.manager.ProjectID(refreshCtx, credentialID)
 		if err != nil {
-			s.rememberThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			s.rememberThrottleUntil(credentialID, tier, time.Now().Add(quotaRefreshFailureBackoff))
 			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", tier).Msg("antigravity scheduler: quota refresh get project")
 			return
 		}
 		q, err := s.fetcher.FetchQuota(refreshCtx, credentialID, token, projectID)
 		if err != nil {
-			s.rememberThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			s.rememberThrottleUntil(credentialID, tier, time.Now().Add(quotaRefreshFailureBackoff))
 			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", tier).Msg("antigravity scheduler: quota refresh fetch")
 			return
 		}
 		if q == nil {
-			s.rememberThrottleUntil(credentialID, time.Now().Add(quotaRefreshFailureBackoff))
+			s.rememberThrottleUntil(credentialID, tier, time.Now().Add(quotaRefreshFailureBackoff))
 			log.Warn().Str("credential", credentialID).Str("model_tier", tier).Msg("antigravity scheduler: quota refresh returned empty quota")
 			return
 		}
@@ -565,10 +614,7 @@ func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *ant
 }
 
 func (s *Scheduler) listAvailable(ctx context.Context) ([]availableRow, error) {
-	s.mu.Lock()
-	rows := append([]availableRow(nil), s.available...)
-	s.mu.Unlock()
-	if len(rows) > 0 {
+	if rows := s.available.Load(); rows != nil && len(*rows) > 0 {
 		if s.hasExpiredThrottleWindow(time.Now()) {
 			if refreshed, err := s.RefreshAvailable(ctx); err == nil {
 				return refreshed, nil
@@ -576,12 +622,12 @@ func (s *Scheduler) listAvailable(ctx context.Context) ([]availableRow, error) {
 				log.Error().Err(err).Msg("antigravity scheduler: refresh available after throttle expiry")
 			}
 		}
-		return rows, nil
+		return append([]availableRow(nil), (*rows)...), nil
 	}
 	return s.RefreshAvailable(ctx)
 }
 
-func (s *Scheduler) credentialUsable(row availableRow, modelTier string, allowedPlans map[int]struct{}, now time.Time) bool {
+func (s *Scheduler) credentialUsable(row availableRow, modelTier string, allowedPlans map[int]struct{}) bool {
 	if strings.TrimSpace(row.ID) == "" {
 		return false
 	}
@@ -591,10 +637,7 @@ func (s *Scheduler) credentialUsable(row availableRow, modelTier string, allowed
 	if weightedTierScore(row, modelTier) < 0 {
 		return false
 	}
-	s.mu.Lock()
-	until := s.throttle[row.ID]
-	s.mu.Unlock()
-	return until.IsZero() || !now.Before(until)
+	return true
 }
 
 func (s *Scheduler) credentialCreditsFallbackUsable(row availableRow, modelTier string, allowedPlans map[int]struct{}, now time.Time) bool {
@@ -610,9 +653,7 @@ func (s *Scheduler) credentialCreditsFallbackUsable(row availableRow, modelTier 
 	if row.CreditsAmount <= 0 || len(row.CreditTypes) == 0 {
 		return false
 	}
-	s.mu.Lock()
-	until := s.throttle[row.ID]
-	s.mu.Unlock()
+	until := tierThrottledUntil(row, modelTier)
 	return until.IsZero() || !now.Before(until)
 }
 
@@ -621,86 +662,148 @@ func (s *Scheduler) applyQuotaToAvailable(id string, q *antigravityapi.Quota) bo
 		return false
 	}
 	ws := s.settingsSnapshot().QuotaWindowCodeAssistSeconds()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i := range s.available {
-		if s.available[i].ID != id {
-			continue
+	now := time.Now()
+	return s.updateAvailableRows(func(rows []availableRow) ([]availableRow, bool) {
+		for i := range rows {
+			if rows[i].ID != id {
+				continue
+			}
+			row := &rows[i]
+			row.QuotaClaude = q.QuotaClaude
+			row.QuotaPro = q.QuotaPro
+			row.QuotaFlash = q.QuotaFlash
+			row.QuotaFlashlite = q.QuotaFlashlite
+			row.QuotaTab = q.QuotaTab
+			row.QuotaImage = q.QuotaImage
+			row.ResetClaude = q.ResetClaude
+			row.ResetPro = q.ResetPro
+			row.ResetFlash = q.ResetFlash
+			row.ResetFlashlite = q.ResetFlashlite
+			row.ResetTab = q.ResetTab
+			row.ResetImage = q.ResetImage
+			row.ScoreClaude = throttleAwareScore(CalcScore(q.QuotaClaude, q.ResetClaude, ws), row.ThrottledClaude, now)
+			row.ScorePro = throttleAwareScore(CalcScore(q.QuotaPro, q.ResetPro, ws), row.ThrottledPro, now)
+			row.ScoreFlash = throttleAwareScore(CalcScore(q.QuotaFlash, q.ResetFlash, ws), row.ThrottledFlash, now)
+			row.ScoreFlashlite = throttleAwareScore(CalcScore(q.QuotaFlashlite, q.ResetFlashlite, ws), row.ThrottledLite, now)
+			row.ScoreTab = throttleAwareScore(CalcScore(q.QuotaTab, q.ResetTab, ws), row.ThrottledTab, now)
+			row.ScoreImage = throttleAwareScore(CalcScore(q.QuotaImage, q.ResetImage, ws), row.ThrottledImage, now)
+			if q.CreditsSynced {
+				row.CreditsAmount = q.CreditsAmount
+				row.CreditTypes = append([]string(nil), q.CreditTypes...)
+			}
+			return rows, true
 		}
-		s.available[i].QuotaClaude = q.QuotaClaude
-		s.available[i].QuotaPro = q.QuotaPro
-		s.available[i].QuotaFlash = q.QuotaFlash
-		s.available[i].QuotaFlashlite = q.QuotaFlashlite
-		s.available[i].QuotaTab = q.QuotaTab
-		s.available[i].QuotaImage = q.QuotaImage
-		s.available[i].ResetClaude = q.ResetClaude
-		s.available[i].ResetPro = q.ResetPro
-		s.available[i].ResetFlash = q.ResetFlash
-		s.available[i].ResetFlashlite = q.ResetFlashlite
-		s.available[i].ResetTab = q.ResetTab
-		s.available[i].ResetImage = q.ResetImage
-		s.available[i].ScoreClaude = CalcScore(q.QuotaClaude, q.ResetClaude, ws)
-		s.available[i].ScorePro = CalcScore(q.QuotaPro, q.ResetPro, ws)
-		s.available[i].ScoreFlash = CalcScore(q.QuotaFlash, q.ResetFlash, ws)
-		s.available[i].ScoreFlashlite = CalcScore(q.QuotaFlashlite, q.ResetFlashlite, ws)
-		s.available[i].ScoreTab = CalcScore(q.QuotaTab, q.ResetTab, ws)
-		s.available[i].ScoreImage = CalcScore(q.QuotaImage, q.ResetImage, ws)
-		if q.CreditsSynced {
-			s.available[i].CreditsAmount = q.CreditsAmount
-			s.available[i].CreditTypes = append([]string(nil), q.CreditTypes...)
-		}
-		return true
+		return nil, false
+	})
+}
+
+func throttleAwareScore(score float64, throttledUntil time.Time, now time.Time) float64 {
+	if now.Before(throttledUntil) {
+		return -1
 	}
-	return false
+	return score
 }
 
 func (s *Scheduler) refreshAvailableScores() {
 	ws := s.settingsSnapshot().QuotaWindowCodeAssistSeconds()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i := range s.available {
-		if s.available[i].ScoreClaude >= 0 {
-			s.available[i].ScoreClaude = CalcScore(s.available[i].QuotaClaude, s.available[i].ResetClaude, ws)
+	s.updateAvailableRows(func(rows []availableRow) ([]availableRow, bool) {
+		for i := range rows {
+			if rows[i].ScoreClaude >= 0 {
+				rows[i].ScoreClaude = CalcScore(rows[i].QuotaClaude, rows[i].ResetClaude, ws)
+			}
+			if rows[i].ScorePro >= 0 {
+				rows[i].ScorePro = CalcScore(rows[i].QuotaPro, rows[i].ResetPro, ws)
+			}
+			if rows[i].ScoreFlash >= 0 {
+				rows[i].ScoreFlash = CalcScore(rows[i].QuotaFlash, rows[i].ResetFlash, ws)
+			}
+			if rows[i].ScoreFlashlite >= 0 {
+				rows[i].ScoreFlashlite = CalcScore(rows[i].QuotaFlashlite, rows[i].ResetFlashlite, ws)
+			}
+			if rows[i].ScoreTab >= 0 {
+				rows[i].ScoreTab = CalcScore(rows[i].QuotaTab, rows[i].ResetTab, ws)
+			}
+			if rows[i].ScoreImage >= 0 {
+				rows[i].ScoreImage = CalcScore(rows[i].QuotaImage, rows[i].ResetImage, ws)
+			}
 		}
-		if s.available[i].ScorePro >= 0 {
-			s.available[i].ScorePro = CalcScore(s.available[i].QuotaPro, s.available[i].ResetPro, ws)
-		}
-		if s.available[i].ScoreFlash >= 0 {
-			s.available[i].ScoreFlash = CalcScore(s.available[i].QuotaFlash, s.available[i].ResetFlash, ws)
-		}
-		if s.available[i].ScoreFlashlite >= 0 {
-			s.available[i].ScoreFlashlite = CalcScore(s.available[i].QuotaFlashlite, s.available[i].ResetFlashlite, ws)
-		}
-		if s.available[i].ScoreTab >= 0 {
-			s.available[i].ScoreTab = CalcScore(s.available[i].QuotaTab, s.available[i].ResetTab, ws)
-		}
-		if s.available[i].ScoreImage >= 0 {
-			s.available[i].ScoreImage = CalcScore(s.available[i].QuotaImage, s.available[i].ResetImage, ws)
-		}
-	}
+		return rows, true
+	})
 }
 
 func (s *Scheduler) evictCredential(id string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	filtered := s.available[:0]
-	for _, row := range s.available {
-		if row.ID != id {
-			filtered = append(filtered, row)
+	s.updateAvailableRows(func(rows []availableRow) ([]availableRow, bool) {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if row.ID != id {
+				filtered = append(filtered, row)
+			}
 		}
-	}
-	s.available = filtered
+		return filtered, true
+	})
 }
 
 func (s *Scheduler) suspendCredentialTier(id string, modelTier string) {
+	s.updateAvailableRows(func(rows []availableRow) ([]availableRow, bool) {
+		for i := range rows {
+			if rows[i].ID != id {
+				continue
+			}
+			setTierScore(&rows[i], modelTier, -1)
+			return rows, true
+		}
+		return nil, false
+	})
+}
+
+func (s *Scheduler) throttleCredentialTier(id string, modelTier string, throttledUntil time.Time) {
+	s.updateAvailableRows(func(rows []availableRow) ([]availableRow, bool) {
+		for i := range rows {
+			if rows[i].ID != id {
+				continue
+			}
+			setTierScore(&rows[i], modelTier, -1)
+			setTierThrottledUntil(&rows[i], modelTier, throttledUntil)
+			return rows, true
+		}
+		return nil, false
+	})
+}
+
+func (s *Scheduler) applyMemoryThrottles(rows []availableRow, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := range s.available {
-		if s.available[i].ID != id {
-			continue
+
+	// 合并后台 quota 探测失败产生的短退避，避免完整刷新从 DB 重建时提前恢复
+	for i := range rows {
+		for _, tier := range []string{ModelTierClaude, ModelTierPro, ModelTierFlash, ModelTierFlashLite, ModelTierTab, ModelTierImage} {
+			until := activeThrottleUntil(s.throttle, rows[i].ID, tier, now)
+			if until.IsZero() {
+				continue
+			}
+			if until.After(tierThrottledUntil(rows[i], tier)) {
+				setTierThrottledUntil(&rows[i], tier, until)
+			}
+			setTierScore(&rows[i], tier, -1)
 		}
-		setTierScore(&s.available[i], modelTier, -1)
-		return
+	}
+}
+
+func (s *Scheduler) updateAvailableRows(update func([]availableRow) ([]availableRow, bool)) bool {
+	for {
+		snap := s.available.Load()
+		if snap == nil {
+			return false
+		}
+		rows := make([]availableRow, len(*snap))
+		copy(rows, *snap)
+		next, ok := update(rows)
+		if !ok {
+			return false
+		}
+		if s.available.CompareAndSwap(snap, &next) {
+			return true
+		}
 	}
 }
 
@@ -733,13 +836,32 @@ func (s *Scheduler) completeQuotaRefresh(id string, modelTier string) {
 	s.mu.Unlock()
 }
 
+func (s *Scheduler) isCredentialUnderValidation(id string) bool {
+	if id == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.checking[id]
+	return ok
+}
+
+func (s *Scheduler) finishCredentialValidation(id string) {
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	delete(s.checking, id)
+	s.mu.Unlock()
+}
+
 func quotaRefreshKey(id string, modelTier string) string {
 	return id + "\x00" + modelTier
 }
 
 func (s *Scheduler) clearExpiredThrottlesLocked(now time.Time) {
-	for id, until := range s.throttle {
-		if until.IsZero() || now.Before(until) {
+	for id, state := range s.throttle {
+		if state.until.IsZero() || now.Before(state.until) {
 			continue
 		}
 		delete(s.throttle, id)
@@ -750,42 +872,73 @@ func (s *Scheduler) hasExpiredThrottleWindow(now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, until := range s.throttle {
-		if !until.IsZero() && !now.Before(until) {
+	for _, state := range s.throttle {
+		if !state.until.IsZero() && !now.Before(state.until) {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *Scheduler) rememberThrottleUntil(credentialID string, throttledUntil time.Time) {
+func (s *Scheduler) rememberThrottleUntil(credentialID string, modelTier string, throttledUntil time.Time) {
+	tier := normalizeModelTier(modelTier)
+	key := throttleStateKey(credentialID, tier)
 	s.mu.Lock()
-	s.throttle[credentialID] = throttledUntil
+	state, ok := s.throttle[key]
+	if !ok {
+		state = &throttleState{}
+		s.throttle[key] = state
+	}
+	state.until = throttledUntil
 	s.mu.Unlock()
 
-	go s.refreshAvailableAfterThrottle(credentialID, throttledUntil)
+	s.throttleCredentialTier(credentialID, tier, throttledUntil)
+	go s.refreshAvailableAfterThrottle(credentialID, tier, throttledUntil)
 }
 
-func (s *Scheduler) refreshAvailableAfterThrottle(credentialID string, throttledUntil time.Time) {
+func (s *Scheduler) refreshAvailableAfterThrottle(credentialID string, modelTier string, throttledUntil time.Time) {
+	key := throttleStateKey(credentialID, modelTier)
 	scheduling.RefreshAfterDeadline(scheduling.RefreshAfterDeadlineConfig{
 		Deadline: throttledUntil,
 		Superseded: func() bool {
 			s.mu.Lock()
 			defer s.mu.Unlock()
-			until, ok := s.throttle[credentialID]
-			return ok && until.After(throttledUntil)
+			state, ok := s.throttle[key]
+			return ok && state.until.After(throttledUntil)
 		},
 		Refresh: func(ctx context.Context) error {
 			_, err := s.RefreshAvailable(ctx)
 			return err
 		},
 		ReportError: func(err error) {
-			log.Error().Err(err).Str("credential", credentialID).Msg("antigravity scheduler: refresh available after throttle deadline")
+			log.Error().Err(err).Str("credential", credentialID).Str("model_tier", modelTier).Msg("antigravity scheduler: refresh available after throttle deadline")
 		},
 	})
 }
 
+func throttleStateKey(credentialID string, modelTier string) string {
+	return credentialID + "\x00" + normalizeModelTier(modelTier)
+}
+
+func deleteCredentialThrottleStates(states map[string]*throttleState, credentialID string) {
+	prefix := credentialID + "\x00"
+	for key := range states {
+		if strings.HasPrefix(key, prefix) {
+			delete(states, key)
+		}
+	}
+}
+
+func activeThrottleUntil(states map[string]*throttleState, credentialID string, modelTier string, now time.Time) time.Time {
+	state := states[throttleStateKey(credentialID, modelTier)]
+	if state == nil || state.until.IsZero() || !now.Before(state.until) {
+		return time.Time{}
+	}
+	return state.until
+}
+
 func (s *Scheduler) validateCredentialAfterUnauthorized(credentialID string, statusCode int32) {
+	defer s.finishCredentialValidation(credentialID)
 	ctx, cancel := context.WithTimeout(context.Background(), s.settingsSnapshot().UnauthorizedCheckTimeout())
 	defer cancel()
 	if err := s.manager.RefreshCredential(ctx, credentialID); err != nil {
@@ -933,6 +1086,23 @@ func tierThrottledUntil(row availableRow, modelTier string) time.Time {
 		return row.ThrottledImage
 	default:
 		return time.Time{}
+	}
+}
+
+func setTierThrottledUntil(row *availableRow, modelTier string, throttledUntil time.Time) {
+	switch normalizeModelTier(modelTier) {
+	case ModelTierClaude:
+		row.ThrottledClaude = throttledUntil
+	case ModelTierPro:
+		row.ThrottledPro = throttledUntil
+	case ModelTierFlash:
+		row.ThrottledFlash = throttledUntil
+	case ModelTierFlashLite:
+		row.ThrottledLite = throttledUntil
+	case ModelTierTab:
+		row.ThrottledTab = throttledUntil
+	case ModelTierImage:
+		row.ThrottledImage = throttledUntil
 	}
 }
 

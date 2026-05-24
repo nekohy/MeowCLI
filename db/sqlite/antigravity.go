@@ -20,7 +20,7 @@ func (s *Store) CountAntigravity(ctx context.Context) (int64, error) {
 func (s *Store) CountAntigravityFiltered(ctx context.Context, filter db.CredentialFilterParams) (int64, error) {
 	return s.queries.CountAntigravityFiltered(ctx, sqlcsqlite.CountAntigravityFilteredParams{
 		Search:       sqliteCodexSearchPattern(filter.Search),
-		Status:       strings.TrimSpace(filter.Status),
+		Statuses:     db.CredentialStatusFilterValue(filter.Statuses),
 		PlanType:     strings.TrimSpace(filter.PlanType),
 		UnsyncedOnly: sqliteBool(filter.UnsyncedOnly),
 	})
@@ -54,7 +54,7 @@ func (s *Store) UpdateAntigravityTokens(ctx context.Context, arg db.UpdateAntigr
 func (s *Store) ListAntigravityPaged(ctx context.Context, arg db.ListCredentialPagedParams) ([]db.ListAntigravityRow, error) {
 	rows, err := s.queries.ListAntigravityPaged(ctx, sqlcsqlite.ListAntigravityPagedParams{
 		Search:       sqliteCodexSearchPattern(arg.Search),
-		Status:       strings.TrimSpace(arg.Status),
+		Statuses:     db.CredentialStatusFilterValue(arg.Statuses),
 		PlanType:     strings.TrimSpace(arg.PlanType),
 		UnsyncedOnly: sqliteBool(arg.UnsyncedOnly),
 		PageOffset:   int64(arg.Offset),
@@ -73,7 +73,7 @@ func (s *Store) ListAntigravityPaged(ctx context.Context, arg db.ListCredentialP
 func (s *Store) ListAntigravityPlanTypes(ctx context.Context, filter db.CredentialFilterParams) ([]string, error) {
 	return s.queries.ListAntigravityPlanTypes(ctx, sqlcsqlite.ListAntigravityPlanTypesParams{
 		Search:       sqliteCodexSearchPattern(filter.Search),
-		Status:       strings.TrimSpace(filter.Status),
+		Statuses:     db.CredentialStatusFilterValue(filter.Statuses),
 		UnsyncedOnly: sqliteBool(filter.UnsyncedOnly),
 	})
 }
@@ -128,7 +128,7 @@ func (s *Store) UpdateAntigravityStatus(ctx context.Context, id string, status s
 	if err != nil {
 		return db.AntigravityCredential{}, wrapError(err)
 	}
-	if shouldClearCredentialThrottle(status) {
+	if db.ShouldClearCredentialThrottle(status) {
 		if err := queries.ClearAntigravityQuotaThrottle(ctx, id); err != nil {
 			return db.AntigravityCredential{}, wrapError(err)
 		}
@@ -268,31 +268,36 @@ func antigravityCredentialTo(value sqlcsqlite.Antigravity) db.AntigravityCredent
 
 func antigravityListRowTo(value sqlcsqlite.ListAntigravityPagedRow) db.ListAntigravityRow {
 	return db.ListAntigravityRow{
-		ID:             value.ID,
-		Status:         value.Status,
-		AccessToken:    value.AccessToken,
-		RefreshToken:   value.RefreshToken,
-		Expired:        parseTime(value.Expired),
-		Email:          value.Email,
-		ProjectID:      value.ProjectID,
-		PlanType:       value.PlanType,
-		Reason:         value.Reason,
-		QuotaClaude:    value.QuotaClaude,
-		ResetClaude:    parseTime(value.ResetClaude),
-		QuotaPro:       value.QuotaPro,
-		ResetPro:       parseTime(value.ResetPro),
-		QuotaFlash:     value.QuotaFlash,
-		ResetFlash:     parseTime(value.ResetFlash),
-		QuotaFlashlite: value.QuotaFlashlite,
-		ResetFlashlite: parseTime(value.ResetFlashlite),
-		QuotaTab:       value.QuotaTab,
-		ResetTab:       parseTime(value.ResetTab),
-		QuotaImage:     value.QuotaImage,
-		ResetImage:     parseTime(value.ResetImage),
-		CreditsAmount:  value.CreditsAmount,
-		CreditTypes:    value.CreditTypes,
-		ThrottledUntil: parseTime(value.ThrottledUntil),
-		SyncedAt:       parseTime(value.SyncedAt),
+		ID:                      value.ID,
+		Status:                  value.Status,
+		AccessToken:             value.AccessToken,
+		RefreshToken:            value.RefreshToken,
+		Expired:                 parseTime(value.Expired),
+		Email:                   value.Email,
+		ProjectID:               value.ProjectID,
+		PlanType:                value.PlanType,
+		Reason:                  value.Reason,
+		QuotaClaude:             value.QuotaClaude,
+		ResetClaude:             parseTime(value.ResetClaude),
+		QuotaPro:                value.QuotaPro,
+		ResetPro:                parseTime(value.ResetPro),
+		QuotaFlash:              value.QuotaFlash,
+		ResetFlash:              parseTime(value.ResetFlash),
+		QuotaFlashlite:          value.QuotaFlashlite,
+		ResetFlashlite:          parseTime(value.ResetFlashlite),
+		QuotaTab:                value.QuotaTab,
+		ResetTab:                parseTime(value.ResetTab),
+		QuotaImage:              value.QuotaImage,
+		ResetImage:              parseTime(value.ResetImage),
+		CreditsAmount:           value.CreditsAmount,
+		CreditTypes:             value.CreditTypes,
+		ThrottledUntilClaude:    parseTime(value.ThrottledUntilClaude),
+		ThrottledUntilPro:       parseTime(value.ThrottledUntilPro),
+		ThrottledUntilFlash:     parseTime(value.ThrottledUntilFlash),
+		ThrottledUntilFlashlite: parseTime(value.ThrottledUntilFlashlite),
+		ThrottledUntilTab:       parseTime(value.ThrottledUntilTab),
+		ThrottledUntilImage:     parseTime(value.ThrottledUntilImage),
+		SyncedAt:                parseTime(value.SyncedAt),
 	}
 }
 

@@ -20,7 +20,7 @@ func (s *Store) CountCodex(ctx context.Context) (int64, error) {
 func (s *Store) CountCodexFiltered(ctx context.Context, filter db.CredentialFilterParams) (int64, error) {
 	return s.queries.CountCodexFiltered(ctx, sqlcpostgres.CountCodexFilteredParams{
 		Search:       postgresCodexSearchPattern(filter.Search),
-		Status:       strings.TrimSpace(filter.Status),
+		Statuses:     db.CredentialStatusFilterValue(filter.Statuses),
 		PlanType:     strings.ToLower(strings.TrimSpace(filter.PlanType)),
 		UnsyncedOnly: filter.UnsyncedOnly,
 	})
@@ -58,7 +58,7 @@ func (s *Store) UpdateCodexTokens(ctx context.Context, arg db.UpdateCodexTokensP
 	if err != nil {
 		return db.Codex{}, wrapError(err)
 	}
-	if shouldClearCredentialThrottle(arg.Status) {
+	if db.ShouldClearCredentialThrottle(arg.Status) {
 		if err := queries.ClearQuotaThrottle(ctx, arg.ID); err != nil {
 			return db.Codex{}, wrapError(err)
 		}
@@ -104,7 +104,8 @@ func (s *Store) ListCodex(ctx context.Context) ([]db.ListCodexRow, error) {
 			tsTo(row.Reset7d),
 			tsTo(row.ResetSpark5h),
 			tsTo(row.ResetSpark7d),
-			tsTo(row.ThrottledUntil),
+			tsTo(row.ThrottledUntilDefault),
+			tsTo(row.ThrottledUntilSpark),
 			tsTo(row.SyncedAt),
 		)
 	}
@@ -114,7 +115,7 @@ func (s *Store) ListCodex(ctx context.Context) ([]db.ListCodexRow, error) {
 func (s *Store) ListCodexPaged(ctx context.Context, arg db.ListCredentialPagedParams) ([]db.ListCodexRow, error) {
 	rows, err := s.queries.ListCodexPaged(ctx, sqlcpostgres.ListCodexPagedParams{
 		Search:       postgresCodexSearchPattern(arg.Search),
-		Status:       strings.TrimSpace(arg.Status),
+		Statuses:     db.CredentialStatusFilterValue(arg.Statuses),
 		PlanType:     strings.ToLower(strings.TrimSpace(arg.PlanType)),
 		UnsyncedOnly: arg.UnsyncedOnly,
 		PageOffset:   arg.Offset,
@@ -141,7 +142,8 @@ func (s *Store) ListCodexPaged(ctx context.Context, arg db.ListCredentialPagedPa
 			tsTo(row.Reset7d),
 			tsTo(row.ResetSpark5h),
 			tsTo(row.ResetSpark7d),
-			tsTo(row.ThrottledUntil),
+			tsTo(row.ThrottledUntilDefault),
+			tsTo(row.ThrottledUntilSpark),
 			tsTo(row.SyncedAt),
 		)
 	}
@@ -151,7 +153,7 @@ func (s *Store) ListCodexPaged(ctx context.Context, arg db.ListCredentialPagedPa
 func (s *Store) ListCodexPlanTypes(ctx context.Context, filter db.CredentialFilterParams) ([]string, error) {
 	return s.queries.ListCodexPlanTypes(ctx, sqlcpostgres.ListCodexPlanTypesParams{
 		Search:       postgresCodexSearchPattern(filter.Search),
-		Status:       strings.TrimSpace(filter.Status),
+		Statuses:     db.CredentialStatusFilterValue(filter.Statuses),
 		UnsyncedOnly: filter.UnsyncedOnly,
 	})
 }
@@ -211,7 +213,7 @@ func (s *Store) UpdateCodexStatus(ctx context.Context, id string, status string,
 	if err != nil {
 		return db.Codex{}, wrapError(err)
 	}
-	if shouldClearCredentialThrottle(status) {
+	if db.ShouldClearCredentialThrottle(status) {
 		if err := queries.ClearQuotaThrottle(ctx, id); err != nil {
 			return db.Codex{}, wrapError(err)
 		}
@@ -233,13 +235,4 @@ func (s *Store) NextCodexThrottleDeadline(ctx context.Context) (time.Time, error
 		return time.Time{}, wrapError(err)
 	}
 	return tsTo(value), nil
-}
-
-func shouldClearCredentialThrottle(status string) bool {
-	switch strings.TrimSpace(status) {
-	case "enabled", "disabled":
-		return true
-	default:
-		return false
-	}
 }

@@ -38,7 +38,7 @@ defineEmits<{
             <div class="handler-card-stat-value">{{ handler.credentials_total || 0 }}</div>
           </div>
           <div class="handler-card-stat">
-            <div class="text-body-2 text-medium-emphasis">可用</div>
+            <div class="text-body-2 text-medium-emphasis">正常</div>
             <div class="handler-card-stat-value">{{ handler.credentials_enabled || 0 }}</div>
           </div>
         </div>
