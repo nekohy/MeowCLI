@@ -3,7 +3,8 @@ package loader
 import (
 	"github.com/nekohy/MeowCLI/plugin"
 
-	_ "github.com/nekohy/MeowCLI/plugin/APIgemini/includethoughts"
+	_ "github.com/nekohy/MeowCLI/plugin/APIGemini/includethoughts"
+	_ "github.com/nekohy/MeowCLI/plugin/HandlerAntigravity/setclaudeThinking"
 )
 
 func DefaultRegistry() *plugin.Registry {
