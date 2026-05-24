@@ -1,43 +1,49 @@
 <script setup lang="ts">
-import type { ThemeMode } from '~/types/admin'
+import type { ThemeMode, ThemePreference } from '~/types/admin'
 
-const props = withDefaults(defineProps<{
-  theme?: ThemeMode
-}>(), {
-  theme: 'light',
-})
-
-defineEmits<{
-  toggle: []
+const props = defineProps<{
+  theme: ThemeMode
+  preference: ThemePreference
 }>()
 
-const nextLabel = computed(() => (
-  props.theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'
-))
+const emit = defineEmits<{
+  'update:preference': [preference: ThemePreference]
+}>()
+
+const nextPreference = computed<ThemePreference>(() => {
+  if (props.preference === 'system') {
+    return 'light'
+  }
+
+  return props.preference === 'light' ? 'dark' : 'system'
+})
 
 const currentIcon = computed(() => (
-  props.theme === 'dark' ? 'mdi-white-balance-sunny' : 'mdi-weather-night'
+  props.preference === 'system'
+    ? 'mdi-theme-light-dark'
+    : props.preference === 'dark' ? 'mdi-weather-night' : 'mdi-white-balance-sunny'
 ))
 
 const currentLabel = computed(() => (
-  props.theme === 'dark' ? '深色' : '浅色'
+  props.preference === 'system'
+    ? '自动'
+    : props.preference === 'dark' ? '深色' : '浅色'
 ))
+
+function cyclePreference() {
+  emit('update:preference', nextPreference.value)
+}
 </script>
 
 <template>
-  <VTooltip :text="nextLabel" location="bottom">
-    <template #activator="{ props: tooltipProps }">
-      <VBtn
-        v-bind="tooltipProps"
-        :prepend-icon="currentIcon"
-        variant="text"
-        color="secondary"
-        class="text-none"
-        size="default"
-        @click="$emit('toggle')"
-      >
-        {{ currentLabel }}
-      </VBtn>
-    </template>
-  </VTooltip>
+  <VBtn
+    :prepend-icon="currentIcon"
+    variant="text"
+    color="primary"
+    class="text-none"
+    size="default"
+    @click="cyclePreference"
+  >
+    {{ currentLabel }}
+  </VBtn>
 </template>

@@ -85,16 +85,6 @@ useHead(() => ({
   title: pageTitle.value,
 }))
 
-function persistTheme(theme: string) {
-  if (!import.meta.client) {
-    return
-  }
-
-  vuetifyTheme.change(theme as 'light' | 'dark')
-  applyTheme(theme as 'light' | 'dark')
-  window.localStorage.setItem(THEME_STORAGE_KEY, theme)
-}
-
 async function handleLogin() {
   if (await admin.submitLogin()) {
     await router.push('/')
@@ -119,6 +109,21 @@ async function copySetupKey() {
 }
 
 let toastTimer: number | undefined
+let systemThemeMedia: MediaQueryList | undefined
+
+function handleSystemThemeChange(event: MediaQueryListEvent) {
+  admin.setSystemTheme(event.matches ? 'dark' : 'light')
+}
+
+function mountSystemThemeListener() {
+  if (!import.meta.client || !window.matchMedia) {
+    return
+  }
+
+  systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
+  admin.setSystemTheme(systemThemeMedia.matches ? 'dark' : 'light')
+  systemThemeMedia.addEventListener('change', handleSystemThemeChange)
+}
 
 watch(
   () => admin.theme.value,
@@ -127,7 +132,19 @@ watch(
       return
     }
 
-    persistTheme(theme)
+    vuetifyTheme.change(theme)
+    applyTheme(theme)
+  },
+)
+
+watch(
+  () => admin.themePreference.value,
+  (preference) => {
+    if (!import.meta.client || !clientReady.value) {
+      return
+    }
+
+    window.localStorage.setItem(THEME_STORAGE_KEY, preference)
   },
 )
 
@@ -167,8 +184,11 @@ watch(
 
 onMounted(() => {
   admin.initializeClient()
+  mountSystemThemeListener()
   clientReady.value = true
-  persistTheme(admin.theme.value)
+  vuetifyTheme.change(admin.theme.value)
+  applyTheme(admin.theme.value)
+  window.localStorage.setItem(THEME_STORAGE_KEY, admin.themePreference.value)
   window.addEventListener(AUTH_INVALID_EVENT, handleAuthInvalid)
 
   void (async () => {
@@ -186,6 +206,7 @@ onBeforeUnmount(() => {
   }
 
   window.removeEventListener(AUTH_INVALID_EVENT, handleAuthInvalid)
+  systemThemeMedia?.removeEventListener('change', handleSystemThemeChange)
   if (toastTimer) {
     window.clearTimeout(toastTimer)
   }
@@ -436,7 +457,8 @@ onBeforeUnmount(() => {
           <template #append>
             <ThemeToggle
               :theme="admin.theme.value"
-              @toggle="admin.toggleTheme()"
+              :preference="admin.themePreference.value"
+              @update:preference="admin.setThemePreference"
             />
             <VBtn
               variant="text"

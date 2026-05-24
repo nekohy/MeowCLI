@@ -4,8 +4,10 @@ import {
   setStoredToken,
 } from '~/composables/useAdminApi'
 import {
-  normalizeTheme,
-  resolveInitialTheme,
+  normalizeThemePreference,
+  resolveEffectiveTheme,
+  resolveInitialThemePreference,
+  resolveSystemTheme,
 } from '~/lib/admin'
 import type {
   BuildInfo,
@@ -14,6 +16,7 @@ import type {
   SetupResult,
   SetupState,
   ThemeMode,
+  ThemePreference,
   ToastMessage,
   UiTone,
 } from '~/types/admin'
@@ -36,7 +39,8 @@ const DEFAULT_BUILD_INFO: BuildInfo = {
 }
 
 export function useAdminApp() {
-  const theme = useState<ThemeMode>('admin-theme', () => 'light')
+  const themePreference = useState<ThemePreference>('admin-theme-preference', () => 'system')
+  const systemTheme = useState<ThemeMode>('admin-system-theme', () => 'light')
   const token = useState<string>('admin-token', () => '')
   const loginInput = useState<string>('admin-login-input', () => '')
   const authReady = useState<boolean>('admin-auth-ready', () => false)
@@ -52,6 +56,7 @@ export function useAdminApp() {
   const selectedHandler = useState<string>('admin-selected-handler', () => 'codex')
 
   const handlers = computed(() => overview.value.handlers)
+  const theme = computed<ThemeMode>(() => resolveEffectiveTheme(themePreference.value, systemTheme.value))
   const activeHandler = computed<HandlerOverview | null>(
     () => handlers.value.find((item) => item.key === selectedHandler.value) || handlers.value[0] || null,
   )
@@ -64,7 +69,8 @@ export function useAdminApp() {
 
     token.value = getStoredToken()
     loginInput.value = token.value
-    theme.value = normalizeTheme(resolveInitialTheme())
+    themePreference.value = normalizeThemePreference(resolveInitialThemePreference())
+    systemTheme.value = resolveSystemTheme()
   }
 
   function notify(text: string, tone: UiTone = 'success') {
@@ -199,8 +205,12 @@ export function useAdminApp() {
     }
   }
 
-  function toggleTheme() {
-    theme.value = theme.value === 'dark' ? 'light' : 'dark'
+  function setThemePreference(preference: ThemePreference) {
+    themePreference.value = preference
+  }
+
+  function setSystemTheme(nextTheme: ThemeMode) {
+    systemTheme.value = nextTheme
   }
 
   function logout() {
@@ -227,14 +237,16 @@ export function useAdminApp() {
     resetAuthState,
     selectedHandler,
     setStoredToken,
+    setSystemTheme,
+    setThemePreference,
     setupAdmin,
     setupDone,
     setupResult,
     setupState,
     submitLogin,
     theme,
+    themePreference,
     toast,
-    toggleTheme,
     token,
   }
 }

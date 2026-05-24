@@ -3,6 +3,7 @@ import type {
   SettingsForm,
   SettingsSnapshot,
   ThemeMode,
+  ThemePreference,
   UiTone,
 } from '~/types/admin'
 import { credentialStatusLabel, credentialStatusTone, isKnownCredentialStatus, isThrottleTierStatus } from './credentialStatus'
@@ -117,21 +118,37 @@ export function normalizeTheme(value?: string | null): ThemeMode {
   return value === 'dark' ? 'dark' : 'light'
 }
 
-export function resolveInitialTheme(): ThemeMode {
+export function normalizeThemePreference(value?: string | null): ThemePreference {
+  if (value === 'light' || value === 'dark' || value === 'system') {
+    return value
+  }
+
+  return 'system'
+}
+
+export function resolveSystemTheme(): ThemeMode {
   if (!import.meta.client) {
     return 'light'
   }
 
-  try {
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark') {
-      return stored
-    }
-  } catch {
-    return 'light'
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+export function resolveEffectiveTheme(preference: ThemePreference, systemTheme: ThemeMode): ThemeMode {
+  return preference === 'system' ? systemTheme : preference
+}
+
+export function resolveInitialThemePreference(): ThemePreference {
+  if (!import.meta.client) {
+    return 'system'
   }
 
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
+    return normalizeThemePreference(stored)
+  } catch {
+    return 'system'
+  }
 }
 
 export function applyTheme(theme: ThemeMode) {
