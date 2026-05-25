@@ -132,6 +132,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, 'beta') }}
+          make_latest: ${{ contains(github.ref_name, 'beta') && 'false' || 'true' }}
           fail_on_unmatched_files: true
           files: |
             dist/meowcli-*
@@ -173,7 +175,7 @@ jobs:
           flavor: |
             latest=auto
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest-beta,enable=${{ contains(github.ref_name, 'beta') }}
             type=semver,pattern={{version}}
             type=sha
 
