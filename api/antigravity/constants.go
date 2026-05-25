@@ -1,9 +1,6 @@
 package antigravity
 
-import (
-	"fmt"
-	"runtime"
-)
+import "github.com/nekohy/MeowCLI/internal/useragent"
 
 const (
 	tokenRefreshURL                = "https://oauth2.googleapis.com/token"
@@ -13,39 +10,18 @@ const (
 	antigravityBaseURLProd         = "https://cloudcode-pa.googleapis.com"
 	codeAssistVersion              = "v1internal"
 	defaultProjectID               = "bamboo-precept-lgxtn"
-	antigravityVersion             = "2.0.0"
+	antigravityVersion             = useragent.AntigravityVersion
+	antigravityClientID            = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+	antigravityClientSecret        = "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"
 
-	antigravityClientID     = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
-	antigravityClientSecret = "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"
-
-	antigravityNodeAPIClientUA = "google-api-nodejs-client/10.3.0"
+	antigravityNodeAPIClientUA = useragent.AntigravityNodeAPIClient
 	antigravityGoogAPIClientUA = "gl-node/22.21.1"
 )
 
 func antigravityUserAgent() string {
-	return fmt.Sprintf("antigravity/ide/%s %s/%s", antigravityVersion, antigravityOS(), antigravityArch())
+	return useragent.AntigravityIDE()
 }
 
 func antigravityLoadCodeAssistUserAgent() string {
-	return antigravityUserAgent() + " " + antigravityNodeAPIClientUA
-}
-
-func antigravityOS() string {
-	switch runtime.GOOS {
-	case "windows":
-		return "win32"
-	default:
-		return runtime.GOOS
-	}
-}
-
-func antigravityArch() string {
-	switch runtime.GOARCH {
-	case "amd64":
-		return "x64"
-	case "386":
-		return "x86"
-	default:
-		return runtime.GOARCH
-	}
+	return useragent.AntigravityLoadCodeAssist()
 }

@@ -340,7 +340,7 @@ func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.C
 		if !scheduling.PlanTypeAllowed(planCode, allowedPlans) {
 			continue
 		}
-		if row, ok := scheduling.PickWeightedFromBest(rows, scheduling.DefaultWeightedBestCount, func(row availableRow) float64 {
+		if row, ok := scheduling.PickWeightedFromBest(rows, s.settingsSnapshot().WeightedBestCount, func(row availableRow) float64 {
 			if codec.code(row.PlanType) != planCode || !s.credentialUsable(row, modelTier, allowedPlans) {
 				return -1
 			}
@@ -349,7 +349,7 @@ func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.C
 			return row.ID, nil
 		}
 	}
-	if row, ok := scheduling.PickWeightedFromBest(rows, scheduling.DefaultWeightedBestCount, func(row availableRow) float64 {
+	if row, ok := scheduling.PickWeightedFromBest(rows, s.settingsSnapshot().WeightedBestCount, func(row availableRow) float64 {
 		if !s.credentialUsable(row, modelTier, allowedPlans) {
 			return -1
 		}
@@ -362,7 +362,7 @@ func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.C
 			if !scheduling.PlanTypeAllowed(planCode, allowedPlans) {
 				continue
 			}
-			if row, ok := scheduling.PickWeightedFromBest(rows, scheduling.DefaultWeightedBestCount, func(row availableRow) float64 {
+			if row, ok := scheduling.PickWeightedFromBest(rows, s.settingsSnapshot().WeightedBestCount, func(row availableRow) float64 {
 				if codec.code(row.PlanType) != planCode || !s.credentialCreditsFallbackUsable(row, modelTier, allowedPlans, now) {
 					return -1
 				}
@@ -371,7 +371,7 @@ func (s *Scheduler) SelectCredential(ctx context.Context, selection scheduling.C
 				return row.ID, nil
 			}
 		}
-		if row, ok := scheduling.PickWeightedFromBest(rows, scheduling.DefaultWeightedBestCount, func(row availableRow) float64 {
+		if row, ok := scheduling.PickWeightedFromBest(rows, s.settingsSnapshot().WeightedBestCount, func(row availableRow) float64 {
 			if !s.credentialCreditsFallbackUsable(row, modelTier, allowedPlans, now) {
 				return -1
 			}

@@ -59,7 +59,6 @@ export const NAV_ITEMS: NavItem[] = [
   },
 ]
 
-
 export const PAGE_SIZE_OPTIONS = [
   { title: '25 条 / 页', value: 25 },
   { title: '50 条 / 页', value: 50 },
@@ -83,22 +82,30 @@ export const ANTIGRAVITY_API_ENDPOINT_OPTIONS = GEMINI_BASE_URL_OPTIONS
 
 export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   global_proxy: '',
-  codex_proxy: '',
-  gemini_proxy: '',
-  antigravity_proxy: '',
-  gemini_base_urls: GEMINI_BASE_URL_OPTIONS[0]!.value,
-  codex_preferred_plan_types: '',
-  gemini_preferred_plan_types: '',
-  antigravity_preferred_plan_types: '',
-  antigravity_api_endpoint: 'prod',
   refresh_before_seconds: '30',
-  poll_interval_milliseconds: '200',
   quota_sync_interval_seconds: '900',
   score_refresh_interval_seconds: '60',
   throttle_base_seconds: '60',
   throttle_max_seconds: '1800',
-  logs_retention_seconds: '86400',
   relay_max_retries: '3',
+  weighted_best_count: '10',
+
+  import_concurrency: '4',
+  logs_retention_seconds: '86400',
+  max_log_rows: '100000',
+
+  codex_proxy: '',
+  codex_preferred_plan_types: '',
+  codex_user_agent: '',
+
+  gemini_proxy: '',
+  gemini_base_urls: GEMINI_BASE_URL_OPTIONS[0]!.value,
+  gemini_preferred_plan_types: '',
+
+  antigravity_proxy: '',
+  antigravity_preferred_plan_types: '',
+  antigravity_api_endpoint: 'daily_sandbox,daily',
+  antigravity_user_agent: '',
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -390,21 +397,29 @@ export function antigravityAPIEndpointText(value: string) {
 export function settingsToForm(data: SettingsSnapshot): SettingsForm {
   const form: SettingsForm = {
     global_proxy: data.global_proxy,
-    codex_proxy: data.codex_proxy,
-    gemini_proxy: data.gemini_proxy,
-    antigravity_proxy: data.antigravity_proxy,
-    gemini_base_urls: joinGeminiBaseURLInput([data.gemini_base_urls]),
-    codex_preferred_plan_types: data.codex_preferred_plan_types.trim(),
-    gemini_preferred_plan_types: data.gemini_preferred_plan_types.trim(),
-    antigravity_preferred_plan_types: data.antigravity_preferred_plan_types.trim(),
     refresh_before_seconds: String(data.refresh_before_seconds),
-    poll_interval_milliseconds: String(data.poll_interval_milliseconds),
     quota_sync_interval_seconds: String(data.quota_sync_interval_seconds),
     score_refresh_interval_seconds: String(data.score_refresh_interval_seconds),
     throttle_base_seconds: String(data.throttle_base_seconds),
     throttle_max_seconds: String(data.throttle_max_seconds),
-    logs_retention_seconds: String(data.logs_retention_seconds),
     relay_max_retries: String(data.relay_max_retries),
+    weighted_best_count: String(data.weighted_best_count),
+
+    import_concurrency: String(data.import_concurrency),
+    logs_retention_seconds: String(data.logs_retention_seconds),
+    max_log_rows: String(data.max_log_rows),
+
+    codex_proxy: data.codex_proxy,
+    codex_preferred_plan_types: data.codex_preferred_plan_types.trim(),
+    codex_user_agent: data.codex_user_agent,
+
+    gemini_proxy: data.gemini_proxy,
+    gemini_base_urls: joinGeminiBaseURLInput([data.gemini_base_urls]),
+    gemini_preferred_plan_types: data.gemini_preferred_plan_types.trim(),
+
+    antigravity_proxy: data.antigravity_proxy,
+    antigravity_preferred_plan_types: data.antigravity_preferred_plan_types.trim(),
+    antigravity_user_agent: data.antigravity_user_agent,
   }
   if (typeof data.antigravity_api_endpoint === 'string') {
     form.antigravity_api_endpoint = joinAntigravityAPIEndpointInput([data.antigravity_api_endpoint])
@@ -418,21 +433,29 @@ export function settingsToForm(data: SettingsSnapshot): SettingsForm {
 export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
   const payload: SettingsSnapshot = {
     global_proxy: form.global_proxy.trim(),
-    codex_proxy: form.codex_proxy.trim(),
-    gemini_proxy: form.gemini_proxy.trim(),
-    antigravity_proxy: form.antigravity_proxy.trim(),
-    gemini_base_urls: joinGeminiBaseURLInput([form.gemini_base_urls]),
-    codex_preferred_plan_types: form.codex_preferred_plan_types.trim(),
-    gemini_preferred_plan_types: form.gemini_preferred_plan_types.trim(),
-    antigravity_preferred_plan_types: form.antigravity_preferred_plan_types.trim(),
     refresh_before_seconds: Number(form.refresh_before_seconds),
-    poll_interval_milliseconds: Number(form.poll_interval_milliseconds),
     quota_sync_interval_seconds: Number(form.quota_sync_interval_seconds),
     score_refresh_interval_seconds: Number(form.score_refresh_interval_seconds),
     throttle_base_seconds: Number(form.throttle_base_seconds),
     throttle_max_seconds: Number(form.throttle_max_seconds),
-    logs_retention_seconds: Number(form.logs_retention_seconds),
     relay_max_retries: Number(form.relay_max_retries),
+    weighted_best_count: Number(form.weighted_best_count),
+
+    import_concurrency: Number(form.import_concurrency),
+    logs_retention_seconds: Number(form.logs_retention_seconds),
+    max_log_rows: Number(form.max_log_rows),
+
+    codex_proxy: form.codex_proxy.trim(),
+    codex_preferred_plan_types: form.codex_preferred_plan_types.trim(),
+    codex_user_agent: form.codex_user_agent.trim(),
+
+    gemini_proxy: form.gemini_proxy.trim(),
+    gemini_base_urls: joinGeminiBaseURLInput([form.gemini_base_urls]),
+    gemini_preferred_plan_types: form.gemini_preferred_plan_types.trim(),
+
+    antigravity_proxy: form.antigravity_proxy.trim(),
+    antigravity_preferred_plan_types: form.antigravity_preferred_plan_types.trim(),
+    antigravity_user_agent: form.antigravity_user_agent.trim(),
   }
   if (typeof form.antigravity_api_endpoint === 'string') {
     payload.antigravity_api_endpoint = joinAntigravityAPIEndpointInput([form.antigravity_api_endpoint])

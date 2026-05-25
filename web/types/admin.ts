@@ -117,44 +117,60 @@ export interface StatusResponse {
 
 export interface SettingsSnapshot {
   global_proxy: string
-  codex_proxy: string
-  gemini_proxy: string
-  antigravity_proxy: string
-  gemini_base_urls: string
-  codex_preferred_plan_types: string
-  gemini_preferred_plan_types: string
-  antigravity_preferred_plan_types: string
-  antigravity_api_endpoint?: string
-  antigravity_use_credits?: boolean
   refresh_before_seconds: number
-  poll_interval_milliseconds: number
   quota_sync_interval_seconds: number
   score_refresh_interval_seconds: number
   throttle_base_seconds: number
   throttle_max_seconds: number
-  logs_retention_seconds: number
   relay_max_retries: number
+  weighted_best_count: number
+
+  import_concurrency: number
+  logs_retention_seconds: number
+  max_log_rows: number
+
+  codex_proxy: string
+  codex_preferred_plan_types: string
+  codex_user_agent: string
+
+  gemini_proxy: string
+  gemini_base_urls: string
+  gemini_preferred_plan_types: string
+
+  antigravity_proxy: string
+  antigravity_preferred_plan_types: string
+  antigravity_api_endpoint?: string
+  antigravity_use_credits?: boolean
+  antigravity_user_agent: string
 }
 
 export interface SettingsForm {
   global_proxy: string
-  codex_proxy: string
-  gemini_proxy: string
-  antigravity_proxy: string
-  gemini_base_urls: string
-  codex_preferred_plan_types: string
-  gemini_preferred_plan_types: string
-  antigravity_preferred_plan_types: string
-  antigravity_api_endpoint?: string
-  antigravity_use_credits?: boolean
   refresh_before_seconds: string
-  poll_interval_milliseconds: string
   quota_sync_interval_seconds: string
   score_refresh_interval_seconds: string
   throttle_base_seconds: string
   throttle_max_seconds: string
-  logs_retention_seconds: string
   relay_max_retries: string
+  weighted_best_count: string
+
+  import_concurrency: string
+  logs_retention_seconds: string
+  max_log_rows: string
+
+  codex_proxy: string
+  codex_preferred_plan_types: string
+  codex_user_agent: string
+
+  gemini_proxy: string
+  gemini_base_urls: string
+  gemini_preferred_plan_types: string
+
+  antigravity_proxy: string
+  antigravity_preferred_plan_types: string
+  antigravity_api_endpoint?: string
+  antigravity_use_credits?: boolean
+  antigravity_user_agent: string
 }
 
 export interface CodexSchedulingMetric {

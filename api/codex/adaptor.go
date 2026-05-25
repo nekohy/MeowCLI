@@ -45,8 +45,10 @@ func NewClient() *Client {
 	rc.JSONMarshal = sonic.Marshal
 	rc.JSONUnmarshal = sonic.Unmarshal
 	rc.OnBeforeRequest(func(_ *resty.Client, req *resty.Request) error {
-		for k, v := range codexutils.DefaultHeaders {
-			req.SetHeader(k, v)
+		for key, values := range c.defaultHeaders() {
+			if len(values) > 0 {
+				req.SetHeader(key, values[0])
+			}
 		}
 		return nil
 	})
@@ -66,6 +68,17 @@ func NewClient() *Client {
 	})
 	c.client = rc
 	return c
+}
+
+func (c *Client) defaultHeaders() http.Header {
+	headers := make(http.Header, len(codexutils.DefaultHeaders))
+	for key, value := range codexutils.DefaultHeaders {
+		headers.Set(key, value)
+	}
+	if c != nil && c.settings != nil {
+		headers.Set("User-Agent", c.settings.Snapshot().EffectiveCodexUserAgent())
+	}
+	return headers
 }
 
 func (c *Client) SetSettingsProvider(provider settings.Provider) {

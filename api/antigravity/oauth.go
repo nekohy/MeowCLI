@@ -117,7 +117,7 @@ func (c *Client) FetchUserEmail(ctx context.Context, accessToken string) (string
 	}
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(accessToken))
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", antigravityUserAgent())
+	req.Header.Set("User-Agent", c.userAgent())
 
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
@@ -236,7 +236,7 @@ func (c *Client) doCodeAssistControlRequest(ctx context.Context, accessToken str
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(accessToken))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", antigravityLoadCodeAssistUserAgent())
+	req.Header.Set("User-Agent", c.loadCodeAssistUserAgent())
 	req.Header.Set("X-Goog-Api-Client", antigravityGoogAPIClientUA)
 
 	resp, err := c.httpClient().Do(req)

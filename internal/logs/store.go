@@ -20,8 +20,6 @@ type Store struct {
 	head int
 }
 
-const maxLogRows = 100000
-
 var _ db.LogStore = (*Store)(nil)
 
 func NewStore(provider settings.Provider) *Store {
@@ -241,10 +239,11 @@ func (s *Store) trimLocked() {
 		return
 	}
 	visible := len(s.rows) - s.head
-	if visible <= maxLogRows {
+	maxRows := s.maxRows()
+	if visible <= maxRows {
 		return
 	}
-	s.head += visible - maxLogRows
+	s.head += visible - maxRows
 }
 
 func (s *Store) snapshotRows(now time.Time) []db.LogRow {
@@ -365,6 +364,17 @@ func (s *Store) retention() time.Duration {
 		return settings.DefaultSnapshot().LogsRetention()
 	}
 	return s.settings.Snapshot().LogsRetention()
+}
+
+func (s *Store) maxRows() int {
+	if s == nil || s.settings == nil {
+		return settings.DefaultSnapshot().MaxLogRows
+	}
+	maxRows := s.settings.Snapshot().MaxLogRows
+	if maxRows <= 0 {
+		return settings.DefaultSnapshot().MaxLogRows
+	}
+	return maxRows
 }
 
 func contextErr(ctx context.Context) error {

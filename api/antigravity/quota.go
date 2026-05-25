@@ -72,7 +72,7 @@ func (c *Client) FetchQuota(ctx context.Context, _ string, accessToken string, p
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("User-Agent", antigravityUserAgent())
+	httpReq.Header.Set("User-Agent", c.userAgent())
 
 	resp, err := c.httpClient().Do(httpReq)
 	if err != nil {

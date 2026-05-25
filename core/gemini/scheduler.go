@@ -238,14 +238,14 @@ func (s *Scheduler) selectCredential(ctx context.Context, preferredCodes []int, 
 		if !scheduling.PlanTypeAllowed(code, allowed) {
 			continue
 		}
-		if row, ok := selectWeightedCredential(rows, modelTier, func(row availableRow) bool {
+		if row, ok := selectWeightedCredential(rows, s.settingsSnapshot().WeightedBestCount, modelTier, func(row availableRow) bool {
 			return row.PlanTypeCode == code
 		}); ok {
 			return row.ID, nil
 		}
 	}
 
-	if row, ok := selectWeightedCredential(rows, modelTier, func(row availableRow) bool {
+	if row, ok := selectWeightedCredential(rows, s.settingsSnapshot().WeightedBestCount, modelTier, func(row availableRow) bool {
 		return scheduling.PlanTypeAllowed(row.PlanTypeCode, allowed)
 	}); ok {
 		return row.ID, nil
@@ -254,8 +254,8 @@ func (s *Scheduler) selectCredential(ctx context.Context, preferredCodes []int, 
 	return "", ErrNoAvailableCredential
 }
 
-func selectWeightedCredential(rows []availableRow, modelTier string, match func(availableRow) bool) (availableRow, bool) {
-	return scheduling.PickWeightedFromBest(rows, scheduling.DefaultWeightedBestCount, func(row availableRow) float64 {
+func selectWeightedCredential(rows []availableRow, bestCount int, modelTier string, match func(availableRow) bool) (availableRow, bool) {
+	return scheduling.PickWeightedFromBest(rows, bestCount, func(row availableRow) float64 {
 		if !match(row) {
 			return -1
 		}

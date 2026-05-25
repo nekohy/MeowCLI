@@ -101,18 +101,25 @@ const numericFields = [
     suffix: '次',
   },
   {
+    key: 'weighted_best_count',
+    label: '候选池大小',
+    hint: '从高分凭据中进入加权随机的候选数量',
+    min: 1,
+    suffix: '个',
+  },
+  {
+    key: 'import_concurrency',
+    label: '导入并发',
+    hint: '批量导入凭据时同时处理的任务数',
+    min: 1,
+    suffix: '个',
+  },
+  {
     key: 'refresh_before_seconds',
     label: '预刷新窗口',
     hint: '令牌到期前的刷新提前量',
     min: 1,
     suffix: '秒',
-  },
-  {
-    key: 'poll_interval_milliseconds',
-    label: '轮询间隔',
-    hint: '等待并发刷新的检查频率',
-    min: 1,
-    suffix: 'ms',
   },
   {
     key: 'quota_sync_interval_seconds',
@@ -134,6 +141,13 @@ const numericFields = [
     hint: '内存日志存留时长',
     min: 1,
     suffix: '秒',
+  },
+  {
+    key: 'max_log_rows',
+    label: '日志上限',
+    hint: '内存中最多保留的日志条数',
+    min: 1,
+    suffix: '条',
   },
   {
     key: 'throttle_base_seconds',
@@ -166,11 +180,11 @@ const numericFieldLookup = new Map<NumericFieldKey, (typeof numericFields)[numbe
 const numericGroups = [
   {
     title: '调度策略',
-    fields: ['relay_max_retries', 'refresh_before_seconds', 'poll_interval_milliseconds'] as NumericFieldKey[],
+    fields: ['relay_max_retries', 'weighted_best_count', 'import_concurrency', 'refresh_before_seconds'] as NumericFieldKey[],
   },
   {
     title: '数据保留',
-    fields: ['quota_sync_interval_seconds', 'score_refresh_interval_seconds', 'logs_retention_seconds'] as NumericFieldKey[],
+    fields: ['quota_sync_interval_seconds', 'score_refresh_interval_seconds', 'logs_retention_seconds', 'max_log_rows'] as NumericFieldKey[],
   },
   {
     title: '指数退避',
@@ -190,6 +204,8 @@ function normalizeSettingsForm(source: SettingsForm): SettingsForm {
     codex_proxy: source.codex_proxy.trim(),
     gemini_proxy: source.gemini_proxy.trim(),
     antigravity_proxy: source.antigravity_proxy.trim(),
+    codex_user_agent: source.codex_user_agent.trim(),
+    antigravity_user_agent: source.antigravity_user_agent.trim(),
     antigravity_api_endpoint: joinAntigravityAPIEndpointInput(splitAntigravityAPIEndpointInput(source.antigravity_api_endpoint)),
     codex_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.codex_preferred_plan_types, codexPlanTypes.value), codexPlanTypes.value),
     gemini_base_urls: joinGeminiBaseURLInput(splitGeminiBaseURLInput(source.gemini_base_urls)),
@@ -279,7 +295,7 @@ watch(
         <div class="settings-item">
           <div class="settings-item-copy">
             <div class="settings-item-title">全局代理</div>
-            <div class="settings-item-description text-medium-emphasis">所有上游请求使用的 HTTP 代理</div>
+            <div class="settings-item-description text-medium-emphasis">所有上游请求使用的代理</div>
           </div>
           <VTextField
             v-model="form.global_proxy"
@@ -315,11 +331,23 @@ watch(
         <div class="settings-item">
           <div class="settings-item-copy">
             <div class="settings-item-title">Codex 代理</div>
-            <div class="settings-item-description text-medium-emphasis">仅 Codex 上游使用的 HTTP 代理，覆盖全局代理</div>
+            <div class="settings-item-description text-medium-emphasis">未设置时回退到全局代理</div>
           </div>
           <VTextField
             v-model="form.codex_proxy"
             placeholder="http://127.0.0.1:7890"
+            hide-details
+            class="settings-item-control"
+          />
+        </div>
+
+        <div class="settings-item">
+          <div class="settings-item-copy">
+            <div class="settings-item-title">UA</div>
+            <div class="settings-item-description text-medium-emphasis">自定义 UA，不懂别动</div>
+          </div>
+          <VTextField
+            v-model="form.codex_user_agent"
             hide-details
             class="settings-item-control"
           />
@@ -343,7 +371,7 @@ watch(
         <div class="settings-item">
           <div class="settings-item-copy">
             <div class="settings-item-title">Gemini CLI 代理</div>
-            <div class="settings-item-description text-medium-emphasis">供 Gemini CLI 上游请求使用，未设置时回退到全局代理</div>
+            <div class="settings-item-description text-medium-emphasis">未设置时回退到全局代理</div>
           </div>
           <VTextField
             v-model="form.gemini_proxy"
@@ -385,11 +413,23 @@ watch(
         <div class="settings-item">
           <div class="settings-item-copy">
             <div class="settings-item-title">Antigravity 代理</div>
-            <div class="settings-item-description text-medium-emphasis">仅 Antigravity 上游请求使用，未设置时回退到全局代理</div>
+            <div class="settings-item-description text-medium-emphasis">未设置时回退到全局代理</div>
           </div>
           <VTextField
             v-model="form.antigravity_proxy"
             placeholder="http://127.0.0.1:7890"
+            hide-details
+            class="settings-item-control"
+          />
+        </div>
+
+        <div class="settings-item">
+          <div class="settings-item-copy">
+            <div class="settings-item-title">UA</div>
+            <div class="settings-item-description text-medium-emphasis">自定义 UA，不懂别动</div>
+          </div>
+          <VTextField
+            v-model="form.antigravity_user_agent"
             hide-details
             class="settings-item-control"
           />

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nekohy/MeowCLI/internal/settings"
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/gin-gonic/gin"
@@ -54,6 +55,7 @@ type importJobManager struct {
 	mu          sync.RWMutex
 	jobs        map[string]*importJob
 	concurrency int
+	settings    settings.Provider
 }
 
 func newImportJobManager(concurrency int) *importJobManager {
@@ -64,6 +66,12 @@ func newImportJobManager(concurrency int) *importJobManager {
 		jobs:        make(map[string]*importJob),
 		concurrency: concurrency,
 	}
+}
+
+func (m *importJobManager) SetSettingsProvider(provider settings.Provider) {
+	m.mu.Lock()
+	m.settings = provider
+	m.mu.Unlock()
 }
 
 func (m *importJobManager) Start(ctx context.Context, handler utils.HandlerType, tokens []string, process importProcessor, onCreated importCreatedHook) importJobSnapshot {
@@ -77,7 +85,7 @@ func (m *importJobManager) Start(ctx context.Context, handler utils.HandlerType,
 	cleaned := normalizeImportTokens(tokens)
 	now := time.Now()
 	job := &importJob{
-		workerCap: m.concurrency,
+		workerCap: m.concurrencyLimit(),
 		snapshot: importJobSnapshot{
 			ID:        newImportJobID(),
 			Handler:   string(handler),
@@ -99,6 +107,24 @@ func (m *importJobManager) Start(ctx context.Context, handler utils.HandlerType,
 
 	go job.run(ctx, cleaned, process, onCreated)
 	return job.Snapshot()
+}
+
+func (m *importJobManager) concurrencyLimit() int {
+	m.mu.RLock()
+	provider := m.settings
+	fallback := m.concurrency
+	m.mu.RUnlock()
+	if fallback < 1 {
+		fallback = defaultImportConcurrency
+	}
+	if provider == nil {
+		return fallback
+	}
+	configured := provider.Snapshot().ImportConcurrency
+	if configured < 1 {
+		return fallback
+	}
+	return configured
 }
 
 func (m *importJobManager) List() []importJobSnapshot {

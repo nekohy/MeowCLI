@@ -112,13 +112,24 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	}
 	utils.CopyHeadersExcept(httpReq.Header, req.Headers, "Accept", "Accept-Encoding", "Content-Length", "User-Agent")
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("User-Agent", antigravityUserAgent())
+	httpReq.Header.Set("User-Agent", c.userAgent())
 	if action == "streamGenerateContent" {
 		httpReq.Header.Set("Accept", "text/event-stream")
 	} else {
 		httpReq.Header.Set("Accept", "application/json")
 	}
 	return c.httpClient().Do(httpReq)
+}
+
+func (c *Client) userAgent() string {
+	if c != nil && c.settings != nil {
+		return c.settings.Snapshot().EffectiveAntigravityUserAgent()
+	}
+	return antigravityUserAgent()
+}
+
+func (c *Client) loadCodeAssistUserAgent() string {
+	return c.userAgent() + " " + antigravityNodeAPIClientUA
 }
 
 type wrappedRequest struct {

@@ -91,6 +91,9 @@ func (a *AdminHandler) SetModelCache(cache ModelCache) {
 
 func (a *AdminHandler) SetSettingsService(svc *settings.Service) {
 	a.settingsSvc = svc
+	if a.importJobs != nil {
+		a.importJobs.SetSettingsProvider(svc)
+	}
 }
 
 func (a *AdminHandler) SetBuildInfoProvider(provider BuildInfoProvider) {

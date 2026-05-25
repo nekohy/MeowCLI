@@ -8,28 +8,37 @@ import (
 	"time"
 
 	db "github.com/nekohy/MeowCLI/internal/store"
+	"github.com/nekohy/MeowCLI/internal/useragent"
 	"github.com/nekohy/MeowCLI/utils"
 )
 
 const (
-	KeyGlobalProxy                   = "global_proxy"
-	KeyCodexProxy                    = "codex_proxy"
-	KeyGeminiProxy                   = "gemini_proxy"
+	KeyGlobalProxy                 = "global_proxy"
+	KeyRefreshBeforeSeconds        = "refresh_before_seconds"
+	KeyQuotaSyncIntervalSeconds    = "quota_sync_interval_seconds"
+	KeyScoreRefreshIntervalSeconds = "score_refresh_interval_seconds"
+	KeyThrottleBaseSeconds         = "throttle_base_seconds"
+	KeyThrottleMaxSeconds          = "throttle_max_seconds"
+	KeyRelayMaxRetries             = "relay_max_retries"
+	KeyWeightedBestCount           = "weighted_best_count"
+
+	KeyImportConcurrency    = "import_concurrency"
+	KeyLogsRetentionSeconds = "logs_retention_seconds"
+	KeyMaxLogRows           = "max_log_rows"
+
+	KeyCodexProxy              = "codex_proxy"
+	KeyCodexPreferredPlanTypes = "codex_preferred_plan_types"
+	KeyCodexUserAgent          = "codex_user_agent"
+
+	KeyGeminiProxy              = "gemini_proxy"
+	KeyGeminiBaseURLs           = "gemini_base_urls"
+	KeyGeminiPreferredPlanTypes = "gemini_preferred_plan_types"
+
 	KeyAntigravityProxy              = "antigravity_proxy"
-	KeyGeminiBaseURLs                = "gemini_base_urls"
-	KeyCodexPreferredPlanTypes       = "codex_preferred_plan_types"
-	KeyGeminiPreferredPlanTypes      = "gemini_preferred_plan_types"
 	KeyAntigravityPreferredPlanTypes = "antigravity_preferred_plan_types"
 	KeyAntigravityAPIEndpoint        = "antigravity_api_endpoint"
 	KeyAntigravityUseCredits         = "antigravity_use_credits"
-	KeyRefreshBeforeSeconds          = "refresh_before_seconds"
-	KeyPollIntervalMilliseconds      = "poll_interval_milliseconds"
-	KeyQuotaSyncIntervalSeconds      = "quota_sync_interval_seconds"
-	KeyScoreRefreshIntervalSeconds   = "score_refresh_interval_seconds"
-	KeyThrottleBaseSeconds           = "throttle_base_seconds"
-	KeyThrottleMaxSeconds            = "throttle_max_seconds"
-	KeyRelayMaxRetries               = "relay_max_retries"
-	KeyLogsRetentionSeconds          = "logs_retention_seconds"
+	KeyAntigravityUserAgent          = "antigravity_user_agent"
 )
 
 const (
@@ -37,35 +46,51 @@ const (
 	defaultCodexImportedCheckTimeoutSeconds           = 30
 	defaultCodexQuotaWindow5hSeconds            int64 = 5 * 60 * 60
 	defaultCodexQuotaWindow7dSeconds            int64 = 7 * 24 * 60 * 60
+	defaultPollIntervalMilliseconds                   = 200
 	defaultGeminiQuotaWindowSeconds             int64 = 24 * 60 * 60
 	defaultLogsRetentionSeconds                       = 24 * 60 * 60
+)
+
+const (
+	defaultWeightedBestCount = 10
+	defaultImportConcurrency = 4
+	defaultMaxLogRows        = 100000
 )
 
 const (
 	AntigravityAPIEndpointProd         = "prod"
 	AntigravityAPIEndpointDaily        = "daily"
 	AntigravityAPIEndpointSandboxDaily = "daily_sandbox"
+	DefaultAntigravityAPIEndpoint      = AntigravityAPIEndpointSandboxDaily + "," + AntigravityAPIEndpointDaily
 )
 
 type Snapshot struct {
-	GlobalProxy                   string `json:"global_proxy"`
-	CodexProxy                    string `json:"codex_proxy"`
-	GeminiProxy                   string `json:"gemini_proxy"`
+	GlobalProxy                 string `json:"global_proxy"`
+	RefreshBeforeSeconds        int    `json:"refresh_before_seconds"`
+	QuotaSyncIntervalSeconds    int    `json:"quota_sync_interval_seconds"`
+	ScoreRefreshIntervalSeconds int    `json:"score_refresh_interval_seconds"`
+	ThrottleBaseSeconds         int    `json:"throttle_base_seconds"`
+	ThrottleMaxSeconds          int    `json:"throttle_max_seconds"`
+	RelayMaxRetries             int    `json:"relay_max_retries"`
+	WeightedBestCount           int    `json:"weighted_best_count"`
+
+	ImportConcurrency    int `json:"import_concurrency"`
+	LogsRetentionSeconds int `json:"logs_retention_seconds"`
+	MaxLogRows           int `json:"max_log_rows"`
+
+	CodexProxy              string `json:"codex_proxy"`
+	CodexPreferredPlanTypes string `json:"codex_preferred_plan_types"`
+	CodexUserAgent          string `json:"codex_user_agent"`
+
+	GeminiProxy              string `json:"gemini_proxy"`
+	GeminiBaseURLsRaw        string `json:"gemini_base_urls"`
+	GeminiPreferredPlanTypes string `json:"gemini_preferred_plan_types"`
+
 	AntigravityProxy              string `json:"antigravity_proxy"`
-	GeminiBaseURLsRaw             string `json:"gemini_base_urls"`
-	CodexPreferredPlanTypes       string `json:"codex_preferred_plan_types"`
-	GeminiPreferredPlanTypes      string `json:"gemini_preferred_plan_types"`
 	AntigravityPreferredPlanTypes string `json:"antigravity_preferred_plan_types"`
 	AntigravityAPIEndpoint        string `json:"antigravity_api_endpoint"`
 	AntigravityUseCredits         bool   `json:"antigravity_use_credits"`
-	RefreshBeforeSeconds          int    `json:"refresh_before_seconds"`
-	PollIntervalMilliseconds      int    `json:"poll_interval_milliseconds"`
-	QuotaSyncIntervalSeconds      int    `json:"quota_sync_interval_seconds"`
-	ScoreRefreshIntervalSeconds   int    `json:"score_refresh_interval_seconds"`
-	ThrottleBaseSeconds           int    `json:"throttle_base_seconds"`
-	ThrottleMaxSeconds            int    `json:"throttle_max_seconds"`
-	RelayMaxRetries               int    `json:"relay_max_retries"`
-	LogsRetentionSeconds          int    `json:"logs_retention_seconds"`
+	AntigravityUserAgent          string `json:"antigravity_user_agent"`
 }
 
 type Provider interface {
@@ -86,24 +111,32 @@ type Service struct {
 
 func DefaultSnapshot() Snapshot {
 	return Snapshot{
-		GlobalProxy:                   "",
-		CodexProxy:                    "",
-		GeminiProxy:                   "",
+		GlobalProxy:                 "",
+		RefreshBeforeSeconds:        5,
+		QuotaSyncIntervalSeconds:    6 * 60 * 60,
+		ScoreRefreshIntervalSeconds: 60,
+		ThrottleBaseSeconds:         60,
+		ThrottleMaxSeconds:          30 * 60,
+		RelayMaxRetries:             3,
+		WeightedBestCount:           defaultWeightedBestCount,
+
+		ImportConcurrency:    defaultImportConcurrency,
+		LogsRetentionSeconds: defaultLogsRetentionSeconds,
+		MaxLogRows:           defaultMaxLogRows,
+
+		CodexProxy:              "",
+		CodexPreferredPlanTypes: "",
+		CodexUserAgent:          "",
+
+		GeminiProxy:              "",
+		GeminiBaseURLsRaw:        "",
+		GeminiPreferredPlanTypes: "",
+
 		AntigravityProxy:              "",
-		GeminiBaseURLsRaw:             "",
-		CodexPreferredPlanTypes:       "",
-		GeminiPreferredPlanTypes:      "",
 		AntigravityPreferredPlanTypes: "",
-		AntigravityAPIEndpoint:        AntigravityAPIEndpointProd,
+		AntigravityAPIEndpoint:        DefaultAntigravityAPIEndpoint,
 		AntigravityUseCredits:         false,
-		RefreshBeforeSeconds:          5,
-		PollIntervalMilliseconds:      200,
-		QuotaSyncIntervalSeconds:      6 * 60 * 60,
-		ScoreRefreshIntervalSeconds:   60,
-		ThrottleBaseSeconds:           60,
-		ThrottleMaxSeconds:            30 * 60,
-		RelayMaxRetries:               3,
-		LogsRetentionSeconds:          defaultLogsRetentionSeconds,
+		AntigravityUserAgent:          "",
 	}
 }
 
@@ -168,11 +201,8 @@ func (s *Service) Save(ctx context.Context, next Snapshot) (Snapshot, error) {
 		return next, nil
 	}
 
-	for key, value := range next.asMap() {
-		if _, err := s.store.UpsertSetting(ctx, db.UpsertSettingParams{
-			Key:   key,
-			Value: value,
-		}); err != nil {
+	for _, param := range next.SettingParams() {
+		if _, err := s.store.UpsertSetting(ctx, param); err != nil {
 			return Snapshot{}, err
 		}
 	}
@@ -187,20 +217,8 @@ func (s Snapshot) Normalize() Snapshot {
 	defaults := DefaultSnapshot()
 
 	s.GlobalProxy = strings.TrimSpace(s.GlobalProxy)
-	s.CodexProxy = strings.TrimSpace(s.CodexProxy)
-	s.GeminiProxy = strings.TrimSpace(s.GeminiProxy)
-	s.AntigravityProxy = strings.TrimSpace(s.AntigravityProxy)
-	s.GeminiBaseURLsRaw = strings.TrimSpace(s.GeminiBaseURLsRaw)
-	s.CodexPreferredPlanTypes = strings.TrimSpace(s.CodexPreferredPlanTypes)
-	s.GeminiPreferredPlanTypes = strings.TrimSpace(s.GeminiPreferredPlanTypes)
-	s.AntigravityPreferredPlanTypes = strings.TrimSpace(s.AntigravityPreferredPlanTypes)
-	s.AntigravityAPIEndpoint = NormalizeAntigravityAPIEndpoint(s.AntigravityAPIEndpoint)
-
 	if s.RefreshBeforeSeconds <= 0 {
 		s.RefreshBeforeSeconds = defaults.RefreshBeforeSeconds
-	}
-	if s.PollIntervalMilliseconds <= 0 {
-		s.PollIntervalMilliseconds = defaults.PollIntervalMilliseconds
 	}
 	if s.QuotaSyncIntervalSeconds <= 0 {
 		s.QuotaSyncIntervalSeconds = defaults.QuotaSyncIntervalSeconds
@@ -217,9 +235,32 @@ func (s Snapshot) Normalize() Snapshot {
 	if s.RelayMaxRetries <= 0 {
 		s.RelayMaxRetries = defaults.RelayMaxRetries
 	}
+	if s.WeightedBestCount <= 0 {
+		s.WeightedBestCount = defaults.WeightedBestCount
+	}
+
+	if s.ImportConcurrency <= 0 {
+		s.ImportConcurrency = defaults.ImportConcurrency
+	}
 	if s.LogsRetentionSeconds <= 0 {
 		s.LogsRetentionSeconds = defaults.LogsRetentionSeconds
 	}
+	if s.MaxLogRows <= 0 {
+		s.MaxLogRows = defaults.MaxLogRows
+	}
+
+	s.CodexProxy = strings.TrimSpace(s.CodexProxy)
+	s.CodexPreferredPlanTypes = strings.TrimSpace(s.CodexPreferredPlanTypes)
+	s.CodexUserAgent = strings.TrimSpace(s.CodexUserAgent)
+
+	s.GeminiProxy = strings.TrimSpace(s.GeminiProxy)
+	s.GeminiBaseURLsRaw = strings.TrimSpace(s.GeminiBaseURLsRaw)
+	s.GeminiPreferredPlanTypes = strings.TrimSpace(s.GeminiPreferredPlanTypes)
+
+	s.AntigravityProxy = strings.TrimSpace(s.AntigravityProxy)
+	s.AntigravityPreferredPlanTypes = strings.TrimSpace(s.AntigravityPreferredPlanTypes)
+	s.AntigravityAPIEndpoint = NormalizeAntigravityAPIEndpoint(s.AntigravityAPIEndpoint)
+	s.AntigravityUserAgent = strings.TrimSpace(s.AntigravityUserAgent)
 
 	return s
 }
@@ -262,7 +303,7 @@ func (s Snapshot) RefreshBefore() time.Duration {
 }
 
 func (s Snapshot) PollInterval() time.Duration {
-	return time.Duration(s.PollIntervalMilliseconds) * time.Millisecond
+	return time.Duration(defaultPollIntervalMilliseconds) * time.Millisecond
 }
 
 func (s Snapshot) QuotaSyncInterval() time.Duration {
@@ -309,26 +350,48 @@ func (s Snapshot) LogsRetention() time.Duration {
 	return time.Duration(s.LogsRetentionSeconds) * time.Second
 }
 
-func (s Snapshot) asMap() map[string]string {
-	return map[string]string{
-		KeyGlobalProxy:                   s.GlobalProxy,
-		KeyCodexProxy:                    s.CodexProxy,
-		KeyGeminiProxy:                   s.GeminiProxy,
-		KeyAntigravityProxy:              s.AntigravityProxy,
-		KeyGeminiBaseURLs:                s.GeminiBaseURLsRaw,
-		KeyCodexPreferredPlanTypes:       s.CodexPreferredPlanTypes,
-		KeyGeminiPreferredPlanTypes:      s.GeminiPreferredPlanTypes,
-		KeyAntigravityPreferredPlanTypes: s.AntigravityPreferredPlanTypes,
-		KeyAntigravityAPIEndpoint:        s.AntigravityAPIEndpoint,
-		KeyAntigravityUseCredits:         strconv.FormatBool(s.AntigravityUseCredits),
-		KeyRefreshBeforeSeconds:          strconv.Itoa(s.RefreshBeforeSeconds),
-		KeyPollIntervalMilliseconds:      strconv.Itoa(s.PollIntervalMilliseconds),
-		KeyQuotaSyncIntervalSeconds:      strconv.Itoa(s.QuotaSyncIntervalSeconds),
-		KeyScoreRefreshIntervalSeconds:   strconv.Itoa(s.ScoreRefreshIntervalSeconds),
-		KeyThrottleBaseSeconds:           strconv.Itoa(s.ThrottleBaseSeconds),
-		KeyThrottleMaxSeconds:            strconv.Itoa(s.ThrottleMaxSeconds),
-		KeyRelayMaxRetries:               strconv.Itoa(s.RelayMaxRetries),
-		KeyLogsRetentionSeconds:          strconv.Itoa(s.LogsRetentionSeconds),
+func (s Snapshot) EffectiveCodexUserAgent() string {
+	if value := strings.TrimSpace(s.CodexUserAgent); value != "" {
+		return value
+	}
+	return useragent.CodexCLI
+}
+
+func (s Snapshot) EffectiveAntigravityUserAgent() string {
+	if value := strings.TrimSpace(s.AntigravityUserAgent); value != "" {
+		return value
+	}
+	return useragent.AntigravityIDE()
+}
+
+func (s Snapshot) SettingParams() []db.UpsertSettingParams {
+	return []db.UpsertSettingParams{
+		{Key: KeyGlobalProxy, Value: s.GlobalProxy},
+		{Key: KeyRefreshBeforeSeconds, Value: strconv.Itoa(s.RefreshBeforeSeconds)},
+		{Key: KeyQuotaSyncIntervalSeconds, Value: strconv.Itoa(s.QuotaSyncIntervalSeconds)},
+		{Key: KeyScoreRefreshIntervalSeconds, Value: strconv.Itoa(s.ScoreRefreshIntervalSeconds)},
+		{Key: KeyThrottleBaseSeconds, Value: strconv.Itoa(s.ThrottleBaseSeconds)},
+		{Key: KeyThrottleMaxSeconds, Value: strconv.Itoa(s.ThrottleMaxSeconds)},
+		{Key: KeyRelayMaxRetries, Value: strconv.Itoa(s.RelayMaxRetries)},
+		{Key: KeyWeightedBestCount, Value: strconv.Itoa(s.WeightedBestCount)},
+
+		{Key: KeyImportConcurrency, Value: strconv.Itoa(s.ImportConcurrency)},
+		{Key: KeyLogsRetentionSeconds, Value: strconv.Itoa(s.LogsRetentionSeconds)},
+		{Key: KeyMaxLogRows, Value: strconv.Itoa(s.MaxLogRows)},
+
+		{Key: KeyCodexProxy, Value: s.CodexProxy},
+		{Key: KeyCodexPreferredPlanTypes, Value: s.CodexPreferredPlanTypes},
+		{Key: KeyCodexUserAgent, Value: s.CodexUserAgent},
+
+		{Key: KeyGeminiProxy, Value: s.GeminiProxy},
+		{Key: KeyGeminiBaseURLs, Value: s.GeminiBaseURLsRaw},
+		{Key: KeyGeminiPreferredPlanTypes, Value: s.GeminiPreferredPlanTypes},
+
+		{Key: KeyAntigravityProxy, Value: s.AntigravityProxy},
+		{Key: KeyAntigravityPreferredPlanTypes, Value: s.AntigravityPreferredPlanTypes},
+		{Key: KeyAntigravityAPIEndpoint, Value: s.AntigravityAPIEndpoint},
+		{Key: KeyAntigravityUseCredits, Value: strconv.FormatBool(s.AntigravityUseCredits)},
+		{Key: KeyAntigravityUserAgent, Value: s.AntigravityUserAgent},
 	}
 }
 
@@ -336,40 +399,8 @@ func applyValues(target *Snapshot, values map[string]string) {
 	if value, ok := valueForKeys(values, KeyGlobalProxy); ok {
 		target.GlobalProxy = strings.TrimSpace(value)
 	}
-	if value, ok := valueForKeys(values, KeyCodexProxy); ok {
-		target.CodexProxy = strings.TrimSpace(value)
-	}
-	if value, ok := valueForKeys(values, KeyGeminiProxy); ok {
-		target.GeminiProxy = strings.TrimSpace(value)
-	}
-	if value, ok := valueForKeys(values, KeyAntigravityProxy); ok {
-		target.AntigravityProxy = strings.TrimSpace(value)
-	}
-	if value, ok := valueForKeys(values, KeyGeminiBaseURLs); ok {
-		target.GeminiBaseURLsRaw = value
-	}
-	if value, ok := valueForKeys(values, KeyCodexPreferredPlanTypes); ok {
-		target.CodexPreferredPlanTypes = value
-	}
-	if value, ok := valueForKeys(values, KeyGeminiPreferredPlanTypes); ok {
-		target.GeminiPreferredPlanTypes = value
-	}
-	if value, ok := valueForKeys(values, KeyAntigravityPreferredPlanTypes); ok {
-		target.AntigravityPreferredPlanTypes = value
-	}
-	if value, ok := valueForKeys(values, KeyAntigravityAPIEndpoint); ok {
-		target.AntigravityAPIEndpoint = NormalizeAntigravityAPIEndpoint(value)
-	}
-	if value, ok := valueForKeys(values, KeyAntigravityUseCredits); ok {
-		if parsed, err := strconv.ParseBool(value); err == nil {
-			target.AntigravityUseCredits = parsed
-		}
-	}
 	if parsed, ok := intValueForKeys(values, KeyRefreshBeforeSeconds); ok {
 		target.RefreshBeforeSeconds = parsed
-	}
-	if parsed, ok := intValueForKeys(values, KeyPollIntervalMilliseconds); ok {
-		target.PollIntervalMilliseconds = parsed
 	}
 	if parsed, ok := intValueForKeys(values, KeyQuotaSyncIntervalSeconds); ok {
 		target.QuotaSyncIntervalSeconds = parsed
@@ -386,8 +417,56 @@ func applyValues(target *Snapshot, values map[string]string) {
 	if parsed, ok := intValueForKeys(values, KeyRelayMaxRetries); ok {
 		target.RelayMaxRetries = parsed
 	}
+	if parsed, ok := intValueForKeys(values, KeyWeightedBestCount); ok {
+		target.WeightedBestCount = parsed
+	}
+
+	if parsed, ok := intValueForKeys(values, KeyImportConcurrency); ok {
+		target.ImportConcurrency = parsed
+	}
 	if parsed, ok := intValueForKeys(values, KeyLogsRetentionSeconds); ok {
 		target.LogsRetentionSeconds = parsed
+	}
+	if parsed, ok := intValueForKeys(values, KeyMaxLogRows); ok {
+		target.MaxLogRows = parsed
+	}
+
+	if value, ok := valueForKeys(values, KeyCodexProxy); ok {
+		target.CodexProxy = strings.TrimSpace(value)
+	}
+	if value, ok := valueForKeys(values, KeyCodexPreferredPlanTypes); ok {
+		target.CodexPreferredPlanTypes = value
+	}
+	if value, ok := valueForKeys(values, KeyCodexUserAgent); ok {
+		target.CodexUserAgent = strings.TrimSpace(value)
+	}
+
+	if value, ok := valueForKeys(values, KeyGeminiProxy); ok {
+		target.GeminiProxy = strings.TrimSpace(value)
+	}
+	if value, ok := valueForKeys(values, KeyGeminiBaseURLs); ok {
+		target.GeminiBaseURLsRaw = value
+	}
+	if value, ok := valueForKeys(values, KeyGeminiPreferredPlanTypes); ok {
+		target.GeminiPreferredPlanTypes = value
+	}
+
+	if value, ok := valueForKeys(values, KeyAntigravityProxy); ok {
+		target.AntigravityProxy = strings.TrimSpace(value)
+	}
+	if value, ok := valueForKeys(values, KeyAntigravityPreferredPlanTypes); ok {
+		target.AntigravityPreferredPlanTypes = value
+	}
+	if value, ok := valueForKeys(values, KeyAntigravityAPIEndpoint); ok {
+		target.AntigravityAPIEndpoint = NormalizeAntigravityAPIEndpoint(value)
+	}
+	if value, ok := valueForKeys(values, KeyAntigravityUseCredits); ok {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			target.AntigravityUseCredits = parsed
+		}
+	}
+	if value, ok := valueForKeys(values, KeyAntigravityUserAgent); ok {
+		target.AntigravityUserAgent = strings.TrimSpace(value)
 	}
 }
 

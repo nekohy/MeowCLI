@@ -256,7 +256,7 @@ func (s *Scheduler) selectCredential(ctx context.Context, preferredCodes []int, 
 }
 
 func (s *Scheduler) selectWeightedCredential(rows []availableRow, modelTier string, match func(availableRow) bool) (availableRow, bool) {
-	return scheduling.PickWeightedFromBest(rows, scheduling.DefaultWeightedBestCount, func(row availableRow) float64 {
+	return scheduling.PickWeightedFromBest(rows, s.settingsSnapshot().WeightedBestCount, func(row availableRow) float64 {
 		if !match(row) {
 			return -1
 		}
