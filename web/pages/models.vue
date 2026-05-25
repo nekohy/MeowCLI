@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
 import { joinPlanTypeInput, planTypeText, safeStringify, splitPlanTypeInput } from '~/lib/admin'
+import {
+  DEFAULT_MODEL_CATALOG_URLS,
+  modelCatalogStorageKey,
+  normalizeModelCatalog,
+  type ModelCatalogItem,
+} from '~/lib/modelCatalog'
 import type { ModelItem, PluginInfo } from '~/types/admin'
 
 function hasExtra(extra: unknown): boolean {
@@ -32,6 +38,13 @@ const modalPlanTypes = ref('')
 const modalPlugins = ref<string[]>([])
 const modalExtra = ref('{}')
 const modalError = ref('')
+const modelCatalogOpen = ref(false)
+const modelCatalogLoading = ref(false)
+const modelCatalogError = ref('')
+const modelCatalogSearch = ref('')
+const modelCatalogUrl = ref('')
+const modelCatalogItems = ref<ModelCatalogItem[]>([])
+const modelCatalogUrlByHandler = ref<Record<string, string>>({})
 const batchModalOpen = ref(false)
 const batchPlanTypes = ref('')
 const batchPlugins = ref<string[]>([])
@@ -141,6 +154,27 @@ const batchPluginSummary = computed(() => (
     : '未启用插件'
 ))
 
+const modelCatalogHandlerLabel = computed(() => (
+  admin.handlerLookup.value.get(modalHandler.value)?.label || modalHandler.value
+))
+
+const modelCatalogAvailable = computed(() => Boolean(DEFAULT_MODEL_CATALOG_URLS[modalHandler.value]))
+
+const filteredModelCatalogItems = computed(() => {
+  const query = modelCatalogSearch.value.trim().toLowerCase()
+  if (!query) {
+    return modelCatalogItems.value
+  }
+
+  return modelCatalogItems.value.filter((item) => (
+    item.id.toLowerCase().includes(query)
+    || item.name.toLowerCase().includes(query)
+    || item.description.toLowerCase().includes(query)
+  ))
+})
+const plainModelCatalogItems = computed(() => filteredModelCatalogItems.value.filter((item) => !item.description))
+const describedModelCatalogItems = computed(() => filteredModelCatalogItems.value.filter((item) => item.description))
+
 function formatExtra(extra: unknown): string {
   try {
     return JSON.stringify(extra, null, 2)
@@ -183,6 +217,103 @@ function modelsForHandler(handlerKey: string) {
 
 function handlerIcon(handlerKey: string) {
   return handlerIconByKey[handlerKey] || 'mdi-cpu-64-bit'
+}
+
+function defaultModelCatalogUrl(handlerKey: string) {
+  return DEFAULT_MODEL_CATALOG_URLS[handlerKey] || ''
+}
+
+function loadModelCatalogUrl(handlerKey: string) {
+  const defaultUrl = defaultModelCatalogUrl(handlerKey)
+  if (!import.meta.client) {
+    return defaultUrl
+  }
+
+  try {
+    return localStorage.getItem(modelCatalogStorageKey(handlerKey))?.trim() || defaultUrl
+  } catch {
+    return defaultUrl
+  }
+}
+
+function saveModelCatalogUrl(handlerKey: string, url: string) {
+  const trimmed = url.trim()
+  const defaultUrl = defaultModelCatalogUrl(handlerKey)
+  modelCatalogUrlByHandler.value = {
+    ...modelCatalogUrlByHandler.value,
+    [handlerKey]: trimmed || defaultUrl,
+  }
+  if (!import.meta.client) {
+    return
+  }
+
+  try {
+    if (!trimmed || trimmed === defaultUrl) {
+      localStorage.removeItem(modelCatalogStorageKey(handlerKey))
+    } else {
+      localStorage.setItem(modelCatalogStorageKey(handlerKey), trimmed)
+    }
+  } catch {
+    // localStorage may be unavailable in private contexts; the in-memory value still works.
+  }
+}
+
+async function fetchModelCatalog() {
+  const handlerKey = modalHandler.value
+  const url = modelCatalogUrl.value.trim()
+  modelCatalogLoading.value = true
+  modelCatalogError.value = ''
+
+  try {
+    if (!url) {
+      throw new Error('模型列表链接不能为空')
+    }
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    })
+    if (!response.ok) {
+      throw new Error(`模型列表获取失败 (${response.status})`)
+    }
+    modelCatalogItems.value = normalizeModelCatalog(await response.json())
+    saveModelCatalogUrl(handlerKey, url)
+    if (!modelCatalogItems.value.length) {
+      modelCatalogError.value = '远程列表为空'
+    }
+  } catch (error) {
+    modelCatalogItems.value = []
+    modelCatalogError.value = error instanceof Error ? error.message : '模型列表获取失败'
+  } finally {
+    modelCatalogLoading.value = false
+  }
+}
+
+function openModelCatalog() {
+  if (!modelCatalogAvailable.value) {
+    return
+  }
+  const handlerKey = modalHandler.value
+  const url = loadModelCatalogUrl(handlerKey)
+  modelCatalogUrlByHandler.value = {
+    ...modelCatalogUrlByHandler.value,
+    [handlerKey]: url,
+  }
+  modelCatalogUrl.value = url
+  modelCatalogSearch.value = ''
+  modelCatalogError.value = ''
+  modelCatalogItems.value = []
+  modelCatalogOpen.value = true
+  void fetchModelCatalog()
+}
+
+function closeModelCatalog() {
+  modelCatalogOpen.value = false
+  modelCatalogError.value = ''
+}
+
+function selectModelCatalogItem(item: ModelCatalogItem) {
+  modalOrigin.value = item.id
+  closeModelCatalog()
 }
 
 async function loadModels() {
@@ -638,13 +769,25 @@ watch(
           persistent-placeholder
           :disabled="modalMode === 'edit'"
         />
-        <VTextField
-          v-model="modalOrigin"
-          label="上游模型"
-          placeholder="gpt-4-0125-preview"
-          prepend-inner-icon="mdi-cloud-outline"
-          persistent-placeholder
-        />
+        <div class="model-origin-row">
+          <VTextField
+            v-model="modalOrigin"
+            label="上游模型"
+            placeholder="gpt-4-0125-preview"
+            prepend-inner-icon="mdi-cloud-outline"
+            persistent-placeholder
+            class="model-origin-field"
+          />
+          <AdminButton
+            variant="secondary"
+            prepend-icon="mdi-format-list-bulleted"
+            class="model-catalog-trigger"
+            :disabled="!modelCatalogAvailable"
+            @click="openModelCatalog"
+          >
+            模型列表
+          </AdminButton>
+        </div>
         <VSelect
           v-model="modalHandler"
           label="目标处理器"
@@ -700,6 +843,91 @@ watch(
         >
           {{ modalMode === 'edit' ? '更新映射' : '创建映射' }}
         </AdminButton>
+      </template>
+    </ModalDialog>
+
+    <ModalDialog
+      :open="modelCatalogOpen"
+      :title="`${modelCatalogHandlerLabel} 模型列表`"
+      description=""
+      icon="mdi-format-list-bulleted-square"
+      max-width="860"
+      @close="closeModelCatalog"
+    >
+      <div class="model-catalog-stack">
+        <div class="model-catalog-controls">
+          <VTextField
+            v-model="modelCatalogUrl"
+            label="模型列表链接"
+            prepend-inner-icon="mdi-vector-link"
+            persistent-placeholder
+            hide-details
+          />
+          <AdminButton
+            variant="secondary"
+            prepend-icon="mdi-cached"
+            :loading="modelCatalogLoading"
+            @click="fetchModelCatalog"
+          >
+            刷新
+          </AdminButton>
+        </div>
+
+        <VAlert
+          v-if="modelCatalogError"
+          type="error"
+          variant="tonal"
+          density="comfortable"
+          :text="modelCatalogError"
+        />
+
+        <div v-if="filteredModelCatalogItems.length" class="model-catalog-list">
+          <button
+            v-for="item in plainModelCatalogItems"
+            :key="item.id"
+            type="button"
+            class="model-catalog-item"
+            @click="selectModelCatalogItem(item)"
+          >
+            <span class="model-catalog-item-main">
+              <span class="model-catalog-name">{{ item.name }}</span>
+              <span class="model-catalog-id">{{ item.id }}</span>
+            </span>
+          </button>
+
+          <div v-if="describedModelCatalogItems.length" class="model-catalog-described-group">
+            <button
+              v-for="item in describedModelCatalogItems"
+              :key="item.id"
+              type="button"
+              class="model-catalog-item model-catalog-item--described"
+              @click="selectModelCatalogItem(item)"
+            >
+              <span class="model-catalog-item-main">
+                <span class="model-catalog-name">{{ item.name }}</span>
+                <span class="model-catalog-id">{{ item.id }}</span>
+              </span>
+              <span class="model-catalog-description">
+                {{ item.description }}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <EmptyState
+          v-else-if="!modelCatalogLoading"
+          title="没有可选模型"
+          description="刷新列表或调整搜索条件"
+          icon="mdi-link-off"
+        />
+
+        <div v-else class="model-catalog-loading">
+          <VProgressCircular indeterminate color="primary" size="28" />
+          <span>正在获取模型列表</span>
+        </div>
+      </div>
+      <template #footer>
+        <AdminButton variant="ghost" @click="closeModelCatalog">关闭</AdminButton>
       </template>
     </ModalDialog>
 
@@ -851,6 +1079,109 @@ watch(
   display: grid;
   gap: 16px;
   padding-top: 4px;
+}
+
+.model-origin-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.model-origin-field {
+  min-width: 0;
+}
+
+.model-catalog-trigger {
+  min-width: 112px;
+  margin-top: 8px;
+}
+
+.model-catalog-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.model-catalog-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.model-catalog-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+  max-height: min(58vh, 560px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.model-catalog-described-group {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.model-catalog-item {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(var(--v-theme-outline-variant), 0.62);
+  border-radius: 8px;
+  background: rgba(var(--v-theme-surface-container), 0.72);
+  color: rgba(var(--v-theme-on-surface), 0.9);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.model-catalog-item:hover {
+  border-color: rgba(var(--v-theme-primary), 0.58);
+  background: rgba(var(--v-theme-primary), 0.07);
+  transform: translateY(-1px);
+}
+
+.model-catalog-item-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.model-catalog-name {
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.model-catalog-id {
+  overflow-wrap: anywhere;
+  color: rgba(var(--v-theme-on-surface), 0.68);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.model-catalog-description {
+  overflow-wrap: anywhere;
+  color: rgba(var(--v-theme-on-surface), 0.74);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.model-catalog-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 140px;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  font-size: 0.88rem;
+  font-weight: 700;
 }
 
 .model-card {
@@ -1021,5 +1352,25 @@ watch(
   word-break: break-word;
   font-size: 0.72rem;
   line-height: 1.55;
+}
+
+@media (max-width: 720px) {
+  .model-origin-row,
+  .model-catalog-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .model-catalog-list {
+    grid-template-columns: 1fr;
+  }
+
+  .model-catalog-described-group {
+    grid-template-columns: 1fr;
+  }
+
+  .model-catalog-trigger {
+    width: 100%;
+    margin-top: 0;
+  }
 }
 </style>

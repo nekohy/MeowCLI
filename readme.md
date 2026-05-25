@@ -6,15 +6,14 @@
 
 - 开箱即用，支持 SQLite / PostgreSQL，并通过 `sqlc` 生成代码以优化查询性能
 - 冷启动/重启秒恢复状态
-- 跟随对话/定时同步额度，综合 5 小时与 7 天窗口的剩余额度和重置时间评分，优先选择更优凭据，而不是随机选择
+- 跟随对话/定时同步额度，综合 5 小时与 7 天窗口的额度,重置时间和错误率评分，优先选择更优凭据，而不是随机选择
+- 单凭据每Tier隔离，一个模型不可用不会影响其他
 - 可以单独指定某模型的调用套餐类型（如pro/free），也可指定调用顺序
 - 请求失败后自动触发基于 `Retry-After` 或指数退避的临时熔断
 - atomic 和 otter 缓存层，规避高延迟 SQL 操作
+- 支持自定义插件，可快速进行自己想要的请求改写(详见plugin/readme.md)
 - 支持创建多个 Key 用于内部分发
 - 前端使用 Nuxt SSG 构建，且符合MD3风格
-
-* gemini-cli由于header未返回配额信息，只能定时同步配额/报错时自动同步,codex为实时读取header，但不会入库，会影响性能
-* 由于atomic+otter的缓存机制，它的内存占用不会很小，但是性能比数据库频繁读写快多了
 
 ## 配置方式
 
@@ -61,12 +60,12 @@ http://127.0.0.1:3000/admin
 注意：
 
 - 日志只保存在内存中，服务重启后会清空
-- 日志保留时间可以在设置页调整
 
 ## 接口支持
 
 - `codex`：提供原生 OpenAI Responses 接口；Completion 接口与非流式 Response 由内置转换器转换
 - `gemini-cli`：提供原生 Gemini 接口
+- `antigravity`：提供原生 Gemini 接口
 
 ## 效果图
 
@@ -96,17 +95,16 @@ http://127.0.0.1:3000/admin
 ## 须知
 
 - 我不会写前端，前端纯AI的
-- Gemini 个人号未经过太多测试，没那么多号
+- Gemini/Antigravity 个人号未经过太多测试，没那么多号，Antigravity Credits也是
 - 各种格式转换与计费系统不是反代该做的
 - 没做防封禁处理，使用者需自行承担风险
 
 ## 开发指南
 
-### 环境要求
-
-- Go 1.25+
+### 推荐环境
+- Go 1.26
 - Node.js 22+
-- [sqlc](https://sqlc.dev/)：仅在修改 `db/*/schema` 或 `db/*/queries` 后需要重新生成 `internal/db/*`
+- [sqlc](https://sqlc.dev/)：在修改 `db/*/schema` 或 `db/*/queries` 后需要重新生成 `internal/db/*`
 
 ### 本地开发
 
