@@ -21,6 +21,7 @@ const loading = ref(false)
 const search = ref('')
 const handlerFilter = ref('all')
 const actionBusy = ref(false)
+const selectedAliases = ref<string[]>([])
 
 const modalOpen = ref(false)
 const modalMode = ref<'create' | 'edit'>('create')
@@ -31,6 +32,11 @@ const modalPlanTypes = ref('')
 const modalPlugins = ref<string[]>([])
 const modalExtra = ref('{}')
 const modalError = ref('')
+const batchModalOpen = ref(false)
+const batchPlanTypes = ref('')
+const batchPlugins = ref<string[]>([])
+const batchExtra = ref('{}')
+const batchError = ref('')
 const handlerIconByKey: Record<string, string> = {
   codex: 'mdi-console',
   gemini: 'mdi-google-circles-communities',
@@ -43,6 +49,12 @@ const modalHandlerConfig = computed(() => (
 const modalAvailablePlanTypes = computed(() => modalHandlerConfig.value?.plan_list || [])
 const modalAvailablePlugins = computed(() => modalHandlerConfig.value?.plugins || [])
 const modalSelectedPlanTypes = computed(() => splitPlanTypeInput(modalPlanTypes.value, modalAvailablePlanTypes.value))
+const batchSelectionEnabled = computed(() => handlerFilter.value !== 'all')
+const batchHandlerConfig = computed(() => (
+  admin.handlers.value.find((handler) => handler.key === handlerFilter.value) || null
+))
+const batchAvailablePlanTypes = computed(() => batchHandlerConfig.value?.plan_list || [])
+const batchAvailablePlugins = computed(() => batchHandlerConfig.value?.plugins || [])
 
 function defaultPlanTypesForHandler(_handlerKey: string) {
   return ''
@@ -93,6 +105,18 @@ const modelPluginOrder = useOrderedSelectionModal(
   () => modalAvailablePlugins.value.map((plugin) => plugin.name),
 )
 
+const batchPlanOrder = usePlanOrderModal(
+  () => batchPlanTypes.value,
+  (value) => { batchPlanTypes.value = value },
+  () => batchAvailablePlanTypes.value,
+)
+
+const batchPluginOrder = useOrderedSelectionModal(
+  () => batchPlugins.value,
+  (value) => { batchPlugins.value = value },
+  () => batchAvailablePlugins.value.map((plugin) => plugin.name),
+)
+
 const modalPlanSummary = computed(() => (
   modelPlanOrder.preview.value.length
     ? `已选择 ${modelPlanOrder.preview.value.length} 个套餐`
@@ -102,6 +126,18 @@ const modalPlanSummary = computed(() => (
 const modalPluginSummary = computed(() => (
   modelPluginOrder.preview.value.length
     ? `已启用 ${modelPluginOrder.preview.value.length} 个插件`
+    : '未启用插件'
+))
+
+const batchPlanSummary = computed(() => (
+  batchPlanOrder.preview.value.length
+    ? `已选择 ${batchPlanOrder.preview.value.length} 个套餐`
+    : '未指定套餐顺序'
+))
+
+const batchPluginSummary = computed(() => (
+  batchPluginOrder.preview.value.length
+    ? `已启用 ${batchPluginOrder.preview.value.length} 个插件`
     : '未启用插件'
 ))
 
@@ -126,6 +162,20 @@ const filteredItems = computed(() => {
       .some((value) => String(value || '').toLowerCase().includes(query))
   })
 })
+const selectedAliasSet = computed(() => new Set(selectedAliases.value))
+const selectedBatchItems = computed(() => (
+  items.value.filter((item) => item.handler === handlerFilter.value && selectedAliasSet.value.has(item.alias))
+))
+const allVisibleSelected = computed(() => (
+  batchSelectionEnabled.value
+  && filteredItems.value.length > 0
+  && filteredItems.value.every((item) => selectedAliasSet.value.has(item.alias))
+))
+const batchModalTitle = computed(() => (
+  batchHandlerConfig.value
+    ? `批量编辑 ${batchHandlerConfig.value.label} 模型`
+    : '批量编辑模型'
+))
 
 function modelsForHandler(handlerKey: string) {
   return items.value.filter((item) => item.handler === handlerKey).length
@@ -170,6 +220,52 @@ function openEditModal(item: ModelItem) {
   modalOpen.value = true
 }
 
+function clearSelection() {
+  selectedAliases.value = []
+}
+
+function toggleSelectVisible() {
+  if (!batchSelectionEnabled.value) {
+    clearSelection()
+    return
+  }
+  if (allVisibleSelected.value) {
+    const visible = new Set(filteredItems.value.map((item) => item.alias))
+    selectedAliases.value = selectedAliases.value.filter((alias) => !visible.has(alias))
+    return
+  }
+  const aliases = new Set(selectedAliases.value)
+  filteredItems.value.forEach((item) => aliases.add(item.alias))
+  selectedAliases.value = [...aliases]
+}
+
+function toggleSelectModel(alias: string) {
+  if (!batchSelectionEnabled.value) {
+    return
+  }
+  selectedAliases.value = selectedAliasSet.value.has(alias)
+    ? selectedAliases.value.filter((value) => value !== alias)
+    : [...selectedAliases.value, alias]
+}
+
+function openBatchModal() {
+  if (!batchSelectionEnabled.value || !selectedBatchItems.value.length) {
+    return
+  }
+  batchPlanTypes.value = defaultPlanTypesForHandler(handlerFilter.value)
+  batchPlugins.value = []
+  batchExtra.value = '{}'
+  batchError.value = ''
+  batchModalOpen.value = true
+}
+
+function closeBatchModal() {
+  batchModalOpen.value = false
+  batchError.value = ''
+  batchPlanOrder.closeModal()
+  batchPluginOrder.closeModal()
+}
+
 function closeModal() {
   modalOpen.value = false
   modalError.value = ''
@@ -183,6 +279,14 @@ function modalPluginLabel(name: string) {
 
 function modalPluginDescription(name: string) {
   return modalAvailablePlugins.value.find((plugin) => plugin.name === name)?.description || ''
+}
+
+function batchPluginLabel(name: string) {
+  return pluginLabel(name, batchAvailablePlugins.value)
+}
+
+function batchPluginDescription(name: string) {
+  return batchAvailablePlugins.value.find((plugin) => plugin.name === name)?.description || ''
 }
 
 async function saveModel() {
@@ -229,6 +333,51 @@ async function saveModel() {
   }
 }
 
+async function saveBatchModels() {
+  actionBusy.value = true
+  batchError.value = ''
+
+  try {
+    if (!batchSelectionEnabled.value || !selectedBatchItems.value.length) {
+      throw new Error('请选择同一处理器下的模型')
+    }
+    let extra: Record<string, unknown> = {}
+    try {
+      extra = JSON.parse(batchExtra.value || '{}') as Record<string, unknown>
+    } catch {
+      throw new Error('附加参数必须是合法的 JSON')
+    }
+
+    const response = await adminApi.batchUpdateModels(admin.token.value, {
+      aliases: selectedBatchItems.value.map((item) => item.alias),
+      handler: handlerFilter.value,
+      plan_types: joinPlanTypeInput(splitPlanTypeInput(batchPlanTypes.value, batchAvailablePlanTypes.value), batchAvailablePlanTypes.value),
+      plugin: batchPlugins.value
+        .filter((name) => batchAvailablePlugins.value.some((plugin) => plugin.name === name))
+        .join(','),
+      extra,
+    })
+
+    closeBatchModal()
+    clearSelection()
+    const failed = response.errors.length
+    admin.notify(
+      failed
+        ? `已更新 ${response.updated.length} 个模型，${failed} 个失败`
+        : `已批量更新 ${response.updated.length} 个模型`,
+      failed ? 'warning' : 'success',
+    )
+    await Promise.all([
+      admin.loadOverview(admin.token.value, true),
+      loadModels(),
+    ])
+  } catch (error) {
+    batchError.value = error instanceof Error ? error.message : '批量更新模型失败'
+  } finally {
+    actionBusy.value = false
+  }
+}
+
 function openDeleteConfirm(item: ModelItem) {
   confirm.show({
     title: '删除模型映射',
@@ -264,6 +413,28 @@ watch(
     if (ready) {
       void loadModels()
     }
+  },
+)
+
+watch(
+  () => handlerFilter.value,
+  () => {
+    clearSelection()
+    closeBatchModal()
+  },
+)
+
+watch(
+  () => items.value,
+  () => {
+    if (!batchSelectionEnabled.value) {
+      clearSelection()
+      return
+    }
+    const available = new Set(items.value
+      .filter((item) => item.handler === handlerFilter.value)
+      .map((item) => item.alias))
+    selectedAliases.value = selectedAliases.value.filter((alias) => available.has(alias))
   },
 )
 
@@ -331,6 +502,28 @@ watch(
             </VChip>
           </VChipGroup>
         </div>
+
+        <div v-if="batchSelectionEnabled" class="batch-toolbar">
+          <div class="batch-select-summary">
+            <VCheckboxBtn
+              :model-value="allVisibleSelected"
+              :indeterminate="selectedBatchItems.length > 0 && !allVisibleSelected"
+              :disabled="!filteredItems.length"
+              @update:model-value="toggleSelectVisible"
+            />
+            <span>已选 {{ selectedBatchItems.length }} 个</span>
+          </div>
+          <AdminButton
+            variant="secondary"
+            size="sm"
+            prepend-icon="mdi-pencil-outline"
+            class="model-action-button batch-action-button"
+            :disabled="!selectedBatchItems.length"
+            @click="openBatchModal"
+          >
+            批量编辑
+          </AdminButton>
+        </div>
       </div>
 
       <div v-if="filteredItems.length" class="model-grid">
@@ -343,9 +536,17 @@ watch(
         >
           <VCardText class="pa-5 d-flex flex-column ga-3 model-card-body">
             <div class="d-flex justify-space-between align-center">
-              <div style="min-width: 0">
-                <div class="text-h6 font-weight-bold">{{ item.alias }}</div>
-                <div class="text-caption text-medium-emphasis text-truncate" style="max-width: 280px">{{ item.origin }}</div>
+              <div class="model-card-title-row">
+                <VCheckboxBtn
+                  v-if="batchSelectionEnabled"
+                  :model-value="selectedAliasSet.has(item.alias)"
+                  class="model-select-check"
+                  @update:model-value="() => toggleSelectModel(item.alias)"
+                />
+                <div style="min-width: 0">
+                  <div class="text-h6 font-weight-bold">{{ item.alias }}</div>
+                  <div class="text-caption text-medium-emphasis text-truncate" style="max-width: 280px">{{ item.origin }}</div>
+                </div>
               </div>
               <AdminBadge tone="secondary" subtle :icon="handlerIcon(item.handler)">
                 {{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}
@@ -502,6 +703,64 @@ watch(
       </template>
     </ModalDialog>
 
+    <ModalDialog
+      :open="batchModalOpen"
+      :title="batchModalTitle"
+      :description="`将统一覆盖 ${selectedBatchItems.length} 个已选模型的套餐、插件和附加参数`"
+      icon="mdi-pencil-outline"
+      max-width="640"
+      @close="closeBatchModal"
+    >
+      <div class="model-form-stack">
+        <VTextField
+          class="model-order-field"
+          :model-value="batchPlanSummary"
+          label="调用套餐顺序"
+          prepend-inner-icon="mdi-swap-vertical"
+          append-inner-icon="mdi-menu-right"
+          readonly
+          @click="batchPlanOrder.openModal()"
+          @click:append-inner="batchPlanOrder.openModal()"
+        />
+        <VTextField
+          class="model-order-field"
+          :model-value="batchAvailablePlugins.length ? batchPluginSummary : '当前处理器暂无可用插件'"
+          label="插件导入"
+          prepend-inner-icon="mdi-puzzle-outline"
+          :append-inner-icon="batchAvailablePlugins.length ? 'mdi-menu-right' : undefined"
+          readonly
+          :disabled="!batchAvailablePlugins.length"
+          @click="batchAvailablePlugins.length && batchPluginOrder.openModal()"
+          @click:append-inner="batchPluginOrder.openModal()"
+        />
+        <VTextarea
+          v-model="batchExtra"
+          rows="4"
+          label="附加参数"
+          placeholder="{}"
+          prepend-inner-icon="mdi-code-json"
+          persistent-placeholder
+        />
+        <VAlert
+          v-if="batchError"
+          type="error"
+          variant="tonal"
+          density="comfortable"
+          :text="batchError"
+        />
+      </div>
+      <template #footer>
+        <AdminButton variant="ghost" @click="closeBatchModal">取消</AdminButton>
+        <AdminButton
+          prepend-icon="mdi-content-save-check-outline"
+          :loading="actionBusy"
+          @click="saveBatchModels"
+        >
+          批量更新
+        </AdminButton>
+      </template>
+    </ModalDialog>
+
     <PlanOrderModal
       :open="modelPlanOrder.open.value"
       title="调用套餐排序"
@@ -537,6 +796,41 @@ watch(
       @close="modelPluginOrder.closeModal()"
     />
 
+    <PlanOrderModal
+      :open="batchPlanOrder.open.value"
+      title="批量调用套餐排序"
+      :max-width="520"
+      :draft="batchPlanOrder.draft.value"
+      :drag-idx="batchPlanOrder.dragIdx.value"
+      :is-selected="batchPlanOrder.isSelected"
+      :rank-of="batchPlanOrder.rankOf"
+      :toggle="batchPlanOrder.toggle"
+      :on-drag-start="batchPlanOrder.onDragStart"
+      :on-drag-over="batchPlanOrder.onDragOver"
+      :on-drag-end="batchPlanOrder.onDragEnd"
+      @close="batchPlanOrder.closeModal()"
+    />
+
+    <PlanOrderModal
+      :open="batchPluginOrder.open.value"
+      title="批量插件排序"
+      description="拖动排序，勾选启用；所有已选模型会使用同一插件顺序"
+      icon="mdi-puzzle-outline"
+      empty-text="当前处理器暂无可用插件"
+      :max-width="520"
+      :draft="batchPluginOrder.draft.value"
+      :drag-idx="batchPluginOrder.dragIdx.value"
+      :is-selected="batchPluginOrder.isSelected"
+      :rank-of="batchPluginOrder.rankOf"
+      :toggle="batchPluginOrder.toggle"
+      :on-drag-start="batchPluginOrder.onDragStart"
+      :on-drag-over="batchPluginOrder.onDragOver"
+      :on-drag-end="batchPluginOrder.onDragEnd"
+      :item-label="batchPluginLabel"
+      :item-description="batchPluginDescription"
+      @close="batchPluginOrder.closeModal()"
+    />
+
     <ModalDialog
       :open="confirm.open.value"
       :title="confirm.title.value"
@@ -567,6 +861,58 @@ watch(
 
 .model-card-body {
   min-height: 100%;
+}
+
+.batch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.batch-select-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  padding-inline: 2px 10px;
+  border: 1px solid rgba(var(--v-theme-outline-variant), 0.58);
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.035);
+  color: rgba(var(--v-theme-on-surface), 0.78);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.batch-select-summary :deep(.v-selection-control) {
+  min-height: 30px;
+}
+
+.batch-select-summary :deep(.v-selection-control__wrapper) {
+  width: 30px;
+  height: 30px;
+}
+
+.batch-action-button {
+  min-width: 90px;
+}
+
+.model-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.model-select-check {
+  flex: 0 0 auto;
+  margin-inline-start: -6px;
+}
+
+.model-select-check :deep(.v-selection-control) {
+  min-height: 32px;
 }
 
 .model-card-actions {

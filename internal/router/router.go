@@ -72,6 +72,7 @@ func Setup(r *gin.Engine, deps Deps) {
 
 			apiGroup.GET("/models", deps.Admin.ListModels)
 			apiGroup.POST("/models", deps.Admin.CreateModel)
+			apiGroup.PUT("/models/batch", deps.Admin.BatchUpdateModels)
 			apiGroup.PUT("/models/:alias", deps.Admin.UpdateModel)
 			apiGroup.DELETE("/models/:alias", deps.Admin.DeleteModel)
 

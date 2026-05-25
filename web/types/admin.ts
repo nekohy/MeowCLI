@@ -329,6 +329,11 @@ export interface BatchStatusResponse {
   errors: BatchOperationError[]
 }
 
+export interface BatchModelUpdateResponse {
+  updated: string[]
+  errors: BatchOperationError[]
+}
+
 export interface BatchDeleteResponse {
   deleted: string[]
   errors: BatchOperationError[]

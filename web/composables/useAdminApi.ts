@@ -1,6 +1,7 @@
 import type {
   AuthKeyItem,
   BatchDeleteResponse,
+  BatchModelUpdateResponse,
   BatchStatusResponse,
   CredentialItem,
   CreateAuthKeyResponse,
@@ -250,6 +251,13 @@ export const adminApi = {
   },
   updateModel(token: string, alias: string, payload: { origin: string; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown> }) {
     return apiRequest<ModelItem>(`/models/${encodeURIComponent(alias)}`, {
+      token,
+      method: 'PUT',
+      body: payload,
+    })
+  },
+  batchUpdateModels(token: string, payload: { aliases: string[]; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown> }) {
+    return apiRequest<BatchModelUpdateResponse>('/models/batch', {
       token,
       method: 'PUT',
       body: payload,

@@ -36,8 +36,8 @@ func NewClient() *Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = utils.DefaultUpstreamTimeout
 	transport.IdleConnTimeout = utils.DefaultUpstreamTimeout
-	transport.MaxIdleConns = 100
-	transport.MaxIdleConnsPerHost = 20
+	transport.MaxIdleConns = 1000
+	transport.MaxIdleConnsPerHost = 100
 	transport.Proxy = func(*http.Request) (*url.URL, error) {
 		return c.proxyURL()
 	}
