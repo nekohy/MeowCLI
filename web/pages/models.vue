@@ -7,6 +7,7 @@ import {
   normalizeModelCatalog,
   type ModelCatalogItem,
 } from '~/lib/modelCatalog'
+import { resolveCreateModelHandler } from '~/lib/modelForm'
 import type { ModelItem, PluginInfo } from '~/types/admin'
 
 function hasExtra(extra: unknown): boolean {
@@ -159,6 +160,9 @@ const modelCatalogHandlerLabel = computed(() => (
 ))
 
 const modelCatalogAvailable = computed(() => Boolean(DEFAULT_MODEL_CATALOG_URLS[modalHandler.value]))
+const modelCatalogUsingDefaultUrl = computed(() => (
+  modelCatalogUrl.value.trim() === defaultModelCatalogUrl(modalHandler.value)
+))
 
 const filteredModelCatalogItems = computed(() => {
   const query = modelCatalogSearch.value.trim().toLowerCase()
@@ -258,6 +262,13 @@ function saveModelCatalogUrl(handlerKey: string, url: string) {
   }
 }
 
+function resetModelCatalogUrl() {
+  const handlerKey = modalHandler.value
+  const defaultUrl = defaultModelCatalogUrl(handlerKey)
+  modelCatalogUrl.value = defaultUrl
+  saveModelCatalogUrl(handlerKey, defaultUrl)
+}
+
 async function fetchModelCatalog() {
   const handlerKey = modalHandler.value
   const url = modelCatalogUrl.value.trim()
@@ -331,7 +342,11 @@ function openCreateModal() {
   modalMode.value = 'create'
   modalAlias.value = ''
   modalOrigin.value = ''
-  modalHandler.value = admin.activeHandler.value?.key || admin.handlers.value[0]?.key || 'codex'
+  modalHandler.value = resolveCreateModelHandler(
+    handlerFilter.value,
+    admin.activeHandler.value?.key,
+    admin.handlers.value.map((handler) => handler.key),
+  )
   modalPlanTypes.value = defaultPlanTypesForHandler(modalHandler.value)
   modalPlugins.value = []
   modalExtra.value = '{}'
@@ -863,14 +878,24 @@ watch(
             persistent-placeholder
             hide-details
           />
-          <AdminButton
-            variant="secondary"
-            prepend-icon="mdi-cached"
-            :loading="modelCatalogLoading"
-            @click="fetchModelCatalog"
-          >
-            刷新
-          </AdminButton>
+          <div class="model-catalog-actions">
+            <AdminButton
+              variant="ghost"
+              prepend-icon="mdi-keyboard-return"
+              :disabled="modelCatalogUsingDefaultUrl"
+              @click="resetModelCatalogUrl"
+            >
+              默认
+            </AdminButton>
+            <AdminButton
+              variant="secondary"
+              prepend-icon="mdi-cached"
+              :loading="modelCatalogLoading"
+              @click="fetchModelCatalog"
+            >
+              刷新
+            </AdminButton>
+          </div>
         </div>
 
         <VAlert
@@ -1104,9 +1129,14 @@ watch(
 
 .model-catalog-controls {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: start;
+  gap: 8px;
+}
+
+.model-catalog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .model-catalog-list {
@@ -1355,8 +1385,7 @@ watch(
 }
 
 @media (max-width: 720px) {
-  .model-origin-row,
-  .model-catalog-controls {
+  .model-origin-row {
     grid-template-columns: 1fr;
   }
 
@@ -1366,6 +1395,14 @@ watch(
 
   .model-catalog-described-group {
     grid-template-columns: 1fr;
+  }
+
+  .model-catalog-actions {
+    justify-content: stretch;
+  }
+
+  .model-catalog-actions > * {
+    flex: 1 1 120px;
   }
 
   .model-catalog-trigger {
