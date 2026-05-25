@@ -125,3 +125,6 @@ make build
 make release       # 生成发布二进制和 checksum
 make clean         # 清理构建产物
 ```
+
+### 友情链接
+[linux.do](https://linux.do)
