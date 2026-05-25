@@ -237,6 +237,9 @@ func prepareCodexResponsesRequestBody(body []byte) ([]byte, bool, error) {
 	if _, err := root.Unset("temperature"); err != nil {
 		return body, clientStream, fmt.Errorf("unset responses request temperature: %w", err)
 	}
+	if _, err := root.Unset("max_output_tokens"); err != nil {
+		return body, clientStream, fmt.Errorf("unset responses request max_output_tokens: %w", err)
+	}
 
 	out, err := root.MarshalJSON()
 	if err != nil {
