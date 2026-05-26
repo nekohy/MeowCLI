@@ -46,6 +46,11 @@
   },
   {
     "id": "gemini-3.5-flash-low",
+    "name": "Gemini 3.5 Flash (Medium)",
+    "description": "你应该去用Gemini 3.5 Flash接入"
+  },
+  {
+    "id": "gemini-3.5-flash-extra-low",
     "name": "Gemini 3.5 Flash (Low)",
     "description": "你应该去用Gemini 3.5 Flash接入"
   }
