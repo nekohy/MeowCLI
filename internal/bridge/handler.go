@@ -178,7 +178,10 @@ func (h *Handler) resolveRelayTarget(ctx context.Context, alias string, apiType 
 	}, relayError{}, true
 }
 
-func sessionAffinityKey(providerType utils.HandlerType, sessionID string) string {
+func sessionAffinityKey(providerType utils.HandlerType, sessionID string, snapshot settings.Snapshot) string {
+	if providerType == utils.HandlerCodex && !snapshot.CodexEnableStickySession {
+		return ""
+	}
 	provider := strings.TrimSpace(string(providerType))
 	sessionID = strings.TrimSpace(sessionID)
 	if provider != "" && sessionID != "" {

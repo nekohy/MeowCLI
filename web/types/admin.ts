@@ -132,6 +132,7 @@ export interface SettingsSnapshot {
   codex_proxy: string
   codex_preferred_plan_types: string
   codex_user_agent: string
+  codex_enable_sticky_session: boolean
 
   gemini_proxy: string
   gemini_base_urls: string
@@ -161,6 +162,7 @@ export interface SettingsForm {
   codex_proxy: string
   codex_preferred_plan_types: string
   codex_user_agent: string
+  codex_enable_sticky_session: boolean
 
   gemini_proxy: string
   gemini_base_urls: string

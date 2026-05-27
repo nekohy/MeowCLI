@@ -26,9 +26,10 @@ const (
 	KeyLogsRetentionSeconds = "logs_retention_seconds"
 	KeyMaxLogRows           = "max_log_rows"
 
-	KeyCodexProxy              = "codex_proxy"
-	KeyCodexPreferredPlanTypes = "codex_preferred_plan_types"
-	KeyCodexUserAgent          = "codex_user_agent"
+	KeyCodexProxy               = "codex_proxy"
+	KeyCodexPreferredPlanTypes  = "codex_preferred_plan_types"
+	KeyCodexUserAgent           = "codex_user_agent"
+	KeyCodexEnableStickySession = "codex_enable_sticky_session"
 
 	KeyGeminiProxy              = "gemini_proxy"
 	KeyGeminiBaseURLs           = "gemini_base_urls"
@@ -78,9 +79,10 @@ type Snapshot struct {
 	LogsRetentionSeconds int `json:"logs_retention_seconds"`
 	MaxLogRows           int `json:"max_log_rows"`
 
-	CodexProxy              string `json:"codex_proxy"`
-	CodexPreferredPlanTypes string `json:"codex_preferred_plan_types"`
-	CodexUserAgent          string `json:"codex_user_agent"`
+	CodexProxy               string `json:"codex_proxy"`
+	CodexPreferredPlanTypes  string `json:"codex_preferred_plan_types"`
+	CodexUserAgent           string `json:"codex_user_agent"`
+	CodexEnableStickySession bool   `json:"codex_enable_sticky_session"`
 
 	GeminiProxy              string `json:"gemini_proxy"`
 	GeminiBaseURLsRaw        string `json:"gemini_base_urls"`
@@ -124,9 +126,10 @@ func DefaultSnapshot() Snapshot {
 		LogsRetentionSeconds: defaultLogsRetentionSeconds,
 		MaxLogRows:           defaultMaxLogRows,
 
-		CodexProxy:              "",
-		CodexPreferredPlanTypes: "",
-		CodexUserAgent:          "",
+		CodexProxy:               "",
+		CodexPreferredPlanTypes:  "",
+		CodexUserAgent:           "",
+		CodexEnableStickySession: false,
 
 		GeminiProxy:              "",
 		GeminiBaseURLsRaw:        "",
@@ -382,6 +385,7 @@ func (s Snapshot) SettingParams() []db.UpsertSettingParams {
 		{Key: KeyCodexProxy, Value: s.CodexProxy},
 		{Key: KeyCodexPreferredPlanTypes, Value: s.CodexPreferredPlanTypes},
 		{Key: KeyCodexUserAgent, Value: s.CodexUserAgent},
+		{Key: KeyCodexEnableStickySession, Value: strconv.FormatBool(s.CodexEnableStickySession)},
 
 		{Key: KeyGeminiProxy, Value: s.GeminiProxy},
 		{Key: KeyGeminiBaseURLs, Value: s.GeminiBaseURLsRaw},
@@ -439,6 +443,11 @@ func applyValues(target *Snapshot, values map[string]string) {
 	}
 	if value, ok := valueForKeys(values, KeyCodexUserAgent); ok {
 		target.CodexUserAgent = strings.TrimSpace(value)
+	}
+	if value, ok := valueForKeys(values, KeyCodexEnableStickySession); ok {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			target.CodexEnableStickySession = parsed
+		}
 	}
 
 	if value, ok := valueForKeys(values, KeyGeminiProxy); ok {

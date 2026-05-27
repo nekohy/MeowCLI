@@ -33,9 +33,10 @@ type settingsUpdateRequest struct {
 	MaxLogRows           *int `json:"max_log_rows"`
 
 	// Codex handler settings
-	CodexProxy              *string `json:"codex_proxy"`
-	CodexPreferredPlanTypes *string `json:"codex_preferred_plan_types"`
-	CodexUserAgent          *string `json:"codex_user_agent"`
+	CodexProxy               *string `json:"codex_proxy"`
+	CodexPreferredPlanTypes  *string `json:"codex_preferred_plan_types"`
+	CodexUserAgent           *string `json:"codex_user_agent"`
+	CodexEnableStickySession *bool   `json:"codex_enable_sticky_session"`
 
 	// Gemini handler settings
 	GeminiProxy              *string `json:"gemini_proxy"`
@@ -131,6 +132,9 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 		next.CodexPreferredPlanTypes = corecodex.NormalizePlanTypeList(*req.CodexPreferredPlanTypes)
 	}
 	applyTrimmedStringSetting(req.CodexUserAgent, &next.CodexUserAgent)
+	if req.CodexEnableStickySession != nil {
+		next.CodexEnableStickySession = *req.CodexEnableStickySession
+	}
 
 	applyTrimmedStringSetting(req.GeminiProxy, &next.GeminiProxy)
 	if req.GeminiBaseURLs != nil {
@@ -189,9 +193,10 @@ func buildSettingsResponse(snapshot settings.Snapshot) gin.H {
 		"logs_retention_seconds": snapshot.LogsRetentionSeconds,
 		"max_log_rows":           snapshot.MaxLogRows,
 
-		"codex_proxy":                snapshot.CodexProxy,
-		"codex_preferred_plan_types": snapshot.CodexPreferredPlanTypes,
-		"codex_user_agent":           snapshot.CodexUserAgent,
+		"codex_proxy":                 snapshot.CodexProxy,
+		"codex_preferred_plan_types":  snapshot.CodexPreferredPlanTypes,
+		"codex_user_agent":            snapshot.CodexUserAgent,
+		"codex_enable_sticky_session": snapshot.CodexEnableStickySession,
 
 		"gemini_proxy":                strings.TrimSpace(snapshot.GeminiProxy),
 		"gemini_base_urls":            strings.Join(geminiapi.NormalizeCodeAssistEndpointKeys(snapshot.GeminiBaseURLsRaw), ","),

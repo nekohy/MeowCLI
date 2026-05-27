@@ -64,7 +64,7 @@ func (h *Handler) handleResponses(c *gin.Context, apiType utils.APIType) {
 		return
 	}
 
-	sessionKey := sessionAffinityKey(target.info.Handler, parsed.SessionID)
+	sessionKey := sessionAffinityKey(target.info.Handler, parsed.SessionID, h.settingsSnapshot())
 
 	h.relayUpstream(c, upstreamRelay{
 		ctx:                  ctx,

@@ -97,6 +97,7 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   codex_proxy: '',
   codex_preferred_plan_types: '',
   codex_user_agent: '',
+  codex_enable_sticky_session: false,
 
   gemini_proxy: '',
   gemini_base_urls: GEMINI_BASE_URL_OPTIONS[0]!.value,
@@ -412,6 +413,7 @@ export function settingsToForm(data: SettingsSnapshot): SettingsForm {
     codex_proxy: data.codex_proxy,
     codex_preferred_plan_types: data.codex_preferred_plan_types.trim(),
     codex_user_agent: data.codex_user_agent,
+    codex_enable_sticky_session: data.codex_enable_sticky_session,
 
     gemini_proxy: data.gemini_proxy,
     gemini_base_urls: joinGeminiBaseURLInput([data.gemini_base_urls]),
@@ -448,6 +450,7 @@ export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
     codex_proxy: form.codex_proxy.trim(),
     codex_preferred_plan_types: form.codex_preferred_plan_types.trim(),
     codex_user_agent: form.codex_user_agent.trim(),
+    codex_enable_sticky_session: form.codex_enable_sticky_session,
 
     gemini_proxy: form.gemini_proxy.trim(),
     gemini_base_urls: joinGeminiBaseURLInput([form.gemini_base_urls]),
