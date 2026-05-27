@@ -13,7 +13,7 @@ const maxBridgeRequestBodyBytes = 32 << 20
 
 type relayRequest struct {
 	Model     string `json:"model"`
-	SessionID string `json:"session_id"`
+	SessionID string `json:"prompt_cache_key"`
 	Stream    bool   `json:"stream"`
 }
 

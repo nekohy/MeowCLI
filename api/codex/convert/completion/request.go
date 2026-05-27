@@ -19,6 +19,9 @@ func Convert(modelName string, rawJSON []byte, stream bool) ([]byte, error) {
 		Stream: stream,
 		Input:  input,
 	}
+	if v := gjson.GetBytes(rawJSON, "prompt_cache_key"); v.Exists() {
+		req.PromptCacheKey = v.String()
+	}
 	if v := gjson.GetBytes(rawJSON, "service_tier"); v.Exists() {
 		req.ServiceTier = v.String()
 	}
@@ -111,14 +114,15 @@ func Convert(modelName string, rawJSON []byte, stream bool) ([]byte, error) {
 }
 
 type codexCompletionRequest struct {
-	Model       string                    `json:"model"`
-	Stream      bool                      `json:"stream"`
-	Reasoning   *codexCompletionReasoning `json:"reasoning,omitempty"`
-	Input       []json.RawMessage         `json:"input"`
-	Text        *codexCompletionText      `json:"text,omitempty"`
-	Tools       []json.RawMessage         `json:"tools,omitempty"`
-	ToolChoice  json.RawMessage           `json:"tool_choice,omitempty"`
-	ServiceTier string                    `json:"service_tier,omitempty"`
+	Model          string                    `json:"model"`
+	Stream         bool                      `json:"stream"`
+	PromptCacheKey string                    `json:"prompt_cache_key,omitempty"`
+	Reasoning      *codexCompletionReasoning `json:"reasoning,omitempty"`
+	Input          []json.RawMessage         `json:"input"`
+	Text           *codexCompletionText      `json:"text,omitempty"`
+	Tools          []json.RawMessage         `json:"tools,omitempty"`
+	ToolChoice     json.RawMessage           `json:"tool_choice,omitempty"`
+	ServiceTier    string                    `json:"service_tier,omitempty"`
 }
 
 type codexCompletionReasoning struct {

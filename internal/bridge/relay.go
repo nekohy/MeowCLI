@@ -45,11 +45,7 @@ type retryTracker struct {
 func (h *Handler) relayUpstream(c *gin.Context, cfg upstreamRelay) {
 	state := retryTracker{}
 	for attempt := 1; attempt <= h.maxAttempts(); attempt++ {
-		credID, err := cfg.scheduler.SelectCredential(cfg.ctx, scheduling.CredentialSelection{
-			PreferredCredentialID: h.preferredCredential(cfg.sessionKey, state.graceCredentialID),
-			AllowedPlanTypes:      cfg.allowedPlans,
-			ModelTier:             cfg.modelTier,
-		})
+		credID, err := h.selectRelayCredential(cfg, state)
 		if err != nil {
 			if state.hasLastErr {
 				break
@@ -91,6 +87,22 @@ func (h *Handler) relayUpstream(c *gin.Context, cfg upstreamRelay) {
 		state.lastErr = errUpstreamRequestFailed
 	}
 	writeRelayError(c, state.lastErr)
+}
+
+func (h *Handler) selectRelayCredential(cfg upstreamRelay, state retryTracker) (string, error) {
+	preferred := h.preferredCredential(cfg.sessionKey, state.graceCredentialID)
+	selection := scheduling.CredentialSelection{
+		PreferredCredentialID: preferred,
+		AllowedPlanTypes:      cfg.allowedPlans,
+		ModelTier:             cfg.modelTier,
+	}
+	credID, err := cfg.scheduler.SelectCredential(cfg.ctx, selection)
+	if err == nil || preferred == "" {
+		return credID, err
+	}
+
+	selection.PreferredCredentialID = ""
+	return cfg.scheduler.SelectCredential(cfg.ctx, selection)
 }
 
 func (h *Handler) handleAuthFailure(cfg upstreamRelay, credID string, err error, state *retryTracker) bool {
