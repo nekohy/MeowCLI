@@ -32,14 +32,22 @@ const (
 )
 
 type importJobSnapshot struct {
-	ID        string          `json:"id"`
-	Handler   string          `json:"handler"`
-	Status    importJobStatus `json:"status"`
-	Total     int             `json:"total"`
-	Processed int             `json:"processed"`
-	Done      bool            `json:"done"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	ID        string              `json:"id"`
+	Handler   string              `json:"handler"`
+	Status    importJobStatus     `json:"status"`
+	Total     int                 `json:"total"`
+	Processed int                 `json:"processed"`
+	Succeeded int                 `json:"succeeded"`
+	Errors    []map[string]string `json:"error"`
+	CreatedAt time.Time           `json:"created_at"`
+	UpdatedAt time.Time           `json:"updated_at"`
+}
+
+type importJobStartedSnapshot struct {
+	ID      string          `json:"id"`
+	Handler string          `json:"handler"`
+	Status  importJobStatus `json:"status"`
+	Total   int             `json:"total"`
 }
 
 type importJob struct {
@@ -91,6 +99,7 @@ func (m *importJobManager) Start(ctx context.Context, handler utils.HandlerType,
 			Handler:   string(handler),
 			Status:    importJobStatusRunning,
 			Total:     len(cleaned),
+			Errors:    []map[string]string{},
 			CreatedAt: now,
 			UpdatedAt: now,
 		},
@@ -162,7 +171,7 @@ func (m *importJobManager) Acknowledge(id string) error {
 		return errImportJobNotFound
 	}
 
-	if !job.Snapshot().Done {
+	if job.Snapshot().Status != importJobStatusCompleted {
 		return errImportJobRunning
 	}
 
@@ -194,7 +203,7 @@ func (j *importJob) run(ctx context.Context, tokens []string, process importProc
 			for token := range tokenCh {
 				id, err := process(ctx, token)
 				if err != nil {
-					j.recordError()
+					j.recordError(token, err)
 					continue
 				}
 				j.recordCreated()
@@ -223,13 +232,17 @@ func (j *importJob) recordCreated() {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.snapshot.Processed++
+	j.snapshot.Succeeded++
 	j.snapshot.UpdatedAt = time.Now()
 }
 
-func (j *importJob) recordError() {
+func (j *importJob) recordError(input string, err error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.snapshot.Processed++
+	if err != nil {
+		j.snapshot.Errors = append(j.snapshot.Errors, map[string]string{input: err.Error()})
+	}
 	j.snapshot.UpdatedAt = time.Now()
 }
 
@@ -246,8 +259,16 @@ func (j *importJob) finish() {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.snapshot.Status = importJobStatusCompleted
-	j.snapshot.Done = true
 	j.snapshot.UpdatedAt = time.Now()
+}
+
+func importJobStartResponse(snapshot importJobSnapshot) importJobStartedSnapshot {
+	return importJobStartedSnapshot{
+		ID:      snapshot.ID,
+		Handler: snapshot.Handler,
+		Status:  snapshot.Status,
+		Total:   snapshot.Total,
+	}
 }
 
 func normalizeImportTokens(tokens []string) []string {

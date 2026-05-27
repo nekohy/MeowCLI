@@ -113,7 +113,7 @@ func (a *AdminHandler) BatchCreateAntigravity(c *gin.Context) {
 		a.invalidateCredentials(utils.HandlerAntigravity, []string{id})
 		a.syncCredentialQuotas(context.Background(), utils.HandlerAntigravity, []string{id})
 	})
-	c.JSON(http.StatusAccepted, job)
+	c.JSON(http.StatusAccepted, importJobStartResponse(job))
 }
 
 func (a *AdminHandler) BatchUpdateAntigravityStatus(c *gin.Context) {

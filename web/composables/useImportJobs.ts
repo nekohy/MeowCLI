@@ -1,7 +1,7 @@
 import { adminApi, ApiError } from '~/composables/useAdminApi'
-import type { ImportJobSnapshot } from '~/types/admin'
+import type { ImportJobSnapshot, ImportJobStartResponse } from '~/types/admin'
 
-const IMPORT_JOB_POLL_MS = 5000
+const IMPORT_JOB_POLL_MS = 1000
 let importJobPollTimer: number | undefined
 
 export function useImportJobs() {
@@ -9,11 +9,11 @@ export function useImportJobs() {
   const dismissed = useState<string[]>('admin-job-dismissed', () => [])
   const loading = useState<boolean>('admin-jobs-loading', () => false)
 
-  const activeJobs = computed(() => jobs.value.filter((job) => !job.done))
+  const activeJobs = computed(() => jobs.value.filter((job) => job.status !== 'completed'))
   const visibleJobs = computed(() => jobs.value.filter((job) => !dismissed.value.includes(job.id)))
 
   async function acknowledgeCompletedJobs(token: string, completedJobs: ImportJobSnapshot[]) {
-    const targets = completedJobs.filter((job) => job.done)
+    const targets = completedJobs.filter((job) => job.status === 'completed')
     if (!token || targets.length === 0) {
       return
     }
@@ -63,8 +63,15 @@ export function useImportJobs() {
     }
   }
 
-  function add(job: ImportJobSnapshot) {
-    merge([job])
+  function add(job: ImportJobStartResponse) {
+    merge([{
+      ...job,
+      processed: 0,
+      succeeded: 0,
+      error: [],
+      created_at: '',
+      updated_at: '',
+    }])
     dismissed.value = dismissed.value.filter((id) => id !== job.id)
   }
 
@@ -74,7 +81,7 @@ export function useImportJobs() {
       dismissed.value = [...dismissed.value, id]
     }
 
-    if (!token || !job.done) {
+    if (!token || job.status !== 'completed') {
       return
     }
 

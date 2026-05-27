@@ -325,13 +325,17 @@ export interface BatchOperationError {
 
 export type ImportJobStatus = 'running' | 'completed'
 
-export interface ImportJobSnapshot {
+export interface ImportJobStartResponse {
   id: string
   handler: string
   status: ImportJobStatus
   total: number
+}
+
+export interface ImportJobSnapshot extends ImportJobStartResponse {
   processed: number
-  done: boolean
+  succeeded: number
+  error: Array<Record<string, string>>
   created_at: string
   updated_at: string
 }

@@ -126,7 +126,7 @@ func (a *AdminHandler) BatchCreateCodex(c *gin.Context) {
 		a.syncCredentialQuotas(context.Background(), utils.HandlerCodex, []string{id})
 	})
 
-	c.JSON(http.StatusAccepted, job)
+	c.JSON(http.StatusAccepted, importJobStartResponse(job))
 }
 
 type batchCreateCodexReq struct {

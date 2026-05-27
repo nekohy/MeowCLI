@@ -112,7 +112,7 @@ func (a *AdminHandler) BatchCreateGemini(c *gin.Context) {
 		a.syncCredentialQuotas(context.Background(), utils.HandlerGemini, []string{id})
 	})
 
-	c.JSON(http.StatusAccepted, job)
+	c.JSON(http.StatusAccepted, importJobStartResponse(job))
 }
 
 func (a *AdminHandler) BatchUpdateGeminiStatus(c *gin.Context) {

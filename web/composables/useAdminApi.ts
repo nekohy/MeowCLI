@@ -6,7 +6,7 @@ import type {
   CredentialItem,
   CreateAuthKeyResponse,
   ImportJobListResponse,
-  ImportJobSnapshot,
+  ImportJobStartResponse,
   LogListResponse,
   ModelItem,
   OAuthCallbackResponse,
@@ -201,7 +201,7 @@ export const adminApi = {
     })
   },
   importCredentials(token: string, endpoint: string, payload: { tokens: string[] }) {
-    return apiRequest<ImportJobSnapshot>(credentialsPath(endpoint), {
+    return apiRequest<ImportJobStartResponse>(credentialsPath(endpoint), {
       token,
       method: 'POST',
       body: payload,
