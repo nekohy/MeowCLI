@@ -97,8 +97,8 @@ func (rl *CodexRateLimit) ToQuotaForTier(modelTier string) Quota {
 			continue
 		}
 		remaining := commonutils.TruncateQuotaRatio(float64(100-w.usedPercent) / 100)
-		switch w.limitWindowSeconds {
-		case int64((5 * time.Hour).Seconds()): // 18000
+		switch {
+		case w.limitWindowSeconds == int64((5 * time.Hour).Seconds()): // 18000
 			if updateSpark {
 				q.QuotaSpark5h = remaining
 				if w.resetAt > 0 {
@@ -110,7 +110,7 @@ func (rl *CodexRateLimit) ToQuotaForTier(modelTier string) Quota {
 					q.Reset5h = time.Unix(w.resetAt, 0)
 				}
 			}
-		case int64((7 * 24 * time.Hour).Seconds()): // 604800
+		case w.limitWindowSeconds == int64((7 * 24 * time.Hour).Seconds()): // 604800
 			if updateSpark {
 				q.QuotaSpark7d = remaining
 				if w.resetAt > 0 {
@@ -122,18 +122,16 @@ func (rl *CodexRateLimit) ToQuotaForTier(modelTier string) Quota {
 					q.Reset7d = time.Unix(w.resetAt, 0)
 				}
 			}
-		default:
-			if IsMonthlyWindow(w.limitWindowSeconds) {
-				if updateSpark {
-					q.QuotaSpark1mo = remaining
-					if w.resetAt > 0 {
-						q.ResetSpark1mo = time.Unix(w.resetAt, 0)
-					}
-				} else {
-					q.Quota1mo = remaining
-					if w.resetAt > 0 {
-						q.Reset1mo = time.Unix(w.resetAt, 0)
-					}
+		case w.limitWindowSeconds == int64((30 * 24 * time.Hour).Seconds()): // 2592000
+			if updateSpark {
+				q.QuotaSpark1mo = remaining
+				if w.resetAt > 0 {
+					q.ResetSpark1mo = time.Unix(w.resetAt, 0)
+				}
+			} else {
+				q.Quota1mo = remaining
+				if w.resetAt > 0 {
+					q.Reset1mo = time.Unix(w.resetAt, 0)
 				}
 			}
 		}
@@ -152,10 +150,4 @@ func NewQuota() Quota {
 		QuotaSpark7d:  1.0,
 		QuotaSpark1mo: 1.0,
 	}
-}
-
-func IsMonthlyWindow(seconds int64) bool {
-	minMonthly := int64((28 * 24 * time.Hour).Seconds())
-	maxMonthly := int64((31 * 24 * time.Hour).Seconds())
-	return seconds >= minMonthly && seconds <= maxMonthly
 }
