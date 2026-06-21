@@ -202,7 +202,7 @@ export function formatTime(value?: string | null) {
     return value
   }
   if (date.getFullYear() >= 2100) {
-    return '未知'
+    return '-'
   }
 
   return new Intl.DateTimeFormat('zh-CN', {

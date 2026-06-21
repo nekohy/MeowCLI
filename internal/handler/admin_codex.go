@@ -19,7 +19,7 @@ import (
 )
 
 const defaultCodexPageSize = 6
-const sessionCodexAccessTokenTTL = 100 * 365 * 24 * time.Hour
+const whoamiCodexAccessTokenTTL = 100 * 365 * 24 * time.Hour
 
 type batchError struct {
 	Input string `json:"input"`
@@ -145,11 +145,11 @@ func (a *AdminHandler) processOneToken(ctx context.Context, token string) (strin
 		}
 		return a.upsertCodexFromTokenData(ctx, tokenData.AccessToken, tokenData.RefreshToken, tokenData.IDToken)
 	case strings.HasPrefix(token, "at-"):
-		session, err := a.codexAPI.FetchSession(ctx, token)
+		whoami, err := a.codexAPI.FetchWhoami(ctx, token)
 		if err != nil {
 			return "", err
 		}
-		return a.upsertCodexFromSession(ctx, token, session)
+		return a.upsertCodexFromWhoami(ctx, token, whoami)
 	case strings.HasPrefix(token, "eyJ"):
 		return a.upsertCodexFromTokenData(ctx, token, "", "")
 	default:
@@ -217,35 +217,39 @@ func (a *AdminHandler) parseCodexTokenData(accessToken, refreshToken, idToken st
 	}, nil
 }
 
-func sessionCodexTokenPayload(accessToken string, session *codexapi.SessionData) (*codexCredentialPayload, error) {
+func whoamiCodexTokenPayload(accessToken string, whoami *codexapi.WhoamiData) (*codexCredentialPayload, error) {
 	accessToken = strings.TrimSpace(accessToken)
 	if accessToken == "" {
 		return nil, fmt.Errorf("access_token is required")
 	}
-	if session == nil {
-		return nil, fmt.Errorf("chatgpt session is required")
+	if whoami == nil {
+		return nil, fmt.Errorf("chatgpt whoami is required")
 	}
-	email := strings.ToLower(strings.TrimSpace(session.Email))
-	accountID := strings.TrimSpace(session.AccountID)
+	email := strings.ToLower(strings.TrimSpace(whoami.Email))
+	accountID := strings.TrimSpace(whoami.AccountID)
 	if email == "" {
-		return nil, fmt.Errorf("chatgpt session missing user.email")
+		return nil, fmt.Errorf("chatgpt whoami missing email")
 	}
 	if accountID == "" {
-		return nil, fmt.Errorf("chatgpt session missing account.id")
+		return nil, fmt.Errorf("chatgpt whoami missing chatgpt_account_id")
+	}
+	planType := corecodex.NormalizePlanType(whoami.PlanType)
+	if planType == "" {
+		planType = corecodex.NormalizePlanType("unknown")
 	}
 
 	return &codexCredentialPayload{
 		CredentialID: email + "__" + accountID,
 		AccessToken:  accessToken,
 		RefreshToken: "",
-		Expired:      time.Now().UTC().Add(sessionCodexAccessTokenTTL),
-		PlanType:     corecodex.NormalizePlanType("unknown"),
+		Expired:      time.Now().UTC().Add(whoamiCodexAccessTokenTTL),
+		PlanType:     planType,
 		Email:        email,
 	}, nil
 }
 
-func (a *AdminHandler) upsertCodexFromSession(ctx context.Context, accessToken string, session *codexapi.SessionData) (string, error) {
-	payload, err := sessionCodexTokenPayload(accessToken, session)
+func (a *AdminHandler) upsertCodexFromWhoami(ctx context.Context, accessToken string, whoami *codexapi.WhoamiData) (string, error) {
+	payload, err := whoamiCodexTokenPayload(accessToken, whoami)
 	if err != nil {
 		return "", err
 	}
