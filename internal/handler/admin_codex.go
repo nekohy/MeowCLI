@@ -141,7 +141,7 @@ func (a *AdminHandler) processOneToken(ctx context.Context, token string) (strin
 			return "", fmt.Errorf("failed to refresh refresh_token: %w", err)
 		}
 		return a.upsertCodexFromTokenData(ctx, tokenData.AccessToken, tokenData.RefreshToken, tokenData.IDToken)
-	case strings.HasPrefix(token, "eyJ"):
+	case strings.HasPrefix(token, "eyJ"), strings.HasPrefix(token, "at-"):
 		return a.upsertCodexFromTokenData(ctx, token, "", "")
 	default:
 		return "", fmt.Errorf("unsupported token format: expected refresh_token starting with rt_/oaistb or access_token starting with eyJ")
