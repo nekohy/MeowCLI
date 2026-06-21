@@ -10,15 +10,19 @@ import (
 
 func (s *Store) UpsertQuota(ctx context.Context, arg db.UpsertQuotaParams) error {
 	_, err := s.queries.UpsertQuota(ctx, sqlcpostgres.UpsertQuotaParams{
-		CredentialID: arg.CredentialID,
-		Quota5h:      arg.Quota5h,
-		Quota7d:      arg.Quota7d,
-		QuotaSpark5h: arg.QuotaSpark5h,
-		QuotaSpark7d: arg.QuotaSpark7d,
-		Reset5h:      tsFrom(arg.Reset5h),
-		Reset7d:      tsFrom(arg.Reset7d),
-		ResetSpark5h: tsFrom(arg.ResetSpark5h),
-		ResetSpark7d: tsFrom(arg.ResetSpark7d),
+		CredentialID:  arg.CredentialID,
+		Quota5h:       arg.Quota5h,
+		Quota7d:       arg.Quota7d,
+		Quota1mo:      arg.Quota1mo,
+		QuotaSpark5h:  arg.QuotaSpark5h,
+		QuotaSpark7d:  arg.QuotaSpark7d,
+		QuotaSpark1mo: arg.QuotaSpark1mo,
+		Reset5h:       tsFrom(arg.Reset5h),
+		Reset7d:       tsFrom(arg.Reset7d),
+		Reset1mo:      tsFrom(arg.Reset1mo),
+		ResetSpark5h:  tsFrom(arg.ResetSpark5h),
+		ResetSpark7d:  tsFrom(arg.ResetSpark7d),
+		ResetSpark1mo: tsFrom(arg.ResetSpark1mo),
 	})
 	return err
 }
@@ -62,7 +66,7 @@ func (s *Store) ListAvailableCodex(ctx context.Context) ([]db.ListAvailableCodex
 
 	resolved := make([]db.ListAvailableCodexRow, len(rows))
 	for i, row := range rows {
-		resolved[i] = listAvailableCodexRowTo(row.ID, row.PlanType, row.Quota5h, row.Quota7d, row.QuotaSpark5h, row.QuotaSpark7d, tsTo(row.Reset5h), tsTo(row.Reset7d), tsTo(row.ResetSpark5h), tsTo(row.ResetSpark7d), tsTo(row.ThrottledUntil), tsTo(row.ThrottledUntilSpark), tsTo(row.SyncedAt))
+		resolved[i] = listAvailableCodexRowTo(row.ID, row.PlanType, row.Quota5h, row.Quota7d, row.Quota1mo, row.QuotaSpark5h, row.QuotaSpark7d, row.QuotaSpark1mo, tsTo(row.Reset5h), tsTo(row.Reset7d), tsTo(row.Reset1mo), tsTo(row.ResetSpark5h), tsTo(row.ResetSpark7d), tsTo(row.ResetSpark1mo), tsTo(row.ThrottledUntil), tsTo(row.ThrottledUntilSpark), tsTo(row.SyncedAt))
 	}
 
 	return resolved, nil

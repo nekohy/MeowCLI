@@ -41,7 +41,7 @@ func (q *Queries) DeleteQuota(ctx context.Context, credentialID string) (int64, 
 }
 
 const getQuota = `-- name: GetQuota :one
-SELECT credential_id, quota_5h, quota_7d, quota_spark_5h, quota_spark_7d, reset_5h, reset_7d, reset_spark_5h, reset_spark_7d, throttled_until, throttled_until_spark, synced_at FROM codex_quota WHERE credential_id = $1 LIMIT 1
+SELECT credential_id, quota_5h, quota_7d, quota_1mo, quota_spark_5h, quota_spark_7d, quota_spark_1mo, reset_5h, reset_7d, reset_1mo, reset_spark_5h, reset_spark_7d, reset_spark_1mo, throttled_until, throttled_until_spark, synced_at FROM codex_quota WHERE credential_id = $1 LIMIT 1
 `
 
 func (q *Queries) GetQuota(ctx context.Context, credentialID string) (CodexQuotum, error) {
@@ -51,12 +51,16 @@ func (q *Queries) GetQuota(ctx context.Context, credentialID string) (CodexQuotu
 		&i.CredentialID,
 		&i.Quota5h,
 		&i.Quota7d,
+		&i.Quota1mo,
 		&i.QuotaSpark5h,
 		&i.QuotaSpark7d,
+		&i.QuotaSpark1mo,
 		&i.Reset5h,
 		&i.Reset7d,
+		&i.Reset1mo,
 		&i.ResetSpark5h,
 		&i.ResetSpark7d,
+		&i.ResetSpark1mo,
 		&i.ThrottledUntil,
 		&i.ThrottledUntilSpark,
 		&i.SyncedAt,
@@ -70,12 +74,16 @@ SELECT
     c.plan_type,
     COALESCE(q.quota_5h, 1.0)          AS quota_5h,
     COALESCE(q.quota_7d, 1.0)          AS quota_7d,
+    COALESCE(q.quota_1mo, 1.0)         AS quota_1mo,
     COALESCE(q.quota_spark_5h, 1.0)    AS quota_spark_5h,
     COALESCE(q.quota_spark_7d, 1.0)    AS quota_spark_7d,
+    COALESCE(q.quota_spark_1mo, 1.0)   AS quota_spark_1mo,
     COALESCE(q.reset_5h, '0001-01-01'::timestamptz)        AS reset_5h,
     COALESCE(q.reset_7d, '0001-01-01'::timestamptz)        AS reset_7d,
+    COALESCE(q.reset_1mo, '0001-01-01'::timestamptz)       AS reset_1mo,
     COALESCE(q.reset_spark_5h, '0001-01-01'::timestamptz)  AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '0001-01-01'::timestamptz)  AS reset_spark_7d,
+    COALESCE(q.reset_spark_1mo, '0001-01-01'::timestamptz) AS reset_spark_1mo,
     COALESCE(q.throttled_until, NOW()) AS throttled_until,
     COALESCE(q.throttled_until_spark, NOW()) AS throttled_until_spark,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
@@ -93,12 +101,16 @@ type ListAvailableCodexRow struct {
 	PlanType            string             `json:"plan_type"`
 	Quota5h             float64            `json:"quota_5h"`
 	Quota7d             float64            `json:"quota_7d"`
+	Quota1mo            float64            `json:"quota_1mo"`
 	QuotaSpark5h        float64            `json:"quota_spark_5h"`
 	QuotaSpark7d        float64            `json:"quota_spark_7d"`
+	QuotaSpark1mo       float64            `json:"quota_spark_1mo"`
 	Reset5h             pgtype.Timestamptz `json:"reset_5h"`
 	Reset7d             pgtype.Timestamptz `json:"reset_7d"`
+	Reset1mo            pgtype.Timestamptz `json:"reset_1mo"`
 	ResetSpark5h        pgtype.Timestamptz `json:"reset_spark_5h"`
 	ResetSpark7d        pgtype.Timestamptz `json:"reset_spark_7d"`
+	ResetSpark1mo       pgtype.Timestamptz `json:"reset_spark_1mo"`
 	ThrottledUntil      pgtype.Timestamptz `json:"throttled_until"`
 	ThrottledUntilSpark pgtype.Timestamptz `json:"throttled_until_spark"`
 	SyncedAt            pgtype.Timestamptz `json:"synced_at"`
@@ -120,12 +132,16 @@ func (q *Queries) ListAvailableCodex(ctx context.Context) ([]ListAvailableCodexR
 			&i.PlanType,
 			&i.Quota5h,
 			&i.Quota7d,
+			&i.Quota1mo,
 			&i.QuotaSpark5h,
 			&i.QuotaSpark7d,
+			&i.QuotaSpark1mo,
 			&i.Reset5h,
 			&i.Reset7d,
+			&i.Reset1mo,
 			&i.ResetSpark5h,
 			&i.ResetSpark7d,
+			&i.ResetSpark1mo,
 			&i.ThrottledUntil,
 			&i.ThrottledUntilSpark,
 			&i.SyncedAt,
@@ -202,32 +218,40 @@ func (q *Queries) SetQuotaThrottledSpark(ctx context.Context, arg SetQuotaThrott
 }
 
 const upsertQuota = `-- name: UpsertQuota :one
-INSERT INTO codex_quota (credential_id, quota_5h, quota_7d, quota_spark_5h, quota_spark_7d, reset_5h, reset_7d, reset_spark_5h, reset_spark_7d, synced_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+INSERT INTO codex_quota (credential_id, quota_5h, quota_7d, quota_1mo, quota_spark_5h, quota_spark_7d, quota_spark_1mo, reset_5h, reset_7d, reset_1mo, reset_spark_5h, reset_spark_7d, reset_spark_1mo, synced_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
 ON CONFLICT (credential_id) DO UPDATE
 SET
     quota_5h      = EXCLUDED.quota_5h,
     quota_7d      = EXCLUDED.quota_7d,
+    quota_1mo     = EXCLUDED.quota_1mo,
     quota_spark_5h = EXCLUDED.quota_spark_5h,
     quota_spark_7d = EXCLUDED.quota_spark_7d,
+    quota_spark_1mo = EXCLUDED.quota_spark_1mo,
     reset_5h      = EXCLUDED.reset_5h,
     reset_7d      = EXCLUDED.reset_7d,
+    reset_1mo     = EXCLUDED.reset_1mo,
     reset_spark_5h = EXCLUDED.reset_spark_5h,
     reset_spark_7d = EXCLUDED.reset_spark_7d,
+    reset_spark_1mo = EXCLUDED.reset_spark_1mo,
     synced_at     = NOW()
-RETURNING credential_id, quota_5h, quota_7d, quota_spark_5h, quota_spark_7d, reset_5h, reset_7d, reset_spark_5h, reset_spark_7d, throttled_until, throttled_until_spark, synced_at
+RETURNING credential_id, quota_5h, quota_7d, quota_1mo, quota_spark_5h, quota_spark_7d, quota_spark_1mo, reset_5h, reset_7d, reset_1mo, reset_spark_5h, reset_spark_7d, reset_spark_1mo, throttled_until, throttled_until_spark, synced_at
 `
 
 type UpsertQuotaParams struct {
-	CredentialID string             `json:"credential_id"`
-	Quota5h      float64            `json:"quota_5h"`
-	Quota7d      float64            `json:"quota_7d"`
-	QuotaSpark5h float64            `json:"quota_spark_5h"`
-	QuotaSpark7d float64            `json:"quota_spark_7d"`
-	Reset5h      pgtype.Timestamptz `json:"reset_5h"`
-	Reset7d      pgtype.Timestamptz `json:"reset_7d"`
-	ResetSpark5h pgtype.Timestamptz `json:"reset_spark_5h"`
-	ResetSpark7d pgtype.Timestamptz `json:"reset_spark_7d"`
+	CredentialID  string             `json:"credential_id"`
+	Quota5h       float64            `json:"quota_5h"`
+	Quota7d       float64            `json:"quota_7d"`
+	Quota1mo      float64            `json:"quota_1mo"`
+	QuotaSpark5h  float64            `json:"quota_spark_5h"`
+	QuotaSpark7d  float64            `json:"quota_spark_7d"`
+	QuotaSpark1mo float64            `json:"quota_spark_1mo"`
+	Reset5h       pgtype.Timestamptz `json:"reset_5h"`
+	Reset7d       pgtype.Timestamptz `json:"reset_7d"`
+	Reset1mo      pgtype.Timestamptz `json:"reset_1mo"`
+	ResetSpark5h  pgtype.Timestamptz `json:"reset_spark_5h"`
+	ResetSpark7d  pgtype.Timestamptz `json:"reset_spark_7d"`
+	ResetSpark1mo pgtype.Timestamptz `json:"reset_spark_1mo"`
 }
 
 // Syncs remaining quota ratios and reset timestamps from upstream.
@@ -236,24 +260,32 @@ func (q *Queries) UpsertQuota(ctx context.Context, arg UpsertQuotaParams) (Codex
 		arg.CredentialID,
 		arg.Quota5h,
 		arg.Quota7d,
+		arg.Quota1mo,
 		arg.QuotaSpark5h,
 		arg.QuotaSpark7d,
+		arg.QuotaSpark1mo,
 		arg.Reset5h,
 		arg.Reset7d,
+		arg.Reset1mo,
 		arg.ResetSpark5h,
 		arg.ResetSpark7d,
+		arg.ResetSpark1mo,
 	)
 	var i CodexQuotum
 	err := row.Scan(
 		&i.CredentialID,
 		&i.Quota5h,
 		&i.Quota7d,
+		&i.Quota1mo,
 		&i.QuotaSpark5h,
 		&i.QuotaSpark7d,
+		&i.QuotaSpark1mo,
 		&i.Reset5h,
 		&i.Reset7d,
+		&i.Reset1mo,
 		&i.ResetSpark5h,
 		&i.ResetSpark7d,
+		&i.ResetSpark1mo,
 		&i.ThrottledUntil,
 		&i.ThrottledUntilSpark,
 		&i.SyncedAt,

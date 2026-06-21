@@ -10,15 +10,19 @@ import (
 
 // Quota 包含从上游获取的配额使用情况和重置时间
 type Quota struct {
-	PlanType     string
-	Quota5h      float64   // 5h 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
-	Quota7d      float64   // 7d 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
-	QuotaSpark5h float64   // Spark 5h 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
-	QuotaSpark7d float64   // Spark 7d 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
-	Reset5h      time.Time // 5h 窗口重置绝对时间（零值表示无此窗口）
-	Reset7d      time.Time // 7d 窗口重置绝对时间（零值表示无此窗口）
-	ResetSpark5h time.Time // Spark 5h 窗口重置绝对时间（零值表示无此窗口）
-	ResetSpark7d time.Time // Spark 7d 窗口重置绝对时间（零值表示无此窗口）
+	PlanType      string
+	Quota5h       float64   // 5h 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
+	Quota7d       float64   // 7d 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
+	Quota1mo      float64   // 1mo 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
+	QuotaSpark5h  float64   // Spark 5h 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
+	QuotaSpark7d  float64   // Spark 7d 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
+	QuotaSpark1mo float64   // Spark 1mo 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
+	Reset5h       time.Time // 5h 窗口重置绝对时间（零值表示无此窗口）
+	Reset7d       time.Time // 7d 窗口重置绝对时间（零值表示无此窗口）
+	Reset1mo      time.Time // 1mo 窗口重置绝对时间（零值表示无此窗口）
+	ResetSpark5h  time.Time // Spark 5h 窗口重置绝对时间（零值表示无此窗口）
+	ResetSpark7d  time.Time // Spark 7d 窗口重置绝对时间（零值表示无此窗口）
+	ResetSpark1mo time.Time // Spark 1mo 窗口重置绝对时间（零值表示无此窗口）
 
 	// HasDefaultQuota / HasSparkQuota distinguish partial updates from response
 	// headers. Callers ignore updates when neither flag is set.
@@ -71,7 +75,7 @@ func (rl *CodexRateLimit) HasQuotaWindows() bool {
 // ToQuotaForTier converts response header quota into a partial update for the
 // model tier that produced the response.
 func (rl *CodexRateLimit) ToQuotaForTier(modelTier string) Quota {
-	q := Quota{Quota5h: 1.0, Quota7d: 1.0, QuotaSpark5h: 1.0, QuotaSpark7d: 1.0}
+	q := NewQuota()
 	updateSpark := modelTier == "spark"
 	if rl.HasQuotaWindows() {
 		if updateSpark {
@@ -118,7 +122,40 @@ func (rl *CodexRateLimit) ToQuotaForTier(modelTier string) Quota {
 					q.Reset7d = time.Unix(w.resetAt, 0)
 				}
 			}
+		default:
+			if IsMonthlyWindow(w.limitWindowSeconds) {
+				if updateSpark {
+					q.QuotaSpark1mo = remaining
+					if w.resetAt > 0 {
+						q.ResetSpark1mo = time.Unix(w.resetAt, 0)
+					}
+				} else {
+					q.Quota1mo = remaining
+					if w.resetAt > 0 {
+						q.Reset1mo = time.Unix(w.resetAt, 0)
+					}
+				}
+			}
 		}
 	}
 	return q
+}
+
+const MonthlyWindowSeconds int64 = 30 * 24 * 60 * 60
+
+func NewQuota() Quota {
+	return Quota{
+		Quota5h:       1.0,
+		Quota7d:       1.0,
+		Quota1mo:      1.0,
+		QuotaSpark5h:  1.0,
+		QuotaSpark7d:  1.0,
+		QuotaSpark1mo: 1.0,
+	}
+}
+
+func IsMonthlyWindow(seconds int64) bool {
+	minMonthly := int64((28 * 24 * time.Hour).Seconds())
+	maxMonthly := int64((31 * 24 * time.Hour).Seconds())
+	return seconds >= minMonthly && seconds <= maxMonthly
 }

@@ -179,8 +179,10 @@ export interface CodexSchedulingMetric {
   available: boolean
   quota_5h: number
   quota_7d: number
+  quota_1mo: number
   reset_5h: string
   reset_7d: string
+  reset_1mo: string
   throttled_until?: string
   score: number
   weight: number

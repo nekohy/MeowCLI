@@ -260,10 +260,10 @@ func (a *AdminHandler) serializeCodexRows(ctx context.Context, rows []db.ListCod
 		defaultSince := make([]db.ErrorRateSince, 0, len(rows))
 		sparkSince := make([]db.ErrorRateSince, 0, len(rows))
 		for _, row := range rows {
-			if since := corecodex.ErrorRateSince(row.Reset5h, row.Reset7d, w5h, w7d); !since.IsZero() {
+			if since := corecodex.ErrorRateSince(row.Reset5h, row.Reset7d, row.Reset1mo, w5h, w7d); !since.IsZero() {
 				defaultSince = append(defaultSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
 			}
-			if since := corecodex.ErrorRateSince(row.ResetSpark5h, row.ResetSpark7d, w5h, w7d); !since.IsZero() {
+			if since := corecodex.ErrorRateSince(row.ResetSpark5h, row.ResetSpark7d, row.ResetSpark1mo, w5h, w7d); !since.IsZero() {
 				sparkSince = append(sparkSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
 			}
 		}
@@ -273,8 +273,8 @@ func (a *AdminHandler) serializeCodexRows(ctx context.Context, rows []db.ListCod
 
 	items := make([]codexListItem, 0, len(rows))
 	for _, row := range rows {
-		score := corecodex.CalcScore(row.Quota5h, row.Quota7d, row.Reset5h, row.Reset7d, w5h, w7d)
-		scoreSpark := corecodex.CalcScoreSpark(row.QuotaSpark5h, row.QuotaSpark7d, row.ResetSpark5h, row.ResetSpark7d, w5h, w7d)
+		score := corecodex.CalcScore(row.Quota5h, row.Quota7d, row.Quota1mo, row.Reset5h, row.Reset7d, row.Reset1mo, w5h, w7d)
+		scoreSpark := corecodex.CalcScoreSpark(row.QuotaSpark5h, row.QuotaSpark7d, row.QuotaSpark1mo, row.ResetSpark5h, row.ResetSpark7d, row.ResetSpark1mo, w5h, w7d)
 
 		var er, erSpark float64
 		if ratesDefault != nil {
@@ -301,8 +301,10 @@ func (a *AdminHandler) serializeCodexRows(ctx context.Context, rows []db.ListCod
 				Available:      score >= 0,
 				Quota5h:        row.Quota5h,
 				Quota7d:        row.Quota7d,
+				Quota1mo:       row.Quota1mo,
 				Reset5h:        row.Reset5h,
 				Reset7d:        row.Reset7d,
+				Reset1mo:       row.Reset1mo,
 				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilDefault),
 				Score:          score,
 				Weight:         w,
@@ -311,8 +313,10 @@ func (a *AdminHandler) serializeCodexRows(ctx context.Context, rows []db.ListCod
 				Available:      scoreSpark >= 0,
 				Quota5h:        row.QuotaSpark5h,
 				Quota7d:        row.QuotaSpark7d,
+				Quota1mo:       row.QuotaSpark1mo,
 				Reset5h:        row.ResetSpark5h,
 				Reset7d:        row.ResetSpark7d,
+				Reset1mo:       row.ResetSpark1mo,
 				ThrottledUntil: activeThrottleDeadline(row.ThrottledUntilSpark),
 				Score:          scoreSpark,
 				Weight:         wSpark,

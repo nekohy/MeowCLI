@@ -182,10 +182,12 @@ const codexSortOptions = [
   { title: 'Spark Score', value: 'spark_score' },
   { title: '5h额度', value: 'default_quota_5h' },
   { title: '7d额度', value: 'default_quota_7d' },
+  { title: '1mo额度', value: 'default_quota_1mo' },
   { title: '错误率', value: 'default_error_rate' },
   { title: 'Spark错误率', value: 'spark_error_rate' },
   { title: 'Spark 5h额度', value: 'spark_quota_5h' },
   { title: 'Spark 7d额度', value: 'spark_quota_7d' },
+  { title: 'Spark 1mo额度', value: 'spark_quota_1mo' },
   { title: 'Default退避', value: 'default_throttled_until' },
   { title: 'Spark退避', value: 'spark_throttled_until' },
 ]
@@ -485,10 +487,15 @@ function toggleSelectOne(id: string) {
     : [...selectedIds.value, id]
 }
 
-function codexQuotaPercentValue(metric: CodexItem['default'], quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
-  if (metric[quotaKey] === 1 && isZeroTime(metric[resetKey])) {
-    return null
-  }
+type CodexQuotaKey = 'quota_5h' | 'quota_7d' | 'quota_1mo'
+type CodexResetKey = 'reset_5h' | 'reset_7d' | 'reset_1mo'
+
+function hasCodexQuotaWindow(metric: CodexItem['default'], resetKey: CodexResetKey) {
+  return !isZeroTime(metric[resetKey])
+}
+
+function codexQuotaPercentValue(metric: CodexItem['default'], quotaKey: CodexQuotaKey, resetKey: CodexResetKey) {
+  if (!hasCodexQuotaWindow(metric, resetKey)) return null
   return Math.max(0, Math.min(100, Math.round((metric[quotaKey] || 0) * 100)))
 }
 
@@ -530,10 +537,8 @@ function quotaCaption(reset: string, throttledUntil?: string) {
   return parts
 }
 
-function renderCodexQuotaValue(metric: CodexItem['default'], quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
-  if (metric[quotaKey] === 1 && isZeroTime(metric[resetKey])) {
-    return '不适用'
-  }
+function renderCodexQuotaValue(metric: CodexItem['default'], quotaKey: CodexQuotaKey, resetKey: CodexResetKey) {
+  if (!hasCodexQuotaWindow(metric, resetKey)) return ''
   return formatPercent(metric[quotaKey])
 }
 
@@ -544,7 +549,8 @@ function renderGeminiQuotaValue(metric: GeminiCredentialItem['pro']) {
   return formatPercent(metric.quota)
 }
 
-function codexQuotaCard(label: string, metric: CodexItem['default'], quotaKey: 'quota_5h' | 'quota_7d', resetKey: 'reset_5h' | 'reset_7d') {
+function codexQuotaCard(label: string, metric: CodexItem['default'], quotaKey: CodexQuotaKey, resetKey: CodexResetKey) {
+  if (!hasCodexQuotaWindow(metric, resetKey)) return null
   const percent = codexQuotaPercentValue(metric, quotaKey, resetKey)
   const throttledUntil = activeThrottleUntil(metric.throttled_until)
   const tone = quotaTone(percent)
@@ -562,14 +568,16 @@ function codexQuotaCards(item: CodexItem) {
   const cards = [
     codexQuotaCard('5 小时额度', item.default, 'quota_5h', 'reset_5h'),
     codexQuotaCard('7 天额度', item.default, 'quota_7d', 'reset_7d'),
+    codexQuotaCard('1mo 额度', item.default, 'quota_1mo', 'reset_1mo'),
   ]
   if (isSparkAvailable(item)) {
     cards.push(
       codexQuotaCard('Spark 5h', item.spark, 'quota_5h', 'reset_5h'),
       codexQuotaCard('Spark 7d', item.spark, 'quota_7d', 'reset_7d'),
+      codexQuotaCard('Spark 1mo', item.spark, 'quota_1mo', 'reset_1mo'),
     )
   }
-  return cards
+  return cards.filter((card): card is NonNullable<typeof card> => card !== null)
 }
 
 function geminiQuotaCard(label: string, metric: GeminiCredentialItem['pro']) {

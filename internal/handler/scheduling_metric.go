@@ -6,8 +6,10 @@ type codexSchedulingMetric struct {
 	Available      bool       `json:"available"`
 	Quota5h        float64    `json:"quota_5h"`
 	Quota7d        float64    `json:"quota_7d"`
+	Quota1mo       float64    `json:"quota_1mo"`
 	Reset5h        time.Time  `json:"reset_5h"`
 	Reset7d        time.Time  `json:"reset_7d"`
+	Reset1mo       time.Time  `json:"reset_1mo"`
 	ThrottledUntil *time.Time `json:"throttled_until,omitempty"`
 	Score          float64    `json:"score"`
 	Weight         float64    `json:"weight"`

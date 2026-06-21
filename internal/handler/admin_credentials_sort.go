@@ -20,8 +20,10 @@ var codexCredentialSortKeys = stringSet(
 	"spark_error_rate",
 	"default_quota_5h",
 	"default_quota_7d",
+	"default_quota_1mo",
 	"spark_quota_5h",
 	"spark_quota_7d",
+	"spark_quota_1mo",
 	"default_throttled_until",
 	"spark_throttled_until",
 )
@@ -104,10 +106,14 @@ func sortCodexListItems(items []codexListItem, options credentialSortOptions) {
 			return item.Default.Quota5h, true
 		case "default_quota_7d":
 			return item.Default.Quota7d, true
+		case "default_quota_1mo":
+			return item.Default.Quota1mo, true
 		case "spark_quota_5h":
 			return item.Spark.Quota5h, true
 		case "spark_quota_7d":
 			return item.Spark.Quota7d, true
+		case "spark_quota_1mo":
+			return item.Spark.Quota1mo, true
 		case "default_throttled_until":
 			return timeSortValue(item.Default.ThrottledUntil), true
 		case "spark_throttled_until":

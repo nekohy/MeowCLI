@@ -145,15 +145,19 @@ type ErrorRateSince struct {
 }
 
 type UpsertQuotaParams struct {
-	CredentialID string
-	Quota5h      float64
-	Quota7d      float64
-	QuotaSpark5h float64
-	QuotaSpark7d float64
-	Reset5h      time.Time
-	Reset7d      time.Time
-	ResetSpark5h time.Time
-	ResetSpark7d time.Time
+	CredentialID  string
+	Quota5h       float64
+	Quota7d       float64
+	Quota1mo      float64
+	QuotaSpark5h  float64
+	QuotaSpark7d  float64
+	QuotaSpark1mo float64
+	Reset5h       time.Time
+	Reset7d       time.Time
+	Reset1mo      time.Time
+	ResetSpark5h  time.Time
+	ResetSpark7d  time.Time
+	ResetSpark1mo time.Time
 }
 
 type UpsertGeminiQuotaParams struct {
@@ -198,12 +202,16 @@ type ListAvailableCodexRow struct {
 	PlanType            string    `json:"plan_type"`
 	Quota5h             float64   `json:"quota_5h"`
 	Quota7d             float64   `json:"quota_7d"`
+	Quota1mo            float64   `json:"quota_1mo"`
 	QuotaSpark5h        float64   `json:"quota_spark_5h"`
 	QuotaSpark7d        float64   `json:"quota_spark_7d"`
+	QuotaSpark1mo       float64   `json:"quota_spark_1mo"`
 	Reset5h             time.Time `json:"reset_5h"`
 	Reset7d             time.Time `json:"reset_7d"`
+	Reset1mo            time.Time `json:"reset_1mo"`
 	ResetSpark5h        time.Time `json:"reset_spark_5h"`
 	ResetSpark7d        time.Time `json:"reset_spark_7d"`
+	ResetSpark1mo       time.Time `json:"reset_spark_1mo"`
 	ThrottledUntilSpark time.Time `json:"throttled_until_spark"`
 	ThrottledUntil      time.Time `json:"throttled_until"`
 	SyncedAt            time.Time `json:"synced_at"`
@@ -219,12 +227,16 @@ type ListCodexRow struct {
 	Reason                string    `json:"reason"`
 	Quota5h               float64   `json:"quota_5h"`
 	Quota7d               float64   `json:"quota_7d"`
+	Quota1mo              float64   `json:"quota_1mo"`
 	QuotaSpark5h          float64   `json:"quota_spark_5h"`
 	QuotaSpark7d          float64   `json:"quota_spark_7d"`
+	QuotaSpark1mo         float64   `json:"quota_spark_1mo"`
 	Reset5h               time.Time `json:"reset_5h"`
 	Reset7d               time.Time `json:"reset_7d"`
+	Reset1mo              time.Time `json:"reset_1mo"`
 	ResetSpark5h          time.Time `json:"reset_spark_5h"`
 	ResetSpark7d          time.Time `json:"reset_spark_7d"`
+	ResetSpark1mo         time.Time `json:"reset_spark_1mo"`
 	ThrottledUntilDefault time.Time `json:"throttled_until_default"`
 	ThrottledUntilSpark   time.Time `json:"throttled_until_spark"`
 	SyncedAt              time.Time `json:"synced_at"`

@@ -1,17 +1,21 @@
 -- name: UpsertQuota :one
 -- Syncs remaining quota ratios and reset timestamps from upstream.
-INSERT INTO codex_quota (credential_id, quota_5h, quota_7d, quota_spark_5h, quota_spark_7d, reset_5h, reset_7d, reset_spark_5h, reset_spark_7d, synced_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+INSERT INTO codex_quota (credential_id, quota_5h, quota_7d, quota_1mo, quota_spark_5h, quota_spark_7d, quota_spark_1mo, reset_5h, reset_7d, reset_1mo, reset_spark_5h, reset_spark_7d, reset_spark_1mo, synced_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT (credential_id) DO UPDATE
 SET
     quota_5h       = EXCLUDED.quota_5h,
     quota_7d       = EXCLUDED.quota_7d,
+    quota_1mo      = EXCLUDED.quota_1mo,
     quota_spark_5h = EXCLUDED.quota_spark_5h,
     quota_spark_7d = EXCLUDED.quota_spark_7d,
+    quota_spark_1mo = EXCLUDED.quota_spark_1mo,
     reset_5h       = EXCLUDED.reset_5h,
     reset_7d       = EXCLUDED.reset_7d,
+    reset_1mo      = EXCLUDED.reset_1mo,
     reset_spark_5h = EXCLUDED.reset_spark_5h,
     reset_spark_7d = EXCLUDED.reset_spark_7d,
+    reset_spark_1mo = EXCLUDED.reset_spark_1mo,
     synced_at      = datetime('now')
 RETURNING *;
 
@@ -64,12 +68,16 @@ SELECT
     c.plan_type,
     COALESCE(q.quota_5h, 1.0)                    AS quota_5h,
     COALESCE(q.quota_7d, 1.0)                    AS quota_7d,
+    COALESCE(q.quota_1mo, 1.0)                   AS quota_1mo,
     COALESCE(q.quota_spark_5h, 1.0)              AS quota_spark_5h,
     COALESCE(q.quota_spark_7d, 1.0)              AS quota_spark_7d,
+    COALESCE(q.quota_spark_1mo, 1.0)             AS quota_spark_1mo,
     COALESCE(q.reset_5h, '')                      AS reset_5h,
     COALESCE(q.reset_7d, '')                      AS reset_7d,
+    COALESCE(q.reset_1mo, '')                     AS reset_1mo,
     COALESCE(q.reset_spark_5h, '')                AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '')                AS reset_spark_7d,
+    COALESCE(q.reset_spark_1mo, '')               AS reset_spark_1mo,
     COALESCE(q.throttled_until, datetime('now')) AS throttled_until,
     COALESCE(q.throttled_until_spark, datetime('now')) AS throttled_until_spark,
     COALESCE(q.synced_at, '')                     AS synced_at

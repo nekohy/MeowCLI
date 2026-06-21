@@ -82,25 +82,29 @@ func modelRowTo(alias, origin, handler, planTypes, plugin, extra string) db.Mode
 	}
 }
 
-func listAvailableCodexRowTo(id, planType string, quota5h, quota7d, quotaSpark5h, quotaSpark7d float64, reset5h, reset7d, resetSpark5h, resetSpark7d, throttledUntil, throttledUntilSpark, syncedAt string) db.ListAvailableCodexRow {
+func listAvailableCodexRowTo(id, planType string, quota5h, quota7d, quota1mo, quotaSpark5h, quotaSpark7d, quotaSpark1mo float64, reset5h, reset7d, reset1mo, resetSpark5h, resetSpark7d, resetSpark1mo, throttledUntil, throttledUntilSpark, syncedAt string) db.ListAvailableCodexRow {
 	return db.ListAvailableCodexRow{
 		ID:                  id,
 		PlanType:            planType,
 		Quota5h:             quota5h,
 		Quota7d:             quota7d,
+		Quota1mo:            quota1mo,
 		QuotaSpark5h:        quotaSpark5h,
 		QuotaSpark7d:        quotaSpark7d,
+		QuotaSpark1mo:       quotaSpark1mo,
 		Reset5h:             parseTime(reset5h),
 		Reset7d:             parseTime(reset7d),
+		Reset1mo:            parseTime(reset1mo),
 		ResetSpark5h:        parseTime(resetSpark5h),
 		ResetSpark7d:        parseTime(resetSpark7d),
+		ResetSpark1mo:       parseTime(resetSpark1mo),
 		ThrottledUntil:      parseTime(throttledUntil),
 		ThrottledUntilSpark: parseTime(throttledUntilSpark),
 		SyncedAt:            parseTime(syncedAt),
 	}
 }
 
-func listCodexRowTo(id, status, accessToken, expired, refreshToken, planType, reason string, quota5h, quota7d, quotaSpark5h, quotaSpark7d float64, reset5h, reset7d, resetSpark5h, resetSpark7d, throttledUntilDefault, throttledUntilSpark, syncedAt string) db.ListCodexRow {
+func listCodexRowTo(id, status, accessToken, expired, refreshToken, planType, reason string, quota5h, quota7d, quota1mo, quotaSpark5h, quotaSpark7d, quotaSpark1mo float64, reset5h, reset7d, reset1mo, resetSpark5h, resetSpark7d, resetSpark1mo, throttledUntilDefault, throttledUntilSpark, syncedAt string) db.ListCodexRow {
 	return db.ListCodexRow{
 		ID:                    id,
 		Status:                status,
@@ -111,12 +115,16 @@ func listCodexRowTo(id, status, accessToken, expired, refreshToken, planType, re
 		Reason:                reason,
 		Quota5h:               quota5h,
 		Quota7d:               quota7d,
+		Quota1mo:              quota1mo,
 		QuotaSpark5h:          quotaSpark5h,
 		QuotaSpark7d:          quotaSpark7d,
+		QuotaSpark1mo:         quotaSpark1mo,
 		Reset5h:               parseTime(reset5h),
 		Reset7d:               parseTime(reset7d),
+		Reset1mo:              parseTime(reset1mo),
 		ResetSpark5h:          parseTime(resetSpark5h),
 		ResetSpark7d:          parseTime(resetSpark7d),
+		ResetSpark1mo:         parseTime(resetSpark1mo),
 		ThrottledUntilDefault: parseTime(throttledUntilDefault),
 		ThrottledUntilSpark:   parseTime(throttledUntilSpark),
 		SyncedAt:              parseTime(syncedAt),

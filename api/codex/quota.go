@@ -53,14 +53,10 @@ func (c *Client) FetchQuota(ctx context.Context, credentialID, accessToken strin
 }
 
 func parseUsageQuota(usage usageResponse) *codexutils.Quota {
-	q := &codexutils.Quota{
-		PlanType:        normalizeUsagePlanType(usage.PlanType),
-		Quota5h:         1.0,
-		Quota7d:         1.0,
-		QuotaSpark5h:    1.0,
-		QuotaSpark7d:    1.0,
-		HasDefaultQuota: true,
-	}
+	quota := codexutils.NewQuota()
+	q := &quota
+	q.PlanType = normalizeUsagePlanType(usage.PlanType)
+	q.HasDefaultQuota = true
 	applyUsageRateLimit(q, usage.RateLimit, false)
 
 	sparkFound := false
@@ -71,6 +67,7 @@ func parseUsageQuota(usage usageResponse) *codexutils.Quota {
 		if !sparkFound {
 			q.QuotaSpark5h = 1.0
 			q.QuotaSpark7d = 1.0
+			q.QuotaSpark1mo = 1.0
 		}
 		sparkFound = true
 		q.HasSparkQuota = true
@@ -104,7 +101,7 @@ func applyUsageRateLimit(q *codexutils.Quota, rl usageRateLimit, spark bool) {
 			continue
 		}
 		remaining := utils.TruncateQuotaRatio(float64(100-w.UsedPercent) / 100)
-		resetAt := time.Unix(w.ResetAt, 0)
+		resetAt := usageResetTime(w)
 		switch w.LimitWindowSeconds {
 		case int64((5 * time.Hour).Seconds()): // 18000
 			if spark {
@@ -122,6 +119,29 @@ func applyUsageRateLimit(q *codexutils.Quota, rl usageRateLimit, spark bool) {
 				q.Quota7d = remaining
 				q.Reset7d = resetAt
 			}
+		default:
+			if codexutils.IsMonthlyWindow(w.LimitWindowSeconds) {
+				if spark {
+					q.QuotaSpark1mo = remaining
+					q.ResetSpark1mo = resetAt
+				} else {
+					q.Quota1mo = remaining
+					q.Reset1mo = resetAt
+				}
+			}
 		}
 	}
+}
+
+func usageResetTime(w *rateLimitWindow) time.Time {
+	if w == nil {
+		return time.Time{}
+	}
+	if w.ResetAt > 0 {
+		return time.Unix(w.ResetAt, 0)
+	}
+	if w.ResetAfterSeconds > 0 {
+		return time.Now().Add(time.Duration(w.ResetAfterSeconds) * time.Second)
+	}
+	return time.Time{}
 }

@@ -148,12 +148,16 @@ SELECT
     c.id, c.status, c.access_token, c.expired, c.refresh_token, c.plan_type, c.reason,
     COALESCE(q.quota_5h, 1.0) AS quota_5h,
     COALESCE(q.quota_7d, 1.0) AS quota_7d,
+    COALESCE(q.quota_1mo, 1.0) AS quota_1mo,
     COALESCE(q.quota_spark_5h, 1.0) AS quota_spark_5h,
     COALESCE(q.quota_spark_7d, 1.0) AS quota_spark_7d,
+    COALESCE(q.quota_spark_1mo, 1.0) AS quota_spark_1mo,
     COALESCE(q.reset_5h, '') AS reset_5h,
     COALESCE(q.reset_7d, '') AS reset_7d,
+    COALESCE(q.reset_1mo, '') AS reset_1mo,
     COALESCE(q.reset_spark_5h, '') AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '') AS reset_spark_7d,
+    COALESCE(q.reset_spark_1mo, '') AS reset_spark_1mo,
     COALESCE(q.throttled_until, '') AS throttled_until_default,
     COALESCE(q.throttled_until_spark, '') AS throttled_until_spark,
     COALESCE(q.synced_at, '') AS synced_at
@@ -172,12 +176,16 @@ type ListCodexRow struct {
 	Reason                string  `json:"reason"`
 	Quota5h               float64 `json:"quota_5h"`
 	Quota7d               float64 `json:"quota_7d"`
+	Quota1mo              float64 `json:"quota_1mo"`
 	QuotaSpark5h          float64 `json:"quota_spark_5h"`
 	QuotaSpark7d          float64 `json:"quota_spark_7d"`
+	QuotaSpark1mo         float64 `json:"quota_spark_1mo"`
 	Reset5h               string  `json:"reset_5h"`
 	Reset7d               string  `json:"reset_7d"`
+	Reset1mo              string  `json:"reset_1mo"`
 	ResetSpark5h          string  `json:"reset_spark_5h"`
 	ResetSpark7d          string  `json:"reset_spark_7d"`
+	ResetSpark1mo         string  `json:"reset_spark_1mo"`
 	ThrottledUntilDefault string  `json:"throttled_until_default"`
 	ThrottledUntilSpark   string  `json:"throttled_until_spark"`
 	SyncedAt              string  `json:"synced_at"`
@@ -202,12 +210,16 @@ func (q *Queries) ListCodex(ctx context.Context) ([]ListCodexRow, error) {
 			&i.Reason,
 			&i.Quota5h,
 			&i.Quota7d,
+			&i.Quota1mo,
 			&i.QuotaSpark5h,
 			&i.QuotaSpark7d,
+			&i.QuotaSpark1mo,
 			&i.Reset5h,
 			&i.Reset7d,
+			&i.Reset1mo,
 			&i.ResetSpark5h,
 			&i.ResetSpark7d,
+			&i.ResetSpark1mo,
 			&i.ThrottledUntilDefault,
 			&i.ThrottledUntilSpark,
 			&i.SyncedAt,
@@ -230,12 +242,16 @@ SELECT
     c.id, c.status, c.access_token, c.expired, c.refresh_token, c.plan_type, c.reason,
     COALESCE(q.quota_5h, 1.0) AS quota_5h,
     COALESCE(q.quota_7d, 1.0) AS quota_7d,
+    COALESCE(q.quota_1mo, 1.0) AS quota_1mo,
     COALESCE(q.quota_spark_5h, 1.0) AS quota_spark_5h,
     COALESCE(q.quota_spark_7d, 1.0) AS quota_spark_7d,
+    COALESCE(q.quota_spark_1mo, 1.0) AS quota_spark_1mo,
     COALESCE(q.reset_5h, '') AS reset_5h,
     COALESCE(q.reset_7d, '') AS reset_7d,
+    COALESCE(q.reset_1mo, '') AS reset_1mo,
     COALESCE(q.reset_spark_5h, '') AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '') AS reset_spark_7d,
+    COALESCE(q.reset_spark_1mo, '') AS reset_spark_1mo,
     COALESCE(q.throttled_until, '') AS throttled_until_default,
     COALESCE(q.throttled_until_spark, '') AS throttled_until_spark,
     COALESCE(q.synced_at, '') AS synced_at
@@ -278,12 +294,16 @@ type ListCodexPagedRow struct {
 	Reason                string  `json:"reason"`
 	Quota5h               float64 `json:"quota_5h"`
 	Quota7d               float64 `json:"quota_7d"`
+	Quota1mo              float64 `json:"quota_1mo"`
 	QuotaSpark5h          float64 `json:"quota_spark_5h"`
 	QuotaSpark7d          float64 `json:"quota_spark_7d"`
+	QuotaSpark1mo         float64 `json:"quota_spark_1mo"`
 	Reset5h               string  `json:"reset_5h"`
 	Reset7d               string  `json:"reset_7d"`
+	Reset1mo              string  `json:"reset_1mo"`
 	ResetSpark5h          string  `json:"reset_spark_5h"`
 	ResetSpark7d          string  `json:"reset_spark_7d"`
+	ResetSpark1mo         string  `json:"reset_spark_1mo"`
 	ThrottledUntilDefault string  `json:"throttled_until_default"`
 	ThrottledUntilSpark   string  `json:"throttled_until_spark"`
 	SyncedAt              string  `json:"synced_at"`
@@ -315,12 +335,16 @@ func (q *Queries) ListCodexPaged(ctx context.Context, arg ListCodexPagedParams) 
 			&i.Reason,
 			&i.Quota5h,
 			&i.Quota7d,
+			&i.Quota1mo,
 			&i.QuotaSpark5h,
 			&i.QuotaSpark7d,
+			&i.QuotaSpark1mo,
 			&i.Reset5h,
 			&i.Reset7d,
+			&i.Reset1mo,
 			&i.ResetSpark5h,
 			&i.ResetSpark7d,
+			&i.ResetSpark1mo,
 			&i.ThrottledUntilDefault,
 			&i.ThrottledUntilSpark,
 			&i.SyncedAt,

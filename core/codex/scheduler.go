@@ -62,12 +62,16 @@ type availableRow struct {
 	PlanTypeCode        int
 	Quota5h             float64
 	Quota7d             float64
+	Quota1mo            float64
 	QuotaSpark5h        float64
 	QuotaSpark7d        float64
+	QuotaSpark1mo       float64
 	Reset5h             time.Time
 	Reset7d             time.Time
+	Reset1mo            time.Time
 	ResetSpark5h        time.Time
 	ResetSpark7d        time.Time
+	ResetSpark1mo       time.Time
 	ThrottledUntil      time.Time
 	ThrottledUntilSpark time.Time
 	Score               float64
@@ -164,7 +168,7 @@ func (s *Scheduler) quotaSyncer() scheduling.QuotaSyncer[db.ListAvailableCodexRo
 		RowID:    func(row db.ListAvailableCodexRow) string { return row.ID },
 		SyncedAt: func(row db.ListAvailableCodexRow) time.Time { return row.SyncedAt },
 		ResetAt: func(row db.ListAvailableCodexRow) time.Time {
-			return scheduling.EarliestTime(row.Reset5h, row.Reset7d, row.ResetSpark5h, row.ResetSpark7d)
+			return scheduling.EarliestTime(row.Reset5h, row.Reset7d, row.Reset1mo, row.ResetSpark5h, row.ResetSpark7d, row.ResetSpark1mo)
 		},
 		WithSyncedAt: func(row db.ListAvailableCodexRow, syncedAt time.Time) db.ListAvailableCodexRow {
 			row.SyncedAt = syncedAt
@@ -206,8 +210,10 @@ func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableCodexR
 		Str("credential", row.ID).
 		Float64("quota_5h", q.Quota5h).
 		Float64("quota_7d", q.Quota7d).
+		Float64("quota_1mo", q.Quota1mo).
 		Time("reset_5h", q.Reset5h).
 		Time("reset_7d", q.Reset7d).
+		Time("reset_1mo", q.Reset1mo).
 		Msg("codex quota-sync: fetched")
 
 	s.StoreQuota(ctx, row.ID, q)
@@ -336,16 +342,20 @@ func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.Li
 			PlanTypeCode:        planTypes.code(r.PlanType),
 			Quota5h:             r.Quota5h,
 			Quota7d:             r.Quota7d,
+			Quota1mo:            r.Quota1mo,
 			QuotaSpark5h:        r.QuotaSpark5h,
 			QuotaSpark7d:        r.QuotaSpark7d,
+			QuotaSpark1mo:       r.QuotaSpark1mo,
 			Reset5h:             r.Reset5h,
 			Reset7d:             r.Reset7d,
+			Reset1mo:            r.Reset1mo,
 			ResetSpark5h:        r.ResetSpark5h,
 			ResetSpark7d:        r.ResetSpark7d,
+			ResetSpark1mo:       r.ResetSpark1mo,
 			ThrottledUntil:      r.ThrottledUntil,
 			ThrottledUntilSpark: r.ThrottledUntilSpark,
-			Score:               CalcScore(r.Quota5h, r.Quota7d, r.Reset5h, r.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()),
-			ScoreSpark:          CalcScoreSpark(r.QuotaSpark5h, r.QuotaSpark7d, r.ResetSpark5h, r.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()),
+			Score:               CalcScore(r.Quota5h, r.Quota7d, r.Quota1mo, r.Reset5h, r.Reset7d, r.Reset1mo, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()),
+			ScoreSpark:          CalcScoreSpark(r.QuotaSpark5h, r.QuotaSpark7d, r.QuotaSpark1mo, r.ResetSpark5h, r.ResetSpark7d, r.ResetSpark1mo, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()),
 			Weight:              1.0,
 			WeightSpark:         1.0,
 		}
@@ -373,8 +383,8 @@ func (s *Scheduler) refreshAvailableFromRows(ctx context.Context, dbRows []db.Li
 
 func (s *Scheduler) applyQuotaToAvailable(id string, q *codexAPI.Quota) bool {
 	config := s.settingsSnapshot()
-	baseScore := CalcScore(q.Quota5h, q.Quota7d, q.Reset5h, q.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
-	baseScoreSpark := CalcScoreSpark(q.QuotaSpark5h, q.QuotaSpark7d, q.ResetSpark5h, q.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
+	baseScore := CalcScore(q.Quota5h, q.Quota7d, q.Quota1mo, q.Reset5h, q.Reset7d, q.Reset1mo, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
+	baseScoreSpark := CalcScoreSpark(q.QuotaSpark5h, q.QuotaSpark7d, q.QuotaSpark1mo, q.ResetSpark5h, q.ResetSpark7d, q.ResetSpark1mo, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
 	now := time.Now()
 
 	for {
@@ -407,12 +417,16 @@ func (s *Scheduler) applyQuotaToAvailable(id string, q *codexAPI.Quota) bool {
 			}
 			updated[i].Quota5h = q.Quota5h
 			updated[i].Quota7d = q.Quota7d
+			updated[i].Quota1mo = q.Quota1mo
 			updated[i].QuotaSpark5h = q.QuotaSpark5h
 			updated[i].QuotaSpark7d = q.QuotaSpark7d
+			updated[i].QuotaSpark1mo = q.QuotaSpark1mo
 			updated[i].Reset5h = q.Reset5h
 			updated[i].Reset7d = q.Reset7d
+			updated[i].Reset1mo = q.Reset1mo
 			updated[i].ResetSpark5h = q.ResetSpark5h
 			updated[i].ResetSpark7d = q.ResetSpark7d
+			updated[i].ResetSpark1mo = q.ResetSpark1mo
 			updated[i].Score = newScore
 			updated[i].ScoreSpark = newScoreSpark
 			found = true
@@ -450,10 +464,10 @@ func (s *Scheduler) refreshAvailableScores() {
 		},
 		func(row *availableRow) {
 			if row.Score >= 0 {
-				row.Score = CalcScore(row.Quota5h, row.Quota7d, row.Reset5h, row.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
+				row.Score = CalcScore(row.Quota5h, row.Quota7d, row.Quota1mo, row.Reset5h, row.Reset7d, row.Reset1mo, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
 			}
 			if row.ScoreSpark >= 0 {
-				row.ScoreSpark = CalcScoreSpark(row.QuotaSpark5h, row.QuotaSpark7d, row.ResetSpark5h, row.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
+				row.ScoreSpark = CalcScoreSpark(row.QuotaSpark5h, row.QuotaSpark7d, row.QuotaSpark1mo, row.ResetSpark5h, row.ResetSpark7d, row.ResetSpark1mo, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds())
 			}
 		},
 	)
@@ -476,14 +490,18 @@ func (s *Scheduler) mergeQuotaUpdate(credentialID string, q *codexAPI.Quota) cod
 	if !q.HasDefaultQuota {
 		merged.Quota5h = current.Quota5h
 		merged.Quota7d = current.Quota7d
+		merged.Quota1mo = current.Quota1mo
 		merged.Reset5h = current.Reset5h
 		merged.Reset7d = current.Reset7d
+		merged.Reset1mo = current.Reset1mo
 	}
 	if !q.HasSparkQuota {
 		merged.QuotaSpark5h = current.QuotaSpark5h
 		merged.QuotaSpark7d = current.QuotaSpark7d
+		merged.QuotaSpark1mo = current.QuotaSpark1mo
 		merged.ResetSpark5h = current.ResetSpark5h
 		merged.ResetSpark7d = current.ResetSpark7d
+		merged.ResetSpark1mo = current.ResetSpark1mo
 	}
 	merged.HasDefaultQuota = true
 	merged.HasSparkQuota = true
@@ -500,14 +518,18 @@ func (s *Scheduler) availableQuota(credentialID string) (codexAPI.Quota, bool) {
 			continue
 		}
 		return codexAPI.Quota{
-			Quota5h:      row.Quota5h,
-			Quota7d:      row.Quota7d,
-			QuotaSpark5h: row.QuotaSpark5h,
-			QuotaSpark7d: row.QuotaSpark7d,
-			Reset5h:      row.Reset5h,
-			Reset7d:      row.Reset7d,
-			ResetSpark5h: row.ResetSpark5h,
-			ResetSpark7d: row.ResetSpark7d,
+			Quota5h:       row.Quota5h,
+			Quota7d:       row.Quota7d,
+			Quota1mo:      row.Quota1mo,
+			QuotaSpark5h:  row.QuotaSpark5h,
+			QuotaSpark7d:  row.QuotaSpark7d,
+			QuotaSpark1mo: row.QuotaSpark1mo,
+			Reset5h:       row.Reset5h,
+			Reset7d:       row.Reset7d,
+			Reset1mo:      row.Reset1mo,
+			ResetSpark5h:  row.ResetSpark5h,
+			ResetSpark7d:  row.ResetSpark7d,
+			ResetSpark1mo: row.ResetSpark1mo,
 		}, true
 	}
 	return codexAPI.Quota{}, false
@@ -692,33 +714,75 @@ func (s *Scheduler) planTypeCodec() *planTypeCodec {
 	return s.planTypes
 }
 
-// CalcScore computes quota pressure with a 7d cap on the 5h window.
+// CalcScore computes quota pressure across the quota windows returned by upstream.
 // Higher scores mean the credential has more quota at risk of expiring soon.
-func CalcScore(quota5h, quota7d float64, reset5h, reset7d time.Time, window5hSeconds, window7dSeconds int64) float64 {
-	if quota5h == 0 || quota7d == 0 {
-		return -1
-	}
-
-	return scheduling.MultiWindowQuotaPressureScore(quota5h, quota7d, reset5h, reset7d, window5hSeconds, window7dSeconds)
+func CalcScore(quota5h, quota7d, quota1mo float64, reset5h, reset7d, reset1mo time.Time, window5hSeconds, window7dSeconds int64) float64 {
+	return calcCodexScore(quota5h, quota7d, quota1mo, reset5h, reset7d, reset1mo, window5hSeconds, window7dSeconds)
 }
 
 // CalcScoreSpark computes a priority score for the spark model tier.
-// Uses the same 5h/7d layered weighting as CalcScore.
-// If either spark window quota is exhausted (0%), returns -1 (unusable for spark).
-func CalcScoreSpark(quotaSpark5h, quotaSpark7d float64, resetSpark5h, resetSpark7d time.Time, window5hSeconds, window7dSeconds int64) float64 {
-	if resetSpark5h.IsZero() && resetSpark7d.IsZero() {
-		return -1
-	}
-	if quotaSpark5h == 0 || quotaSpark7d == 0 {
-		return -1
-	}
-	return scheduling.MultiWindowQuotaPressureScore(quotaSpark5h, quotaSpark7d, resetSpark5h, resetSpark7d, window5hSeconds, window7dSeconds)
+// Uses the same layered weighting as CalcScore.
+func CalcScoreSpark(quotaSpark5h, quotaSpark7d, quotaSpark1mo float64, resetSpark5h, resetSpark7d, resetSpark1mo time.Time, window5hSeconds, window7dSeconds int64) float64 {
+	return calcCodexScore(quotaSpark5h, quotaSpark7d, quotaSpark1mo, resetSpark5h, resetSpark7d, resetSpark1mo, window5hSeconds, window7dSeconds)
 }
 
-func ErrorRateSince(reset5h, reset7d time.Time, window5hSeconds, window7dSeconds int64) time.Time {
+type codexQuotaWindow struct {
+	quota         float64
+	reset         time.Time
+	windowSeconds int64
+}
+
+func calcCodexScore(quota5h, quota7d, quota1mo float64, reset5h, reset7d, reset1mo time.Time, window5hSeconds, window7dSeconds int64) float64 {
+	windows := make([]codexQuotaWindow, 0, 3)
+	if !reset5h.IsZero() {
+		windows = append(windows, codexQuotaWindow{quota: quota5h, reset: reset5h, windowSeconds: window5hSeconds})
+	}
+	if !reset7d.IsZero() {
+		windows = append(windows, codexQuotaWindow{quota: quota7d, reset: reset7d, windowSeconds: window7dSeconds})
+	}
+	if !reset1mo.IsZero() {
+		windows = append(windows, codexQuotaWindow{quota: quota1mo, reset: reset1mo, windowSeconds: codexAPI.MonthlyWindowSeconds})
+	}
+	if len(windows) == 0 {
+		return -1
+	}
+	for _, window := range windows {
+		if window.quota <= 0 {
+			return -1
+		}
+	}
+	return layeredQuotaPressureScore(windows)
+}
+
+func layeredQuotaPressureScore(windows []codexQuotaWindow) float64 {
+	if len(windows) == 0 {
+		return -1
+	}
+	effective := make([]float64, len(windows))
+	longerCap := scheduling.MaxQuotaPressure
+	for i := len(windows) - 1; i >= 0; i-- {
+		pressure := scheduling.QuotaPressureScore(windows[i].quota, windows[i].reset, time.Now(), windows[i].windowSeconds)
+		if pressure < 0 {
+			return -1
+		}
+		effective[i] = min(pressure, longerCap)
+		longerCap = effective[i]
+	}
+	switch len(effective) {
+	case 1:
+		return effective[0]
+	case 2:
+		return 0.8*effective[0] + 0.2*effective[1]
+	default:
+		return 0.7*effective[0] + 0.2*effective[1] + 0.1*effective[2]
+	}
+}
+
+func ErrorRateSince(reset5h, reset7d, reset1mo time.Time, window5hSeconds, window7dSeconds int64) time.Time {
 	return scheduling.LatestWindowStart(
 		scheduling.WindowStart(reset5h, window5hSeconds),
 		scheduling.WindowStart(reset7d, window7dSeconds),
+		scheduling.WindowStart(reset1mo, codexAPI.MonthlyWindowSeconds),
 	)
 }
 
@@ -953,15 +1017,19 @@ func (s *Scheduler) StoreQuota(ctx context.Context, credentialID string, q *code
 		cacheUpdated = false
 	}
 	if err := s.store.UpsertQuota(ctx, db.UpsertQuotaParams{
-		CredentialID: credentialID,
-		Quota5h:      q.Quota5h,
-		Quota7d:      q.Quota7d,
-		QuotaSpark5h: q.QuotaSpark5h,
-		QuotaSpark7d: q.QuotaSpark7d,
-		Reset5h:      q.Reset5h,
-		Reset7d:      q.Reset7d,
-		ResetSpark5h: q.ResetSpark5h,
-		ResetSpark7d: q.ResetSpark7d,
+		CredentialID:  credentialID,
+		Quota5h:       q.Quota5h,
+		Quota7d:       q.Quota7d,
+		Quota1mo:      q.Quota1mo,
+		QuotaSpark5h:  q.QuotaSpark5h,
+		QuotaSpark7d:  q.QuotaSpark7d,
+		QuotaSpark1mo: q.QuotaSpark1mo,
+		Reset5h:       q.Reset5h,
+		Reset7d:       q.Reset7d,
+		Reset1mo:      q.Reset1mo,
+		ResetSpark5h:  q.ResetSpark5h,
+		ResetSpark7d:  q.ResetSpark7d,
+		ResetSpark1mo: q.ResetSpark1mo,
 	}); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: upsert quota")
 		return
@@ -1267,10 +1335,10 @@ func (s *Scheduler) computeErrorRates(ctx context.Context, rows []availableRow) 
 	defaultSince := make([]db.ErrorRateSince, 0, len(rows))
 	sparkSince := make([]db.ErrorRateSince, 0, len(rows))
 	for _, row := range rows {
-		if since := ErrorRateSince(row.Reset5h, row.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()); !since.IsZero() {
+		if since := ErrorRateSince(row.Reset5h, row.Reset7d, row.Reset1mo, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()); !since.IsZero() {
 			defaultSince = append(defaultSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
 		}
-		if since := ErrorRateSince(row.ResetSpark5h, row.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()); !since.IsZero() {
+		if since := ErrorRateSince(row.ResetSpark5h, row.ResetSpark7d, row.ResetSpark1mo, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()); !since.IsZero() {
 			sparkSince = append(sparkSince, db.ErrorRateSince{CredentialID: row.ID, Since: since})
 		}
 	}
@@ -1338,9 +1406,9 @@ func (s *Scheduler) errorRateSinceForTier(row availableRow, modelTier string) (t
 	config := s.settingsSnapshot()
 	switch modelTier {
 	case ModelTierSpark:
-		return ErrorRateSince(row.ResetSpark5h, row.ResetSpark7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()), true
+		return ErrorRateSince(row.ResetSpark5h, row.ResetSpark7d, row.ResetSpark1mo, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()), true
 	case ModelTierDefault:
-		return ErrorRateSince(row.Reset5h, row.Reset7d, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()), true
+		return ErrorRateSince(row.Reset5h, row.Reset7d, row.Reset1mo, config.QuotaWindow5hSeconds(), config.QuotaWindow7dSeconds()), true
 	default:
 		return time.Time{}, false
 	}

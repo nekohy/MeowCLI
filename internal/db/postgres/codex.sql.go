@@ -150,12 +150,16 @@ SELECT
     c.id, c.status, c.access_token, c.expired, c.refresh_token, c.plan_type, c.reason,
     COALESCE(q.quota_5h, 1.0) AS quota_5h,
     COALESCE(q.quota_7d, 1.0) AS quota_7d,
+    COALESCE(q.quota_1mo, 1.0) AS quota_1mo,
     COALESCE(q.quota_spark_5h, 1.0) AS quota_spark_5h,
     COALESCE(q.quota_spark_7d, 1.0) AS quota_spark_7d,
+    COALESCE(q.quota_spark_1mo, 1.0) AS quota_spark_1mo,
     COALESCE(q.reset_5h, '0001-01-01'::timestamptz) AS reset_5h,
     COALESCE(q.reset_7d, '0001-01-01'::timestamptz) AS reset_7d,
+    COALESCE(q.reset_1mo, '0001-01-01'::timestamptz) AS reset_1mo,
     COALESCE(q.reset_spark_5h, '0001-01-01'::timestamptz) AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '0001-01-01'::timestamptz) AS reset_spark_7d,
+    COALESCE(q.reset_spark_1mo, '0001-01-01'::timestamptz) AS reset_spark_1mo,
     COALESCE(q.throttled_until, '0001-01-01'::timestamptz) AS throttled_until_default,
     COALESCE(q.throttled_until_spark, '0001-01-01'::timestamptz) AS throttled_until_spark,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
@@ -174,12 +178,16 @@ type ListCodexRow struct {
 	Reason                string             `json:"reason"`
 	Quota5h               float64            `json:"quota_5h"`
 	Quota7d               float64            `json:"quota_7d"`
+	Quota1mo              float64            `json:"quota_1mo"`
 	QuotaSpark5h          float64            `json:"quota_spark_5h"`
 	QuotaSpark7d          float64            `json:"quota_spark_7d"`
+	QuotaSpark1mo         float64            `json:"quota_spark_1mo"`
 	Reset5h               pgtype.Timestamptz `json:"reset_5h"`
 	Reset7d               pgtype.Timestamptz `json:"reset_7d"`
+	Reset1mo              pgtype.Timestamptz `json:"reset_1mo"`
 	ResetSpark5h          pgtype.Timestamptz `json:"reset_spark_5h"`
 	ResetSpark7d          pgtype.Timestamptz `json:"reset_spark_7d"`
+	ResetSpark1mo         pgtype.Timestamptz `json:"reset_spark_1mo"`
 	ThrottledUntilDefault pgtype.Timestamptz `json:"throttled_until_default"`
 	ThrottledUntilSpark   pgtype.Timestamptz `json:"throttled_until_spark"`
 	SyncedAt              pgtype.Timestamptz `json:"synced_at"`
@@ -204,12 +212,16 @@ func (q *Queries) ListCodex(ctx context.Context) ([]ListCodexRow, error) {
 			&i.Reason,
 			&i.Quota5h,
 			&i.Quota7d,
+			&i.Quota1mo,
 			&i.QuotaSpark5h,
 			&i.QuotaSpark7d,
+			&i.QuotaSpark1mo,
 			&i.Reset5h,
 			&i.Reset7d,
+			&i.Reset1mo,
 			&i.ResetSpark5h,
 			&i.ResetSpark7d,
+			&i.ResetSpark1mo,
 			&i.ThrottledUntilDefault,
 			&i.ThrottledUntilSpark,
 			&i.SyncedAt,
@@ -229,12 +241,16 @@ SELECT
     c.id, c.status, c.access_token, c.expired, c.refresh_token, c.plan_type, c.reason,
     COALESCE(q.quota_5h, 1.0) AS quota_5h,
     COALESCE(q.quota_7d, 1.0) AS quota_7d,
+    COALESCE(q.quota_1mo, 1.0) AS quota_1mo,
     COALESCE(q.quota_spark_5h, 1.0) AS quota_spark_5h,
     COALESCE(q.quota_spark_7d, 1.0) AS quota_spark_7d,
+    COALESCE(q.quota_spark_1mo, 1.0) AS quota_spark_1mo,
     COALESCE(q.reset_5h, '0001-01-01'::timestamptz) AS reset_5h,
     COALESCE(q.reset_7d, '0001-01-01'::timestamptz) AS reset_7d,
+    COALESCE(q.reset_1mo, '0001-01-01'::timestamptz) AS reset_1mo,
     COALESCE(q.reset_spark_5h, '0001-01-01'::timestamptz) AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '0001-01-01'::timestamptz) AS reset_spark_7d,
+    COALESCE(q.reset_spark_1mo, '0001-01-01'::timestamptz) AS reset_spark_1mo,
     COALESCE(q.throttled_until, '0001-01-01'::timestamptz) AS throttled_until_default,
     COALESCE(q.throttled_until_spark, '0001-01-01'::timestamptz) AS throttled_until_spark,
     COALESCE(q.synced_at, '0001-01-01'::timestamptz) AS synced_at
@@ -277,12 +293,16 @@ type ListCodexPagedRow struct {
 	Reason                string             `json:"reason"`
 	Quota5h               float64            `json:"quota_5h"`
 	Quota7d               float64            `json:"quota_7d"`
+	Quota1mo              float64            `json:"quota_1mo"`
 	QuotaSpark5h          float64            `json:"quota_spark_5h"`
 	QuotaSpark7d          float64            `json:"quota_spark_7d"`
+	QuotaSpark1mo         float64            `json:"quota_spark_1mo"`
 	Reset5h               pgtype.Timestamptz `json:"reset_5h"`
 	Reset7d               pgtype.Timestamptz `json:"reset_7d"`
+	Reset1mo              pgtype.Timestamptz `json:"reset_1mo"`
 	ResetSpark5h          pgtype.Timestamptz `json:"reset_spark_5h"`
 	ResetSpark7d          pgtype.Timestamptz `json:"reset_spark_7d"`
+	ResetSpark1mo         pgtype.Timestamptz `json:"reset_spark_1mo"`
 	ThrottledUntilDefault pgtype.Timestamptz `json:"throttled_until_default"`
 	ThrottledUntilSpark   pgtype.Timestamptz `json:"throttled_until_spark"`
 	SyncedAt              pgtype.Timestamptz `json:"synced_at"`
@@ -314,12 +334,16 @@ func (q *Queries) ListCodexPaged(ctx context.Context, arg ListCodexPagedParams) 
 			&i.Reason,
 			&i.Quota5h,
 			&i.Quota7d,
+			&i.Quota1mo,
 			&i.QuotaSpark5h,
 			&i.QuotaSpark7d,
+			&i.QuotaSpark1mo,
 			&i.Reset5h,
 			&i.Reset7d,
+			&i.Reset1mo,
 			&i.ResetSpark5h,
 			&i.ResetSpark7d,
+			&i.ResetSpark1mo,
 			&i.ThrottledUntilDefault,
 			&i.ThrottledUntilSpark,
 			&i.SyncedAt,

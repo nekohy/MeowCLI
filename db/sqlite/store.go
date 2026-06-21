@@ -72,6 +72,10 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		d.Close()
 		return nil, err
 	}
+	if err := ensureCodexQuota1moColumns(ctx, d); err != nil {
+		d.Close()
+		return nil, err
+	}
 
 	return &Store{
 		db:      d,
@@ -79,13 +83,36 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	}, nil
 }
 
-func ensureModelPluginColumn(ctx context.Context, d *sql.DB) error {
-	rows, err := d.QueryContext(ctx, "PRAGMA table_info(models)")
+func ensureCodexQuota1moColumns(ctx context.Context, d *sql.DB) error {
+	columns, err := sqliteColumnSet(ctx, d, "codex_quota")
 	if err != nil {
-		return fmt.Errorf("sqlite inspect models schema: %w", err)
+		return err
+	}
+	additions := map[string]string{
+		"quota_1mo":       "ALTER TABLE codex_quota ADD COLUMN quota_1mo REAL NOT NULL DEFAULT 1.0",
+		"reset_1mo":       "ALTER TABLE codex_quota ADD COLUMN reset_1mo TEXT",
+		"quota_spark_1mo": "ALTER TABLE codex_quota ADD COLUMN quota_spark_1mo REAL NOT NULL DEFAULT 1.0",
+		"reset_spark_1mo": "ALTER TABLE codex_quota ADD COLUMN reset_spark_1mo TEXT",
+	}
+	for name, stmt := range additions {
+		if columns[name] {
+			continue
+		}
+		if _, err := d.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("sqlite add codex_quota.%s column: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func sqliteColumnSet(ctx context.Context, d *sql.DB, table string) (map[string]bool, error) {
+	rows, err := d.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return nil, fmt.Errorf("sqlite inspect %s schema: %w", table, err)
 	}
 	defer rows.Close()
 
+	columns := make(map[string]bool)
 	for rows.Next() {
 		var cid int
 		var name, columnType string
@@ -93,14 +120,23 @@ func ensureModelPluginColumn(ctx context.Context, d *sql.DB) error {
 		var defaultValue sql.NullString
 		var pk int
 		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
-			return fmt.Errorf("sqlite scan models schema: %w", err)
+			return nil, fmt.Errorf("sqlite scan %s schema: %w", table, err)
 		}
-		if name == "plugin" {
-			return nil
-		}
+		columns[name] = true
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("sqlite read models schema: %w", err)
+		return nil, fmt.Errorf("sqlite read %s schema: %w", table, err)
+	}
+	return columns, nil
+}
+
+func ensureModelPluginColumn(ctx context.Context, d *sql.DB) error {
+	columns, err := sqliteColumnSet(ctx, d, "models")
+	if err != nil {
+		return err
+	}
+	if columns["plugin"] {
+		return nil
 	}
 	if _, err := d.ExecContext(ctx, "ALTER TABLE models ADD COLUMN plugin TEXT NOT NULL DEFAULT ''"); err != nil {
 		return fmt.Errorf("sqlite add models.plugin column: %w", err)

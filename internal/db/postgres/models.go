@@ -74,12 +74,16 @@ type CodexQuotum struct {
 	CredentialID        string             `json:"credential_id"`
 	Quota5h             float64            `json:"quota_5h"`
 	Quota7d             float64            `json:"quota_7d"`
+	Quota1mo            float64            `json:"quota_1mo"`
 	QuotaSpark5h        float64            `json:"quota_spark_5h"`
 	QuotaSpark7d        float64            `json:"quota_spark_7d"`
+	QuotaSpark1mo       float64            `json:"quota_spark_1mo"`
 	Reset5h             pgtype.Timestamptz `json:"reset_5h"`
 	Reset7d             pgtype.Timestamptz `json:"reset_7d"`
+	Reset1mo            pgtype.Timestamptz `json:"reset_1mo"`
 	ResetSpark5h        pgtype.Timestamptz `json:"reset_spark_5h"`
 	ResetSpark7d        pgtype.Timestamptz `json:"reset_spark_7d"`
+	ResetSpark1mo       pgtype.Timestamptz `json:"reset_spark_1mo"`
 	ThrottledUntil      pgtype.Timestamptz `json:"throttled_until"`
 	ThrottledUntilSpark pgtype.Timestamptz `json:"throttled_until_spark"`
 	SyncedAt            pgtype.Timestamptz `json:"synced_at"`
