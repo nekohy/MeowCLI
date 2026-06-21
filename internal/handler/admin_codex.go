@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	codexapi "github.com/nekohy/MeowCLI/api/codex"
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
 	"github.com/nekohy/MeowCLI/core/scheduling"
 	db "github.com/nekohy/MeowCLI/internal/store"
@@ -18,6 +19,7 @@ import (
 )
 
 const defaultCodexPageSize = 6
+const sessionCodexAccessTokenTTL = 100 * 365 * 24 * time.Hour
 
 type batchError struct {
 	Input string `json:"input"`
@@ -134,6 +136,7 @@ type batchCreateCodexReq struct {
 }
 
 func (a *AdminHandler) processOneToken(ctx context.Context, token string) (string, error) {
+	token = strings.TrimSpace(token)
 	switch {
 	case strings.HasPrefix(token, "rt_"), strings.HasPrefix(token, "oaistb"):
 		tokenData, _, err := a.codexAPI.RefreshAccessToken(ctx, token)
@@ -141,10 +144,16 @@ func (a *AdminHandler) processOneToken(ctx context.Context, token string) (strin
 			return "", fmt.Errorf("failed to refresh refresh_token: %w", err)
 		}
 		return a.upsertCodexFromTokenData(ctx, tokenData.AccessToken, tokenData.RefreshToken, tokenData.IDToken)
-	case strings.HasPrefix(token, "eyJ"), strings.HasPrefix(token, "at-"):
+	case strings.HasPrefix(token, "at-"):
+		session, err := a.codexAPI.FetchSession(ctx, token)
+		if err != nil {
+			return "", err
+		}
+		return a.upsertCodexFromSession(ctx, token, session)
+	case strings.HasPrefix(token, "eyJ"):
 		return a.upsertCodexFromTokenData(ctx, token, "", "")
 	default:
-		return "", fmt.Errorf("unsupported token format: expected refresh_token starting with rt_/oaistb or access_token starting with eyJ")
+		return "", fmt.Errorf("unsupported token format: expected refresh_token starting with rt_/oaistb or access_token starting with eyJ/at-")
 	}
 }
 
@@ -158,6 +167,10 @@ type codexCredentialPayload struct {
 }
 
 func (a *AdminHandler) parseCodexTokenData(accessToken, refreshToken, idToken string) (*codexCredentialPayload, error) {
+	accessToken = strings.TrimSpace(accessToken)
+	refreshToken = strings.TrimSpace(refreshToken)
+	idToken = strings.TrimSpace(idToken)
+
 	accessClaims, err := utils.ParseJWT(accessToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse access_token: %w", err)
@@ -204,13 +217,51 @@ func (a *AdminHandler) parseCodexTokenData(accessToken, refreshToken, idToken st
 	}, nil
 }
 
+func sessionCodexTokenPayload(accessToken string, session *codexapi.SessionData) (*codexCredentialPayload, error) {
+	accessToken = strings.TrimSpace(accessToken)
+	if accessToken == "" {
+		return nil, fmt.Errorf("access_token is required")
+	}
+	if session == nil {
+		return nil, fmt.Errorf("chatgpt session is required")
+	}
+	email := strings.ToLower(strings.TrimSpace(session.Email))
+	accountID := strings.TrimSpace(session.AccountID)
+	if email == "" {
+		return nil, fmt.Errorf("chatgpt session missing user.email")
+	}
+	if accountID == "" {
+		return nil, fmt.Errorf("chatgpt session missing account.id")
+	}
+
+	return &codexCredentialPayload{
+		CredentialID: email + "__" + accountID,
+		AccessToken:  accessToken,
+		RefreshToken: "",
+		Expired:      time.Now().UTC().Add(sessionCodexAccessTokenTTL),
+		PlanType:     corecodex.NormalizePlanType("unknown"),
+		Email:        email,
+	}, nil
+}
+
+func (a *AdminHandler) upsertCodexFromSession(ctx context.Context, accessToken string, session *codexapi.SessionData) (string, error) {
+	payload, err := sessionCodexTokenPayload(accessToken, session)
+	if err != nil {
+		return "", err
+	}
+	return a.upsertCodexPayload(ctx, payload)
+}
+
 func (a *AdminHandler) upsertCodexFromTokenData(ctx context.Context, accessToken, refreshToken, idToken string) (string, error) {
 	payload, err := a.parseCodexTokenData(accessToken, refreshToken, idToken)
 	if err != nil {
 		return "", err
 	}
+	return a.upsertCodexPayload(ctx, payload)
+}
 
-	_, err = a.store.CreateCodex(ctx, db.CreateCodexParams{
+func (a *AdminHandler) upsertCodexPayload(ctx context.Context, payload *codexCredentialPayload) (string, error) {
+	_, err := a.store.CreateCodex(ctx, db.CreateCodexParams{
 		ID:           payload.CredentialID,
 		Status:       "enabled",
 		AccessToken:  payload.AccessToken,

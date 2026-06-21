@@ -201,6 +201,9 @@ export function formatTime(value?: string | null) {
   if (Number.isNaN(date.getTime())) {
     return value
   }
+  if (date.getFullYear() >= 2100) {
+    return '未知'
+  }
 
   return new Intl.DateTimeFormat('zh-CN', {
     year: 'numeric',
