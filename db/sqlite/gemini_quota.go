@@ -21,6 +21,22 @@ func (s *Store) UpsertGeminiQuota(ctx context.Context, arg db.UpsertGeminiQuotaP
 	return err
 }
 
+func (s *Store) GetGeminiQuota(ctx context.Context, id string) (db.UpsertGeminiQuotaParams, error) {
+	row, err := s.queries.GetGeminiQuota(ctx, id)
+	if err != nil {
+		return db.UpsertGeminiQuotaParams{}, wrapError(err)
+	}
+	return db.UpsertGeminiQuotaParams{
+		CredentialID:   row.CredentialID,
+		QuotaPro:       row.QuotaPro,
+		ResetPro:       parseTime(row.ResetPro),
+		QuotaFlash:     row.QuotaFlash,
+		ResetFlash:     parseTime(row.ResetFlash),
+		QuotaFlashlite: row.QuotaFlashlite,
+		ResetFlashlite: parseTime(row.ResetFlashlite),
+	}, nil
+}
+
 func (s *Store) SetGeminiQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error {
 	switch modelTier {
 	case "pro":

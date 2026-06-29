@@ -96,6 +96,19 @@ func ParseQuotaFromErrorText(text string) (*Quota, bool) {
 	return ParseQuotaFromError([]byte(text))
 }
 
+// IsResourceExhausted reports whether a Google RPC error body indicates the
+// per-tier quota is exhausted (status == "RESOURCE_EXHAUSTED"). This covers the
+// terse 429 bodies (e.g. retrieveUserQuota) that carry no error.details and thus
+// are not detected by ParseQuotaFromError.
+func IsResourceExhausted(errorBody []byte) bool {
+	return gjson.GetBytes(errorBody, "error.status").String() == "RESOURCE_EXHAUSTED"
+}
+
+// IsResourceExhaustedText is a convenience wrapper that accepts a string error body.
+func IsResourceExhaustedText(text string) bool {
+	return IsResourceExhausted([]byte(text))
+}
+
 // ParseQuotaFromErrorOrFull returns the parsed quota from a 429 error body,
 // or a zero-quota default if no quota info was found.
 func ParseQuotaFromErrorOrFull(errorBody []byte) *Quota {

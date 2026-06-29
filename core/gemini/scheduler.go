@@ -26,6 +26,7 @@ const quotaRefreshFailureBackoff = time.Minute
 // SchedulerStore describes the SQL operations the scheduler depends on.
 type SchedulerStore interface {
 	ListAvailableGeminiCLI(ctx context.Context) ([]db.ListAvailableGeminiCLIRow, error)
+	GetGeminiQuota(ctx context.Context, id string) (db.UpsertGeminiQuotaParams, error)
 	UpsertGeminiQuota(ctx context.Context, arg db.UpsertGeminiQuotaParams) error
 	SetGeminiQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
 	UpdateGeminiCLIStatus(ctx context.Context, id string, status string, reason string) (db.GeminiCredential, error)
@@ -704,6 +705,16 @@ func (s *Scheduler) RecordFailure(ctx context.Context, credentialID string, stat
 		s.refreshCredentialWeight(opCtx, credentialID, modelTier)
 	}
 
+	// 上游明确返回日配额耗尽(RESOURCE_EXHAUSTED)时,把该档位 quota 置 0 并按 Google
+	// 给出的 reset 排除,而非仅做秒级熔断——否则熔断一过 CalcScore 又把陈旧满额值当
+	// 可用反复派单空转。普通瞬时 429(无耗尽语义)则继续走下方的退避熔断。
+	if statusCode == http.StatusTooManyRequests {
+		if resetAt, exhausted := resolveExhaustedReset(metrics.Error, modelTier); exhausted {
+			s.markTierQuotaExhausted(opCtx, credentialID, modelTier, resetAt)
+			return
+		}
+	}
+
 	now := time.Now()
 	throttleTier := throttleTierForModel(modelTier)
 	throttleKey := throttleStateKey(credentialID, throttleTier)
@@ -828,6 +839,73 @@ func (s *Scheduler) UpdateQuota(ctx context.Context, credentialID string, q *gem
 	}
 }
 
+// quotaExhaustedFallbackReset 是上游报配额耗尽但未给出明确重置时间时,临时排除该
+// 档位的兜底冷却时长(到期后由 quota-sync 重新探测真实配额,而非永久误排除)。
+const quotaExhaustedFallbackReset = 30 * time.Minute
+
+// resolveExhaustedReset 判断上游错误体是否表示该 tier 日配额耗尽(RESOURCE_EXHAUSTED),
+// 命中则返回该档位应使用的 reset 时间(优先采用 Google 错误体里的 quotaResetDelay;
+// 简洁 429 体无 details 时返回零值, 由 markTierQuotaExhausted 用兜底冷却补齐)。
+func resolveExhaustedReset(errText, modelTier string) (time.Time, bool) {
+	if errText == "" {
+		return time.Time{}, false
+	}
+	body := []byte(errText)
+	if q, found := geminiapi.ParseQuotaFromError(body); found {
+		switch throttleTierForModel(modelTier) {
+		case ModelTierFlash:
+			return q.ResetFlash, true
+		case ModelTierFlashLite:
+			return q.ResetFlashlite, true
+		default:
+			return q.ResetPro, true
+		}
+	}
+	if geminiapi.IsResourceExhausted(body) {
+		return time.Time{}, true
+	}
+	return time.Time{}, false
+}
+
+// markTierQuotaExhausted 在上游明确返回配额耗尽时,将指定 tier 的 quota 置 0、reset
+// 设为 resetAt,其余档位保留 DB 现值,落库并刷新缓存。如此 CalcScore 立即判该档位
+// 不可用,根治「陈旧满额值残留 + 调度反复派单空转」。其他档位(如 flash)不受影响。
+func (s *Scheduler) markTierQuotaExhausted(ctx context.Context, credentialID, modelTier string, resetAt time.Time) {
+	if s.store == nil || credentialID == "" {
+		return
+	}
+	cur, err := s.store.GetGeminiQuota(ctx, credentialID)
+	if err != nil {
+		log.Warn().Err(err).Str("credential", credentialID).Msg("gemini scheduler: read quota before exhausted mark")
+		return
+	}
+	if resetAt.IsZero() {
+		resetAt = time.Now().Add(quotaExhaustedFallbackReset)
+	}
+	q := &geminiapi.Quota{
+		QuotaPro:       cur.QuotaPro,
+		ResetPro:       cur.ResetPro,
+		QuotaFlash:     cur.QuotaFlash,
+		ResetFlash:     cur.ResetFlash,
+		QuotaFlashlite: cur.QuotaFlashlite,
+		ResetFlashlite: cur.ResetFlashlite,
+	}
+	tier := throttleTierForModel(modelTier)
+	switch tier {
+	case ModelTierFlash:
+		q.QuotaFlash = 0
+		q.ResetFlash = resetAt
+	case ModelTierFlashLite:
+		q.QuotaFlashlite = 0
+		q.ResetFlashlite = resetAt
+	default:
+		q.QuotaPro = 0
+		q.ResetPro = resetAt
+	}
+	s.UpdateQuota(ctx, credentialID, q)
+	log.Warn().Str("credential", credentialID).Str("model_tier", tier).Time("reset", resetAt).Msg("gemini credential tier quota exhausted, marked unavailable until reset")
+}
+
 func (s *Scheduler) refreshPlanType(ctx context.Context, credentialID, accessToken, projectID, fallback string) {
 	if s.planAPI == nil || s.store == nil || credentialID == "" {
 		return
@@ -932,6 +1010,14 @@ func (s *Scheduler) QueueQuotaRefresh(_ context.Context, credentialID string, mo
 
 		q, err := s.fetcher.FetchQuota(refreshCtx, credentialID, token, projectID)
 		if err != nil {
+			// 查配额本身被 429 RESOURCE_EXHAUSTED 拒时, 说明该档位确已耗尽:
+			// 直接落库置 0(而非仅内存短退避后保留陈旧满额值), 让其按 reset 退出调度。
+			if code, body, ok := geminiapi.ParseAPIError(err); ok && code == http.StatusTooManyRequests {
+				if resetAt, exhausted := resolveExhaustedReset(body, tier); exhausted {
+					s.markTierQuotaExhausted(refreshCtx, credentialID, tier, resetAt)
+					return
+				}
+			}
 			s.rememberThrottleUntil(credentialID, tier, time.Now().Add(quotaRefreshFailureBackoff))
 			log.Warn().Err(err).Str("credential", credentialID).Str("model_tier", tier).Msg("gemini scheduler: quota refresh fetch")
 			return

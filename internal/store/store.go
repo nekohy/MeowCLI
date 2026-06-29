@@ -516,6 +516,7 @@ type Store interface {
 	RestoreExpiredThrottledCodex(ctx context.Context) error
 	NextCodexThrottleDeadline(ctx context.Context) (time.Time, error)
 	GetGeminiCLI(ctx context.Context, id string) (GeminiCredential, error)
+	GetGeminiQuota(ctx context.Context, id string) (UpsertGeminiQuotaParams, error)
 	UpdateGeminiTokens(ctx context.Context, arg UpdateGeminiTokensParams) (GeminiCredential, error)
 	UpdateGeminiPlanType(ctx context.Context, id string, planType string) (GeminiCredential, error)
 	ListGeminiCLI(ctx context.Context) ([]ListGeminiCLIRow, error)
