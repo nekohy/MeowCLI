@@ -857,6 +857,9 @@ func throttleTierForModel(modelTier string) string {
 
 // HandleUnauthorized handles auth/account terminal statuses outside the error-rate backoff path.
 func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) bool {
+	if statusCode == http.StatusUnauthorized && isCodexNoMatchingAccessRuleError(metrics.Error) {
+		return false
+	}
 	if isCredentialDirectDisableStatus(int(statusCode)) {
 		opCtx, cancel := scheduling.WithDefaultWriteTimeout(ctx)
 		defer cancel()
