@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS codex_quota (
     reset_spark_5h TEXT,
     reset_spark_7d TEXT,
     reset_spark_1mo TEXT,
+    reset_credits_count INTEGER NOT NULL DEFAULT 0,
     throttled_until TEXT NOT NULL DEFAULT (datetime('now')),
     throttled_until_spark TEXT NOT NULL DEFAULT (datetime('now')),
     synced_at TEXT NOT NULL DEFAULT (datetime('now'))

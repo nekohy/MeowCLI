@@ -56,6 +56,8 @@ func Setup(r *gin.Engine, deps Deps) {
 			apiGroup.POST("/codex", deps.Admin.BatchCreateCodex)
 			apiGroup.PUT("/codex/status", deps.Admin.BatchUpdateStatus)
 			apiGroup.DELETE("/codex", deps.Admin.BatchDeleteCodex)
+			apiGroup.GET("/codex/rate-limit-reset-credits", deps.Admin.ListCodexRateLimitResetCredits)
+			apiGroup.POST("/codex/rate-limit-reset-credits/consume", deps.Admin.ConsumeCodexRateLimitResetCredit)
 
 			apiGroup.GET("/gemini", deps.Admin.ListGemini)
 			apiGroup.POST("/gemini", deps.Admin.BatchCreateGemini)

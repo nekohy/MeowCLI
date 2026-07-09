@@ -36,6 +36,7 @@ type codexListItem struct {
 	SyncedAt time.Time             `json:"synced_at"`
 	Default  codexSchedulingMetric `json:"default"`
 	Spark    codexSchedulingMetric `json:"spark"`
+	ResetCreditsCount int `json:"reset_credits_count"`
 }
 
 func (a *AdminHandler) ListCodex(c *gin.Context) {
@@ -376,6 +377,7 @@ func (a *AdminHandler) serializeCodexRows(ctx context.Context, rows []db.ListCod
 				Score:          scoreSpark,
 				Weight:         wSpark,
 			},
+			ResetCreditsCount: row.ResetCreditsCount,
 		})
 	}
 	overlayCodexQuotaCache(items, a.credRefresh)
@@ -409,4 +411,39 @@ func (a *AdminHandler) syncCredentialQuotas(ctx context.Context, handler utils.H
 	if len(ids) > 0 {
 		a.credRefresh.SyncQuotas(ctx, handler, ids)
 	}
+}
+
+func (a *AdminHandler) ListCodexRateLimitResetCredits(c *gin.Context) {
+	credentialID := strings.TrimSpace(c.Query("credential_id"))
+	if credentialID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "credential_id is required"})
+		return
+	}
+	credits, err := a.credRefresh.ListCodexRateLimitResetCredits(c.Request.Context(), credentialID)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, credits)
+}
+
+func (a *AdminHandler) ConsumeCodexRateLimitResetCredit(c *gin.Context) {
+	var req struct {
+		CredentialID string `json:"credential_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "credential_id is required"})
+		return
+	}
+	credentialID := strings.TrimSpace(req.CredentialID)
+	if credentialID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "credential_id is required"})
+		return
+	}
+	resp, err := a.credRefresh.ConsumeCodexRateLimitResetCredit(c.Request.Context(), credentialID)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }

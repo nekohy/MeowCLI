@@ -82,6 +82,7 @@ type CodexQuotum struct {
 	ResetSpark5h        sql.NullString `json:"reset_spark_5h"`
 	ResetSpark7d        sql.NullString `json:"reset_spark_7d"`
 	ResetSpark1mo       sql.NullString `json:"reset_spark_1mo"`
+	ResetCreditsCount   int64          `json:"reset_credits_count"`
 	ThrottledUntil      string         `json:"throttled_until"`
 	ThrottledUntilSpark string         `json:"throttled_until_spark"`
 	SyncedAt            string         `json:"synced_at"`

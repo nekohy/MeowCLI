@@ -1,7 +1,7 @@
 -- name: UpsertQuota :one
 -- Syncs remaining quota ratios and reset timestamps from upstream.
-INSERT INTO codex_quota (credential_id, quota_5h, quota_7d, quota_1mo, quota_spark_5h, quota_spark_7d, quota_spark_1mo, reset_5h, reset_7d, reset_1mo, reset_spark_5h, reset_spark_7d, reset_spark_1mo, synced_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+INSERT INTO codex_quota (credential_id, quota_5h, quota_7d, quota_1mo, quota_spark_5h, quota_spark_7d, quota_spark_1mo, reset_5h, reset_7d, reset_1mo, reset_spark_5h, reset_spark_7d, reset_spark_1mo, reset_credits_count, synced_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT (credential_id) DO UPDATE
 SET
     quota_5h       = EXCLUDED.quota_5h,
@@ -16,6 +16,7 @@ SET
     reset_spark_5h = EXCLUDED.reset_spark_5h,
     reset_spark_7d = EXCLUDED.reset_spark_7d,
     reset_spark_1mo = EXCLUDED.reset_spark_1mo,
+    reset_credits_count = EXCLUDED.reset_credits_count,
     synced_at      = datetime('now')
 RETURNING *;
 

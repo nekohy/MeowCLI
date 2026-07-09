@@ -23,6 +23,7 @@ type Quota struct {
 	ResetSpark5h  time.Time // Spark 5h 窗口重置绝对时间（零值表示无此窗口）
 	ResetSpark7d  time.Time // Spark 7d 窗口重置绝对时间（零值表示无此窗口）
 	ResetSpark1mo time.Time // Spark 1mo 窗口重置绝对时间（零值表示无此窗口）
+	ResetCreditsCount int // rate-limit reset credits 可用数量（来自 usage 响应，仅内存缓存）
 
 	// HasDefaultQuota / HasSparkQuota distinguish partial updates from response
 	// headers. Callers ignore updates when neither flag is set.

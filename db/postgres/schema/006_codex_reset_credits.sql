@@ -1,0 +1,2 @@
+ALTER TABLE codex_quota
+    ADD COLUMN IF NOT EXISTS reset_credits_count INTEGER NOT NULL DEFAULT 0;

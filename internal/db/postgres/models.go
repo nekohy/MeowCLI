@@ -87,6 +87,7 @@ type CodexQuotum struct {
 	ThrottledUntil      pgtype.Timestamptz `json:"throttled_until"`
 	ThrottledUntilSpark pgtype.Timestamptz `json:"throttled_until_spark"`
 	SyncedAt            pgtype.Timestamptz `json:"synced_at"`
+	ResetCreditsCount   int32              `json:"reset_credits_count"`
 }
 
 type Gemini struct {

@@ -158,6 +158,7 @@ SELECT
     COALESCE(q.reset_spark_5h, '') AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '') AS reset_spark_7d,
     COALESCE(q.reset_spark_1mo, '') AS reset_spark_1mo,
+    COALESCE(q.reset_credits_count, 0) AS reset_credits_count,
     COALESCE(q.throttled_until, '') AS throttled_until_default,
     COALESCE(q.throttled_until_spark, '') AS throttled_until_spark,
     COALESCE(q.synced_at, '') AS synced_at
@@ -186,6 +187,7 @@ type ListCodexRow struct {
 	ResetSpark5h          string  `json:"reset_spark_5h"`
 	ResetSpark7d          string  `json:"reset_spark_7d"`
 	ResetSpark1mo         string  `json:"reset_spark_1mo"`
+	ResetCreditsCount     int64   `json:"reset_credits_count"`
 	ThrottledUntilDefault string  `json:"throttled_until_default"`
 	ThrottledUntilSpark   string  `json:"throttled_until_spark"`
 	SyncedAt              string  `json:"synced_at"`
@@ -220,6 +222,7 @@ func (q *Queries) ListCodex(ctx context.Context) ([]ListCodexRow, error) {
 			&i.ResetSpark5h,
 			&i.ResetSpark7d,
 			&i.ResetSpark1mo,
+			&i.ResetCreditsCount,
 			&i.ThrottledUntilDefault,
 			&i.ThrottledUntilSpark,
 			&i.SyncedAt,
@@ -252,6 +255,7 @@ SELECT
     COALESCE(q.reset_spark_5h, '') AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '') AS reset_spark_7d,
     COALESCE(q.reset_spark_1mo, '') AS reset_spark_1mo,
+    COALESCE(q.reset_credits_count, 0) AS reset_credits_count,
     COALESCE(q.throttled_until, '') AS throttled_until_default,
     COALESCE(q.throttled_until_spark, '') AS throttled_until_spark,
     COALESCE(q.synced_at, '') AS synced_at
@@ -304,6 +308,7 @@ type ListCodexPagedRow struct {
 	ResetSpark5h          string  `json:"reset_spark_5h"`
 	ResetSpark7d          string  `json:"reset_spark_7d"`
 	ResetSpark1mo         string  `json:"reset_spark_1mo"`
+	ResetCreditsCount     int64   `json:"reset_credits_count"`
 	ThrottledUntilDefault string  `json:"throttled_until_default"`
 	ThrottledUntilSpark   string  `json:"throttled_until_spark"`
 	SyncedAt              string  `json:"synced_at"`
@@ -345,6 +350,7 @@ func (q *Queries) ListCodexPaged(ctx context.Context, arg ListCodexPagedParams) 
 			&i.ResetSpark5h,
 			&i.ResetSpark7d,
 			&i.ResetSpark1mo,
+			&i.ResetCreditsCount,
 			&i.ThrottledUntilDefault,
 			&i.ThrottledUntilSpark,
 			&i.SyncedAt,

@@ -477,6 +477,20 @@ func (d *credentialRefreshDispatcher) CachedCodexQuota(id string) (coreCodex.Cac
 	return d.codex.CachedQuota(id)
 }
 
+func (d *credentialRefreshDispatcher) ListCodexRateLimitResetCredits(ctx context.Context, credentialID string) (*codex.RateLimitResetCredits, error) {
+	if d == nil || d.codex == nil {
+		return nil, fmt.Errorf("codex scheduler not ready")
+	}
+	return d.codex.ListRateLimitResetCredits(ctx, credentialID)
+}
+
+func (d *credentialRefreshDispatcher) ConsumeCodexRateLimitResetCredit(ctx context.Context, credentialID string) (*codex.ConsumeRateLimitResetCreditResponse, error) {
+	if d == nil || d.codex == nil {
+		return nil, fmt.Errorf("codex scheduler not ready")
+	}
+	return d.codex.ConsumeRateLimitResetCredit(ctx, credentialID)
+}
+
 func (d *credentialRefreshDispatcher) CachedGeminiQuota(id string) (coreGemini.CachedQuotaSnapshot, bool) {
 	if d == nil || d.gemini == nil {
 		return coreGemini.CachedQuotaSnapshot{}, false

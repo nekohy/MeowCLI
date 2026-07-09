@@ -41,6 +41,8 @@ type SchedulerStore interface {
 // QuotaFetcher 由 API 适配器实现，用于从上游服务获取指定凭证的配额
 type QuotaFetcher interface {
 	FetchQuota(ctx context.Context, credentialID string, accessToken string) (*codexAPI.Quota, error)
+	FetchRateLimitResetCredits(ctx context.Context, credentialID string, accessToken string) (*codexclient.RateLimitResetCredits, error)
+	ConsumeRateLimitResetCredit(ctx context.Context, credentialID string, accessToken string, redeemRequestID string) (*codexclient.ConsumeRateLimitResetCreditResponse, error)
 }
 
 // throttleState 在内存中跟踪每个凭证的指数退避状态
@@ -1020,19 +1022,20 @@ func (s *Scheduler) StoreQuota(ctx context.Context, credentialID string, q *code
 		cacheUpdated = false
 	}
 	if err := s.store.UpsertQuota(ctx, db.UpsertQuotaParams{
-		CredentialID:  credentialID,
-		Quota5h:       q.Quota5h,
-		Quota7d:       q.Quota7d,
-		Quota1mo:      q.Quota1mo,
-		QuotaSpark5h:  q.QuotaSpark5h,
-		QuotaSpark7d:  q.QuotaSpark7d,
-		QuotaSpark1mo: q.QuotaSpark1mo,
-		Reset5h:       q.Reset5h,
-		Reset7d:       q.Reset7d,
-		Reset1mo:      q.Reset1mo,
-		ResetSpark5h:  q.ResetSpark5h,
-		ResetSpark7d:  q.ResetSpark7d,
-		ResetSpark1mo: q.ResetSpark1mo,
+		CredentialID:      credentialID,
+		Quota5h:           q.Quota5h,
+		Quota7d:           q.Quota7d,
+		Quota1mo:          q.Quota1mo,
+		QuotaSpark5h:      q.QuotaSpark5h,
+		QuotaSpark7d:      q.QuotaSpark7d,
+		QuotaSpark1mo:     q.QuotaSpark1mo,
+		Reset5h:           q.Reset5h,
+		Reset7d:           q.Reset7d,
+		Reset1mo:          q.Reset1mo,
+		ResetSpark5h:      q.ResetSpark5h,
+		ResetSpark7d:      q.ResetSpark7d,
+		ResetSpark1mo:     q.ResetSpark1mo,
+		ResetCreditsCount: q.ResetCreditsCount,
 	}); err != nil {
 		log.Error().Err(err).Str("credential", credentialID).Msg("scheduler: upsert quota")
 		return

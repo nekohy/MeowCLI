@@ -36,6 +36,8 @@ type CredentialRefresher interface {
 	CachedCodexQuota(id string) (corecodex.CachedQuotaSnapshot, bool)
 	CachedGeminiQuota(id string) (coregemini.CachedQuotaSnapshot, bool)
 	CachedAntigravityQuota(id string) (coreantigravity.CachedQuotaSnapshot, bool)
+	ListCodexRateLimitResetCredits(ctx context.Context, credentialID string) (*codexapi.RateLimitResetCredits, error)
+	ConsumeCodexRateLimitResetCredit(ctx context.Context, credentialID string) (*codexapi.ConsumeRateLimitResetCreditResponse, error)
 }
 
 type ModelCache interface {

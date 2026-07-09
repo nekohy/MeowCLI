@@ -23,6 +23,7 @@ func (s *Store) UpsertQuota(ctx context.Context, arg db.UpsertQuotaParams) error
 		ResetSpark5h:  sqliteTimeString(arg.ResetSpark5h),
 		ResetSpark7d:  sqliteTimeString(arg.ResetSpark7d),
 		ResetSpark1mo: sqliteTimeString(arg.ResetSpark1mo),
+		ResetCreditsCount: int64(arg.ResetCreditsCount),
 	})
 	return err
 }

@@ -9,6 +9,8 @@ const (
 	ChatURL   = "https://chatgpt.com/backend-api/codex/responses"
 	UsageURL  = "https://chatgpt.com/backend-api/wham/usage"
 	WhoamiURL = "https://auth.openai.com/api/accounts/v1/user-auth-credential/whoami"
+	RateLimitResetCreditsURL       = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+	ConsumeRateLimitResetCreditURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume"
 )
 
 // DefaultHeaders 是 Codex 客户端初始化时注入的固定请求头

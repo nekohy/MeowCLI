@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	codexclient "github.com/nekohy/MeowCLI/api/codex"
 	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
 	"github.com/nekohy/MeowCLI/core/scheduling"
 	"net/http"
@@ -46,6 +47,8 @@ type CodexStore interface {
 type Client interface {
 	RefreshAccessToken(ctx context.Context, refreshToken string) (*codexutils.CodexTokenData, bool, error)
 	FetchQuota(ctx context.Context, credentialID string, accessToken string) (*codexutils.Quota, error)
+	FetchRateLimitResetCredits(ctx context.Context, credentialID string, accessToken string) (*codexclient.RateLimitResetCredits, error)
+	ConsumeRateLimitResetCredit(ctx context.Context, credentialID string, accessToken string, redeemRequestID string) (*codexclient.ConsumeRateLimitResetCreditResponse, error)
 }
 
 // ManagerConfig 配置 codex 令牌管理器

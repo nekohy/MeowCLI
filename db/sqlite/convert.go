@@ -104,7 +104,7 @@ func listAvailableCodexRowTo(id, planType string, quota5h, quota7d, quota1mo, qu
 	}
 }
 
-func listCodexRowTo(id, status, accessToken, expired, refreshToken, planType, reason string, quota5h, quota7d, quota1mo, quotaSpark5h, quotaSpark7d, quotaSpark1mo float64, reset5h, reset7d, reset1mo, resetSpark5h, resetSpark7d, resetSpark1mo, throttledUntilDefault, throttledUntilSpark, syncedAt string) db.ListCodexRow {
+func listCodexRowTo(id, status, accessToken, expired, refreshToken, planType, reason string, quota5h, quota7d, quota1mo, quotaSpark5h, quotaSpark7d, quotaSpark1mo float64, reset5h, reset7d, reset1mo, resetSpark5h, resetSpark7d, resetSpark1mo, throttledUntilDefault, throttledUntilSpark, syncedAt string, resetCreditsCount int) db.ListCodexRow {
 	return db.ListCodexRow{
 		ID:                    id,
 		Status:                status,
@@ -125,6 +125,7 @@ func listCodexRowTo(id, status, accessToken, expired, refreshToken, planType, re
 		ResetSpark5h:          parseTime(resetSpark5h),
 		ResetSpark7d:          parseTime(resetSpark7d),
 		ResetSpark1mo:         parseTime(resetSpark1mo),
+		ResetCreditsCount:     resetCreditsCount,
 		ThrottledUntilDefault: parseTime(throttledUntilDefault),
 		ThrottledUntilSpark:   parseTime(throttledUntilSpark),
 		SyncedAt:              parseTime(syncedAt),

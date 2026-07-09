@@ -86,6 +86,7 @@ SELECT
     COALESCE(q.reset_spark_5h, '') AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '') AS reset_spark_7d,
     COALESCE(q.reset_spark_1mo, '') AS reset_spark_1mo,
+    COALESCE(q.reset_credits_count, 0) AS reset_credits_count,
     COALESCE(q.throttled_until, '') AS throttled_until_default,
     COALESCE(q.throttled_until_spark, '') AS throttled_until_spark,
     COALESCE(q.synced_at, '') AS synced_at
@@ -108,6 +109,7 @@ SELECT
     COALESCE(q.reset_spark_5h, '') AS reset_spark_5h,
     COALESCE(q.reset_spark_7d, '') AS reset_spark_7d,
     COALESCE(q.reset_spark_1mo, '') AS reset_spark_1mo,
+    COALESCE(q.reset_credits_count, 0) AS reset_credits_count,
     COALESCE(q.throttled_until, '') AS throttled_until_default,
     COALESCE(q.throttled_until_spark, '') AS throttled_until_spark,
     COALESCE(q.synced_at, '') AS synced_at

@@ -111,6 +111,7 @@ func (s *Store) ListCodex(ctx context.Context) ([]db.ListCodexRow, error) {
 			tsTo(row.ThrottledUntilDefault),
 			tsTo(row.ThrottledUntilSpark),
 			tsTo(row.SyncedAt),
+			int(row.ResetCreditsCount),
 		)
 	}
 	return resolved, nil
@@ -153,6 +154,7 @@ func (s *Store) ListCodexPaged(ctx context.Context, arg db.ListCredentialPagedPa
 			tsTo(row.ThrottledUntilDefault),
 			tsTo(row.ThrottledUntilSpark),
 			tsTo(row.SyncedAt),
+			int(row.ResetCreditsCount),
 		)
 	}
 	return resolved, nil

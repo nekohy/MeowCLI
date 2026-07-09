@@ -14,6 +14,7 @@ type usageResponse struct {
 	PlanType             string                `json:"plan_type"`
 	RateLimit            usageRateLimit        `json:"rate_limit"`
 	AdditionalRateLimits []additionalRateLimit `json:"additional_rate_limits"`
+	RateLimitResetCredits *rateLimitResetCreditsSummary `json:"rate_limit_reset_credits,omitempty"`
 }
 
 type usageRateLimit struct {
@@ -34,6 +35,29 @@ type rateLimitWindow struct {
 	ResetAt            int64 `json:"reset_at"`
 }
 
+type rateLimitResetCreditsSummary struct {
+	AvailableCount int `json:"available_count"`
+}
+
+// RateLimitResetCredit 是转发给前端的单条重置额度（仅保留必要字段，其余上游字段忽略）
+type RateLimitResetCredit struct {
+	Title     string  `json:"title"`
+	ExpiresAt *string `json:"expires_at"` // null/absent → nil
+	Status    string  `json:"status"`
+}
+
+// RateLimitResetCredits 是 rate-limit-reset-credits 列表响应（转发给前端）
+type RateLimitResetCredits struct {
+	Credits        []RateLimitResetCredit `json:"credits"`
+	AvailableCount int                    `json:"available_count"`
+}
+
+// ConsumeRateLimitResetCreditResponse 是消耗一次重置额度后的上游响应
+type ConsumeRateLimitResetCreditResponse struct {
+	Code         string `json:"code"`
+	WindowsReset int    `json:"windows_reset"`
+}
+
 func (c *Client) FetchQuota(ctx context.Context, credentialID, accessToken string) (*codexutils.Quota, error) {
 	reqCtx, cancel := withOptionalTimeout(ctx, utils.DefaultUpstreamTimeout)
 	defer cancel()
@@ -52,11 +76,49 @@ func (c *Client) FetchQuota(ctx context.Context, credentialID, accessToken strin
 	return parseUsageQuota(usage), nil
 }
 
+func (c *Client) FetchRateLimitResetCredits(ctx context.Context, credentialID, accessToken string) (*RateLimitResetCredits, error) {
+	reqCtx, cancel := withOptionalTimeout(ctx, utils.DefaultUpstreamTimeout)
+	defer cancel()
+
+	var out RateLimitResetCredits
+	_, err := c.client.R().
+		SetContext(reqCtx).
+		SetHeader("Authorization", "Bearer "+accessToken).
+		SetHeader("Chatgpt-Account-Id", utils.AccountIDFromCredentialID(credentialID)).
+		SetResult(&out).
+		Get(codexutils.RateLimitResetCreditsURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch rate-limit reset credits: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *Client) ConsumeRateLimitResetCredit(ctx context.Context, credentialID, accessToken, redeemRequestID string) (*ConsumeRateLimitResetCreditResponse, error) {
+	reqCtx, cancel := withOptionalTimeout(ctx, utils.DefaultUpstreamTimeout)
+	defer cancel()
+
+	var out ConsumeRateLimitResetCreditResponse
+	_, err := c.client.R().
+		SetContext(reqCtx).
+		SetHeader("Authorization", "Bearer "+accessToken).
+		SetHeader("Chatgpt-Account-Id", utils.AccountIDFromCredentialID(credentialID)).
+		SetBody(map[string]string{"redeem_request_id": redeemRequestID}).
+		SetResult(&out).
+		Post(codexutils.ConsumeRateLimitResetCreditURL)
+	if err != nil {
+		return nil, fmt.Errorf("consume rate-limit reset credit: %w", err)
+	}
+	return &out, nil
+}
+
 func parseUsageQuota(usage usageResponse) *codexutils.Quota {
 	quota := codexutils.NewQuota()
 	q := &quota
 	q.PlanType = normalizeUsagePlanType(usage.PlanType)
 	q.HasDefaultQuota = true
+	if usage.RateLimitResetCredits != nil {
+		q.ResetCreditsCount = usage.RateLimitResetCredits.AvailableCount
+	}
 	applyUsageRateLimit(q, usage.RateLimit, false)
 
 	sparkFound := false

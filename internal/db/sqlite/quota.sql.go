@@ -40,7 +40,7 @@ func (q *Queries) DeleteQuota(ctx context.Context, credentialID string) (int64, 
 }
 
 const getQuota = `-- name: GetQuota :one
-SELECT credential_id, quota_5h, quota_7d, quota_1mo, quota_spark_5h, quota_spark_7d, quota_spark_1mo, reset_5h, reset_7d, reset_1mo, reset_spark_5h, reset_spark_7d, reset_spark_1mo, throttled_until, throttled_until_spark, synced_at FROM codex_quota WHERE credential_id = ? LIMIT 1
+SELECT credential_id, quota_5h, quota_7d, quota_1mo, quota_spark_5h, quota_spark_7d, quota_spark_1mo, reset_5h, reset_7d, reset_1mo, reset_spark_5h, reset_spark_7d, reset_spark_1mo, reset_credits_count, throttled_until, throttled_until_spark, synced_at FROM codex_quota WHERE credential_id = ? LIMIT 1
 `
 
 func (q *Queries) GetQuota(ctx context.Context, credentialID string) (CodexQuotum, error) {
@@ -60,6 +60,7 @@ func (q *Queries) GetQuota(ctx context.Context, credentialID string) (CodexQuotu
 		&i.ResetSpark5h,
 		&i.ResetSpark7d,
 		&i.ResetSpark1mo,
+		&i.ResetCreditsCount,
 		&i.ThrottledUntil,
 		&i.ThrottledUntilSpark,
 		&i.SyncedAt,
@@ -221,8 +222,8 @@ func (q *Queries) SetQuotaThrottledSpark(ctx context.Context, arg SetQuotaThrott
 }
 
 const upsertQuota = `-- name: UpsertQuota :one
-INSERT INTO codex_quota (credential_id, quota_5h, quota_7d, quota_1mo, quota_spark_5h, quota_spark_7d, quota_spark_1mo, reset_5h, reset_7d, reset_1mo, reset_spark_5h, reset_spark_7d, reset_spark_1mo, synced_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+INSERT INTO codex_quota (credential_id, quota_5h, quota_7d, quota_1mo, quota_spark_5h, quota_spark_7d, quota_spark_1mo, reset_5h, reset_7d, reset_1mo, reset_spark_5h, reset_spark_7d, reset_spark_1mo, reset_credits_count, synced_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT (credential_id) DO UPDATE
 SET
     quota_5h       = EXCLUDED.quota_5h,
@@ -237,24 +238,26 @@ SET
     reset_spark_5h = EXCLUDED.reset_spark_5h,
     reset_spark_7d = EXCLUDED.reset_spark_7d,
     reset_spark_1mo = EXCLUDED.reset_spark_1mo,
+    reset_credits_count = EXCLUDED.reset_credits_count,
     synced_at      = datetime('now')
-RETURNING credential_id, quota_5h, quota_7d, quota_1mo, quota_spark_5h, quota_spark_7d, quota_spark_1mo, reset_5h, reset_7d, reset_1mo, reset_spark_5h, reset_spark_7d, reset_spark_1mo, throttled_until, throttled_until_spark, synced_at
+RETURNING credential_id, quota_5h, quota_7d, quota_1mo, quota_spark_5h, quota_spark_7d, quota_spark_1mo, reset_5h, reset_7d, reset_1mo, reset_spark_5h, reset_spark_7d, reset_spark_1mo, reset_credits_count, throttled_until, throttled_until_spark, synced_at
 `
 
 type UpsertQuotaParams struct {
-	CredentialID  string         `json:"credential_id"`
-	Quota5h       float64        `json:"quota_5h"`
-	Quota7d       float64        `json:"quota_7d"`
-	Quota1mo      float64        `json:"quota_1mo"`
-	QuotaSpark5h  float64        `json:"quota_spark_5h"`
-	QuotaSpark7d  float64        `json:"quota_spark_7d"`
-	QuotaSpark1mo float64        `json:"quota_spark_1mo"`
-	Reset5h       sql.NullString `json:"reset_5h"`
-	Reset7d       sql.NullString `json:"reset_7d"`
-	Reset1mo      sql.NullString `json:"reset_1mo"`
-	ResetSpark5h  sql.NullString `json:"reset_spark_5h"`
-	ResetSpark7d  sql.NullString `json:"reset_spark_7d"`
-	ResetSpark1mo sql.NullString `json:"reset_spark_1mo"`
+	CredentialID      string         `json:"credential_id"`
+	Quota5h           float64        `json:"quota_5h"`
+	Quota7d           float64        `json:"quota_7d"`
+	Quota1mo          float64        `json:"quota_1mo"`
+	QuotaSpark5h      float64        `json:"quota_spark_5h"`
+	QuotaSpark7d      float64        `json:"quota_spark_7d"`
+	QuotaSpark1mo     float64        `json:"quota_spark_1mo"`
+	Reset5h           sql.NullString `json:"reset_5h"`
+	Reset7d           sql.NullString `json:"reset_7d"`
+	Reset1mo          sql.NullString `json:"reset_1mo"`
+	ResetSpark5h      sql.NullString `json:"reset_spark_5h"`
+	ResetSpark7d      sql.NullString `json:"reset_spark_7d"`
+	ResetSpark1mo     sql.NullString `json:"reset_spark_1mo"`
+	ResetCreditsCount int64          `json:"reset_credits_count"`
 }
 
 // Syncs remaining quota ratios and reset timestamps from upstream.
@@ -273,6 +276,7 @@ func (q *Queries) UpsertQuota(ctx context.Context, arg UpsertQuotaParams) (Codex
 		arg.ResetSpark5h,
 		arg.ResetSpark7d,
 		arg.ResetSpark1mo,
+		arg.ResetCreditsCount,
 	)
 	var i CodexQuotum
 	err := row.Scan(
@@ -289,6 +293,7 @@ func (q *Queries) UpsertQuota(ctx context.Context, arg UpsertQuotaParams) (Codex
 		&i.ResetSpark5h,
 		&i.ResetSpark7d,
 		&i.ResetSpark1mo,
+		&i.ResetCreditsCount,
 		&i.ThrottledUntil,
 		&i.ThrottledUntilSpark,
 		&i.SyncedAt,

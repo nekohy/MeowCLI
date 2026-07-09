@@ -76,6 +76,10 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		d.Close()
 		return nil, err
 	}
+	if err := ensureCodexQuotaResetCreditsColumn(ctx, d); err != nil {
+		d.Close()
+		return nil, err
+	}
 
 	return &Store{
 		db:      d,
@@ -101,6 +105,20 @@ func ensureCodexQuota1moColumns(ctx context.Context, d *sql.DB) error {
 		if _, err := d.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("sqlite add codex_quota.%s column: %w", name, err)
 		}
+	}
+	return nil
+}
+
+func ensureCodexQuotaResetCreditsColumn(ctx context.Context, d *sql.DB) error {
+	columns, err := sqliteColumnSet(ctx, d, "codex_quota")
+	if err != nil {
+		return err
+	}
+	if columns["reset_credits_count"] {
+		return nil
+	}
+	if _, err := d.ExecContext(ctx, "ALTER TABLE codex_quota ADD COLUMN reset_credits_count INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("sqlite add codex_quota.reset_credits_count column: %w", err)
 	}
 	return nil
 }

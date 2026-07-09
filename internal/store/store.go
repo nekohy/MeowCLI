@@ -158,6 +158,7 @@ type UpsertQuotaParams struct {
 	ResetSpark5h  time.Time
 	ResetSpark7d  time.Time
 	ResetSpark1mo time.Time
+	ResetCreditsCount int
 }
 
 type UpsertGeminiQuotaParams struct {
@@ -237,6 +238,7 @@ type ListCodexRow struct {
 	ResetSpark5h          time.Time `json:"reset_spark_5h"`
 	ResetSpark7d          time.Time `json:"reset_spark_7d"`
 	ResetSpark1mo         time.Time `json:"reset_spark_1mo"`
+	ResetCreditsCount     int       `json:"reset_credits_count"`
 	ThrottledUntilDefault time.Time `json:"throttled_until_default"`
 	ThrottledUntilSpark   time.Time `json:"throttled_until_spark"`
 	SyncedAt              time.Time `json:"synced_at"`
