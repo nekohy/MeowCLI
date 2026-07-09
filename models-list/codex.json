@@ -1,10 +1,5 @@
 [
   {
-    "id": "gpt-5.3-codex",
-    "name": "GPT 5.3 Codex",
-    "description": ""
-  },
-  {
     "id": "gpt-5.3-codex-spark",
     "name": "GPT 5.3 Codex Spark",
     "description": "仅Pro套餐可用"
@@ -22,6 +17,21 @@
   {
     "id": "gpt-5.5",
     "name": "GPT 5.5",
+    "description": ""
+  },
+  {
+    "id": "gpt-5.6-luna",
+    "name": "GPT 5.6 Luna",
+    "description": ""
+  },
+  {
+    "id": "gpt-5.6-terra",
+    "name": "GPT 5.6 Terra",
+    "description": ""
+  },
+  {
+    "id": "gpt-5.6-sol",
+    "name": "GPT 5.6 Sol",
     "description": ""
   },
   {
