@@ -27,6 +27,7 @@ import type {
   CredentialHandlerKey,
   AntigravityCredentialItem,
   CodexItem,
+  CodexRateLimitResetCredits,
   CredentialItem,
   CredentialThrottleStatusOption,
   GeminiCredentialItem,
@@ -67,6 +68,11 @@ const oauthCodeInput = ref('')
 const oauthError = ref('')
 const oauthFlow = ref<{ provider: string; state: string; authorizeUrl: string } | null>(null)
 const creditsDialogItem = ref<AntigravityCredentialItem | null>(null)
+const codexResetDialogItem = ref<CodexItem | null>(null)
+const codexResetCredits = ref<CodexRateLimitResetCredits | null>(null)
+const codexResetLoading = ref(false)
+const codexResetConsuming = ref(false)
+const codexResetError = ref('')
 
 const credentialHandlerKey = computed<CredentialHandlerKey>(() => admin.activeHandler.value?.key || '')
 const credentialEndpoint = computed(() => admin.activeHandler.value?.credential_endpoint || '')
@@ -103,6 +109,7 @@ const oauthModalTitle = computed(() => `${activeHandlerLabel.value} OAuth`)
 const oauthCallbackPlaceholder = '粘贴回调链接'
 const oauthSubmitDisabled = computed(() => !oauthFlow.value || !oauthCodeInput.value.trim())
 const creditsDialogOpen = computed(() => Boolean(creditsDialogItem.value))
+const codexResetDialogOpen = computed(() => Boolean(codexResetDialogItem.value))
 const creditsDialogTypes = computed(() => (
   creditsDialogItem.value ? antigravityCreditTypes(creditsDialogItem.value) : []
 ))
@@ -568,13 +575,13 @@ function codexQuotaCards(item: CodexItem) {
   const cards = [
     codexQuotaCard('5 小时额度', item.default, 'quota_5h', 'reset_5h'),
     codexQuotaCard('7 天额度', item.default, 'quota_7d', 'reset_7d'),
-    codexQuotaCard('1mo 额度', item.default, 'quota_1mo', 'reset_1mo'),
+    codexQuotaCard('月额度', item.default, 'quota_1mo', 'reset_1mo'),
   ]
   if (isSparkAvailable(item)) {
     cards.push(
       codexQuotaCard('Spark 5h', item.spark, 'quota_5h', 'reset_5h'),
       codexQuotaCard('Spark 7d', item.spark, 'quota_7d', 'reset_7d'),
-      codexQuotaCard('Spark 1mo', item.spark, 'quota_1mo', 'reset_1mo'),
+      codexQuotaCard('Spark 月额度', item.spark, 'quota_1mo', 'reset_1mo'),
     )
   }
   return cards.filter((card): card is NonNullable<typeof card> => card !== null)
@@ -655,6 +662,66 @@ function openCreditsDialog(item: AntigravityCredentialItem) {
 
 function closeCreditsDialog() {
   creditsDialogItem.value = null
+}
+
+function codexResetCreditsCount(item: CodexItem): number {
+  return typeof item.reset_credits_count === 'number' ? item.reset_credits_count : 0
+}
+
+function codexResetCreditsTone(item: CodexItem): UiTone {
+  return codexResetCreditsCount(item) > 0 ? 'accent' : 'secondary'
+}
+
+function canOpenCodexReset(item: CodexItem) {
+  return codexResetCreditsCount(item) > 0
+}
+
+function codexResetCreditStatusLabel(status: string) {
+  return (status || '').toLowerCase() === 'available' ? '可用' : (status || '-')
+}
+
+async function openCodexResetDialog(item: CodexItem) {
+  codexResetDialogItem.value = item
+  codexResetCredits.value = null
+  codexResetError.value = ''
+  codexResetLoading.value = true
+  try {
+    codexResetCredits.value = await adminApi.fetchCodexResetCredits(admin.token.value, item.id)
+  } catch (error) {
+    codexResetError.value = error instanceof Error ? error.message : '加载重置次数失败'
+  } finally {
+    codexResetLoading.value = false
+  }
+}
+
+function closeCodexResetDialog() {
+  codexResetDialogItem.value = null
+  codexResetCredits.value = null
+  codexResetError.value = ''
+}
+
+function consumeCodexReset() {
+  const item = codexResetDialogItem.value
+  if (!item) return
+  confirm.show({
+    title: '使用重置次数',
+    message: '确认消耗一次额度重置吗？此操作将重置该账号的额度窗口。',
+    confirmText: '确认重置',
+    confirmVariant: 'secondary',
+    action: async () => {
+      codexResetConsuming.value = true
+      try {
+        await adminApi.consumeCodexResetCredit(admin.token.value, item.id)
+        admin.notify('已使用一次重置', 'success')
+        closeCodexResetDialog()
+        await loadCredentials(page.value, pageSize.value)
+      } catch (error) {
+        admin.notify(error instanceof Error ? error.message : '重置失败', 'danger')
+      } finally {
+        codexResetConsuming.value = false
+      }
+    },
+  })
 }
 
 function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.value) {
@@ -1101,6 +1168,24 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
 
+                    <div
+                      v-if="canOpenCodexReset(item)"
+                      class="quota-card"
+                      role="button"
+                      tabindex="0"
+                      style="cursor: pointer"
+                      @click="openCodexResetDialog(item)"
+                      @keydown.enter="openCodexResetDialog(item)"
+                      @keydown.space.prevent="openCodexResetDialog(item)"
+                    >
+                      <div class="quota-row">
+                        <div class="quota-label text-medium-emphasis">重置次数</div>
+                        <span :class="'text-' + codexResetCreditsTone(item)" class="quota-value font-weight-bold">
+                          {{ codexResetCreditsCount(item) }}
+                        </span>
+                      </div>
+                    </div>
+
                     <div class="quota-grid">
                       <div v-for="quota in codexQuotaCards(item)" :key="quota.label" class="quota-card">
                         <div class="quota-row">
@@ -1267,6 +1352,7 @@ onBeforeUnmount(() => {
 
                     <div class="quota-grid">
                       <div
+                        v-if="item.credits?.available"
                         class="quota-card"
                         role="button"
                         tabindex="0"
@@ -1519,6 +1605,48 @@ onBeforeUnmount(() => {
       </div>
       <template #footer>
         <AdminButton variant="ghost" @click="closeCreditsDialog">关闭</AdminButton>
+      </template>
+    </ModalDialog>
+
+    <ModalDialog
+      :open="codexResetDialogOpen"
+      title="重置次数详情"
+      icon="mdi-cached"
+      max-width="560"
+      @close="closeCodexResetDialog"
+    >
+      <div class="d-grid ga-4">
+        <div v-if="codexResetLoading" class="text-medium-emphasis">加载中…</div>
+        <div v-else-if="codexResetError" class="text-error">{{ codexResetError }}</div>
+        <div v-else-if="!codexResetCredits?.credits?.length" class="text-medium-emphasis">暂无可用重置次数</div>
+        <div v-else class="d-grid ga-3">
+          <div
+            v-for="(credit, idx) in codexResetCredits.credits"
+            :key="idx"
+            class="detail-block"
+          >
+            <div class="d-flex align-center justify-space-between ga-2">
+              <div class="detail-value">{{ credit.title || '重置额度' }}</div>
+              <AdminBadge tone="accent" subtle icon="mdi-check">
+                {{ codexResetCreditStatusLabel(credit.status) }}
+              </AdminBadge>
+            </div>
+            <div v-if="credit.expires_at" class="text-medium-emphasis text-body-2">
+              过期 {{ formatTime(credit.expires_at) }}
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <AdminButton
+          variant="primary"
+          prepend-icon="mdi-cached"
+          :disabled="codexResetConsuming || codexResetLoading || !codexResetCredits?.credits?.length"
+          @click="consumeCodexReset"
+        >
+          重置
+        </AdminButton>
+        <AdminButton variant="ghost" @click="closeCodexResetDialog">关闭</AdminButton>
       </template>
     </ModalDialog>
 

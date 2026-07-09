@@ -3,6 +3,7 @@ import type {
   BatchDeleteResponse,
   BatchModelUpdateResponse,
   BatchStatusResponse,
+  CodexRateLimitResetCredits,
   CredentialItem,
   CreateAuthKeyResponse,
   ImportJobListResponse,
@@ -205,6 +206,19 @@ export const adminApi = {
       token,
       method: 'POST',
       body: payload,
+    })
+  },
+  fetchCodexResetCredits(token: string, credentialId: string) {
+    return apiRequest<CodexRateLimitResetCredits>('/codex/rate-limit-reset-credits', {
+      token,
+      query: { credential_id: credentialId },
+    })
+  },
+  consumeCodexResetCredit(token: string, credentialId: string) {
+    return apiRequest<{ code: string; windows_reset: number }>('/codex/rate-limit-reset-credits/consume', {
+      token,
+      method: 'POST',
+      body: { credential_id: credentialId },
     })
   },
   startOAuth(token: string, provider: string) {

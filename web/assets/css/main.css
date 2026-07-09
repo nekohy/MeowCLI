@@ -1083,6 +1083,10 @@ pre {
   background: rgba(var(--v-theme-surface-container-high), 0.76);
 }
 
+.detail-block {
+  border: 1px solid rgba(var(--v-theme-outline), 0.16);
+}
+
 .quota-card {
   position: relative;
   container-type: inline-size;

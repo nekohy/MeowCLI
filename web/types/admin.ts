@@ -213,6 +213,18 @@ export interface CodexItem {
   reason: string
   default: CodexSchedulingMetric
   spark: CodexSchedulingMetric
+  reset_credits_count?: number
+}
+
+export interface CodexRateLimitResetCredit {
+  title?: string
+  expires_at?: string | null
+  status: string
+}
+
+export interface CodexRateLimitResetCredits {
+  credits: CodexRateLimitResetCredit[]
+  available_count: number
 }
 
 export interface GeminiCredentialItem {
