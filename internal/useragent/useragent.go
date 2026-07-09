@@ -7,7 +7,7 @@ import (
 
 const (
 	AntigravityVersion       = "2.0.0"
-	CodexCLI                 = "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal"
+	CodexCLI                 = "codex-tui/0.144.0 (Windows 10.0.26100; x86_64) unknown (codex-tui; 0.144.0)"
 	AntigravityNodeAPIClient = "google-api-nodejs-client/10.3.0"
 )
 
