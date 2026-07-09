@@ -103,7 +103,7 @@ func applyUsageRateLimit(q *codexutils.Quota, rl usageRateLimit, spark bool) {
 		remaining := utils.TruncateQuotaRatio(float64(100-w.UsedPercent) / 100)
 		resetAt := usageResetTime(w)
 		switch {
-		case w.LimitWindowSeconds == int64((5 * time.Hour).Seconds()): // 18000
+		case codexutils.WindowMatches(int64((5 * time.Hour).Seconds()), w.LimitWindowSeconds): // 18000
 			if spark {
 				q.QuotaSpark5h = remaining
 				q.ResetSpark5h = resetAt
@@ -111,7 +111,7 @@ func applyUsageRateLimit(q *codexutils.Quota, rl usageRateLimit, spark bool) {
 				q.Quota5h = remaining
 				q.Reset5h = resetAt
 			}
-		case w.LimitWindowSeconds == int64((7 * 24 * time.Hour).Seconds()): // 604800
+		case codexutils.WindowMatches(int64((7 * 24 * time.Hour).Seconds()), w.LimitWindowSeconds): // 604800
 			if spark {
 				q.QuotaSpark7d = remaining
 				q.ResetSpark7d = resetAt
@@ -119,7 +119,7 @@ func applyUsageRateLimit(q *codexutils.Quota, rl usageRateLimit, spark bool) {
 				q.Quota7d = remaining
 				q.Reset7d = resetAt
 			}
-		case w.LimitWindowSeconds == int64((30 * 24 * time.Hour).Seconds()): // 2592000
+		case codexutils.WindowMatches(int64((30 * 24 * time.Hour).Seconds()), w.LimitWindowSeconds): // 2592000
 			if spark {
 				q.QuotaSpark1mo = remaining
 				q.ResetSpark1mo = resetAt

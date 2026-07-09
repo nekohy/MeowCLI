@@ -98,7 +98,7 @@ func (rl *CodexRateLimit) ToQuotaForTier(modelTier string) Quota {
 		}
 		remaining := commonutils.TruncateQuotaRatio(float64(100-w.usedPercent) / 100)
 		switch {
-		case w.limitWindowSeconds == int64((5 * time.Hour).Seconds()): // 18000
+		case WindowMatches(int64((5 * time.Hour).Seconds()), w.limitWindowSeconds): // 18000
 			if updateSpark {
 				q.QuotaSpark5h = remaining
 				if w.resetAt > 0 {
@@ -110,7 +110,7 @@ func (rl *CodexRateLimit) ToQuotaForTier(modelTier string) Quota {
 					q.Reset5h = time.Unix(w.resetAt, 0)
 				}
 			}
-		case w.limitWindowSeconds == int64((7 * 24 * time.Hour).Seconds()): // 604800
+		case WindowMatches(int64((7 * 24 * time.Hour).Seconds()), w.limitWindowSeconds): // 604800
 			if updateSpark {
 				q.QuotaSpark7d = remaining
 				if w.resetAt > 0 {
@@ -122,7 +122,7 @@ func (rl *CodexRateLimit) ToQuotaForTier(modelTier string) Quota {
 					q.Reset7d = time.Unix(w.resetAt, 0)
 				}
 			}
-		case w.limitWindowSeconds == int64((30 * 24 * time.Hour).Seconds()): // 2592000
+		case WindowMatches(int64((30 * 24 * time.Hour).Seconds()), w.limitWindowSeconds): // 2592000
 			if updateSpark {
 				q.QuotaSpark1mo = remaining
 				if w.resetAt > 0 {
@@ -140,6 +140,16 @@ func (rl *CodexRateLimit) ToQuotaForTier(modelTier string) Quota {
 }
 
 const MonthlyWindowSeconds int64 = 30 * 24 * 60 * 60
+
+// WindowMatches reports whether actual falls within ±10% of target.
+// 上游 limit_window_seconds 可能存在小幅漂移，因此在 5h/7d/30d 窗口判断时
+// 允许上下浮动 10%，落在此区间内即视为匹配。
+func WindowMatches(target, actual int64) bool {
+	if target == 0 {
+		return actual == 0
+	}
+	return actual >= target*9/10 && actual <= target*11/10
+}
 
 func NewQuota() Quota {
 	return Quota{
