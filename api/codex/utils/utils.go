@@ -6,9 +6,9 @@ const (
 	RefreshTokenURL = "https://auth.openai.com/oauth/token"
 	ClientID        = "app_EMoamEEZ73f0CkXaXp7hrann"
 
-	ChatURL   = "https://chatgpt.com/backend-api/codex/responses"
-	UsageURL  = "https://chatgpt.com/backend-api/wham/usage"
-	WhoamiURL = "https://auth.openai.com/api/accounts/v1/user-auth-credential/whoami"
+	ChatURL                        = "https://chatgpt.com/backend-api/codex/responses"
+	UsageURL                       = "https://chatgpt.com/backend-api/wham/usage"
+	WhoamiURL                      = "https://auth.openai.com/api/accounts/v1/user-auth-credential/whoami"
 	RateLimitResetCreditsURL       = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 	ConsumeRateLimitResetCreditURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume"
 )
@@ -17,6 +17,7 @@ const (
 var DefaultHeaders = map[string]string{
 	"Accept-Language": "en-US,en;q=0.9",
 	"User-Agent":      useragent.CodexCLI,
+	"originator":      "codex_cli_rs",
 }
 
 // CodexTokenData holds the result of a token refresh.
