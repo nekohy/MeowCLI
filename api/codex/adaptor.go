@@ -15,6 +15,7 @@ import (
 	completionconvert "github.com/nekohy/MeowCLI/api/codex/convert/completion"
 	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
 	"github.com/nekohy/MeowCLI/internal/settings"
+	"github.com/nekohy/MeowCLI/internal/useragent"
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/bytedance/sonic"
@@ -71,13 +72,20 @@ func NewClient() *Client {
 }
 
 func (c *Client) defaultHeaders() http.Header {
-	headers := make(http.Header, len(codexutils.DefaultHeaders))
+	headers := make(http.Header, len(codexutils.DefaultHeaders)+2)
 	for key, value := range codexutils.DefaultHeaders {
 		headers.Set(key, value)
 	}
+	// 最终 User-Agent：用户配置优先，否则使用内置默认值
+	// originator 与 version 均从该 UA 解析，别瞎写，不懂别动（
+	ua := useragent.CodexCLI
 	if c != nil && c.settings != nil {
-		headers.Set("User-Agent", c.settings.Snapshot().EffectiveCodexUserAgent())
+		ua = c.settings.Snapshot().EffectiveCodexUserAgent()
 	}
+	headers.Set("User-Agent", ua)
+	originator, version := codexutils.ParseInfoFromUA(ua)
+	headers.Set("originator", originator)
+	headers.Set("version", version)
 	return headers
 }
 
