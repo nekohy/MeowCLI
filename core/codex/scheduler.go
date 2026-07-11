@@ -200,7 +200,7 @@ func (s *Scheduler) syncQuotaRow(ctx context.Context, row db.ListAvailableCodexR
 	q, err := s.fetcher.FetchQuota(quotaCtx, row.ID, token)
 	cancel()
 	if err != nil {
-		if statusCode, body, ok := codexclient.ParseAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
+		if statusCode, body, ok := parseCodexCredentialAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
 			s.HandleUnauthorized(ctx, row.ID, int32(statusCode), "", db.LogRequestMetrics{Error: body})
 			return
 		}
@@ -859,10 +859,12 @@ func throttleTierForModel(modelTier string) string {
 
 // HandleUnauthorized handles auth/account terminal statuses outside the error-rate backoff path.
 func (s *Scheduler) HandleUnauthorized(ctx context.Context, credentialID string, statusCode int32, modelTier string, metrics db.LogRequestMetrics) bool {
+	disableInactiveOwner := isCodexInactivePersonalAccessTokenOwnerError(metrics.Error)
+	statusCode = int32(normalizeCodexCredentialStatus(int(statusCode), metrics.Error))
 	if statusCode == http.StatusUnauthorized && isCodexNoMatchingAccessRuleError(metrics.Error) {
 		return false
 	}
-	if isCredentialDirectDisableStatus(int(statusCode)) {
+	if disableInactiveOwner || isCredentialDirectDisableStatus(int(statusCode)) {
 		opCtx, cancel := scheduling.WithDefaultWriteTimeout(ctx)
 		defer cancel()
 		s.recordAuthRejection(opCtx, credentialID, statusCode, modelTier, metrics)
@@ -1227,7 +1229,7 @@ func (s *Scheduler) verifyCredentialUsable(ctx context.Context, credentialID str
 
 	q, err := s.fetcher.FetchQuota(ctx, credentialID, token)
 	if err != nil {
-		if statusCode, body, ok := codexclient.ParseAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
+		if statusCode, body, ok := parseCodexCredentialAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
 			if err := s.insertLog(ctx, db.InsertLogParams{
 				Handler:      string(utils.HandlerCodex),
 				CredentialID: credentialID,
@@ -1260,7 +1262,7 @@ func (s *Scheduler) syncImportedCredential(ctx context.Context, credentialID str
 
 	q, err := s.fetcher.FetchQuota(ctx, credentialID, token)
 	if err != nil {
-		if statusCode, body, ok := codexclient.ParseAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
+		if statusCode, body, ok := parseCodexCredentialAPIError(err); ok && isCredentialRejectedStatus(statusCode) {
 			if logErr := s.insertLog(ctx, db.InsertLogParams{
 				Handler:      string(utils.HandlerCodex),
 				CredentialID: credentialID,
@@ -1291,6 +1293,14 @@ func (s *Scheduler) syncImportedCredential(ctx context.Context, credentialID str
 
 func isCredentialRejectedStatus(statusCode int) bool {
 	return isCredentialRefreshStatus(statusCode) || isCredentialDirectDisableStatus(statusCode)
+}
+
+func parseCodexCredentialAPIError(err error) (statusCode int, body string, ok bool) {
+	statusCode, body, ok = codexclient.ParseAPIError(err)
+	if ok {
+		statusCode = normalizeCodexCredentialStatus(statusCode, body)
+	}
+	return statusCode, body, ok
 }
 
 func isCredentialRefreshStatus(statusCode int) bool {
