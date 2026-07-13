@@ -27,16 +27,16 @@ type batchError struct {
 }
 
 type codexListItem struct {
-	Handler  string                `json:"handler"`
-	ID       string                `json:"id"`
-	Status   []string              `json:"status"`
-	Expired  time.Time             `json:"expired"`
-	PlanType string                `json:"plan_type"`
-	Reason   string                `json:"reason"`
-	SyncedAt time.Time             `json:"synced_at"`
-	Default  codexSchedulingMetric `json:"default"`
-	Spark    codexSchedulingMetric `json:"spark"`
-	ResetCreditsCount int `json:"reset_credits_count"`
+	Handler           string                `json:"handler"`
+	ID                string                `json:"id"`
+	Status            []string              `json:"status"`
+	Expired           time.Time             `json:"expired"`
+	PlanType          string                `json:"plan_type"`
+	Reason            string                `json:"reason"`
+	SyncedAt          time.Time             `json:"synced_at"`
+	Default           codexSchedulingMetric `json:"default"`
+	Spark             codexSchedulingMetric `json:"spark"`
+	ResetCreditsCount int                   `json:"reset_credits_count"`
 }
 
 func (a *AdminHandler) ListCodex(c *gin.Context) {
@@ -139,7 +139,7 @@ type batchCreateCodexReq struct {
 func (a *AdminHandler) processOneToken(ctx context.Context, token string) (string, error) {
 	token = strings.TrimSpace(token)
 	switch {
-	case strings.HasPrefix(token, "rt_"), strings.HasPrefix(token, "oaistb"):
+	case strings.HasPrefix(token, "rt"), strings.HasPrefix(token, "oaistb"):
 		tokenData, _, err := a.codexAPI.RefreshAccessToken(ctx, token)
 		if err != nil {
 			return "", fmt.Errorf("failed to refresh refresh_token: %w", err)
