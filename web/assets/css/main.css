@@ -282,6 +282,35 @@ pre {
   border: 1px solid rgba(var(--v-theme-outline-variant), 0.72);
 }
 
+.open-code-go-rewards-list {
+  max-height: min(52vh, 480px);
+  overflow-y: auto;
+  padding-inline-end: 4px;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(var(--v-theme-primary), 0.46) transparent;
+  scrollbar-width: thin;
+}
+
+.open-code-go-rewards-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.open-code-go-rewards-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.open-code-go-rewards-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(var(--v-theme-primary), 0.46);
+  background-clip: padding-box;
+}
+
+.open-code-go-rewards-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--v-theme-primary), 0.66);
+  background-clip: padding-box;
+}
+
 /* --- Admin main content --- */
 .admin-main {
   padding-top: 84px;

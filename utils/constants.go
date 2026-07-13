@@ -19,11 +19,12 @@ const (
 	HandlerCodex       HandlerType = "codex"
 	HandlerGemini      HandlerType = "gemini"
 	HandlerAntigravity HandlerType = "antigravity"
+	HandlerOpenCodeGo  HandlerType = "opencode-go"
 )
 
 func ParseHandlerType(s string) (HandlerType, bool) {
 	switch HandlerType(s) {
-	case HandlerCodex, HandlerGemini, HandlerAntigravity:
+	case HandlerCodex, HandlerGemini, HandlerAntigravity, HandlerOpenCodeGo:
 		return HandlerType(s), true
 	default:
 		return "", false

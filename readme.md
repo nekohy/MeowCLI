@@ -66,6 +66,7 @@ http://127.0.0.1:3000/admin
 - `codex`：提供原生 OpenAI Responses 接口；Completion 接口与非流式 Response 由内置转换器转换
 - `gemini-cli`：提供原生 Gemini 接口
 - `antigravity`：提供原生 Gemini 接口
+- `opencode-go`：提供原生 Chat Completions 接口
 
 ## 效果图
 
@@ -125,6 +126,3 @@ make build
 make release       # 生成发布二进制和 checksum
 make clean         # 清理构建产物
 ```
-
-### 友情链接
-[linux.do](https://linux.do)

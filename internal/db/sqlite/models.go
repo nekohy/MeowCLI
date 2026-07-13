@@ -124,6 +124,29 @@ type Model struct {
 	Extra     string `json:"extra"`
 }
 
+type OpencodeGo struct {
+	ID         string `json:"id"`
+	Status     string `json:"status"`
+	ApiKey     string `json:"api_key"`
+	AuthCookie string `json:"auth_cookie"`
+	Reason     string `json:"reason"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
+type OpencodeGoQuotum struct {
+	CredentialID   string         `json:"credential_id"`
+	Quota5h        float64        `json:"quota_5h"`
+	Quota7d        float64        `json:"quota_7d"`
+	Quota1mo       float64        `json:"quota_1mo"`
+	Reset5h        sql.NullString `json:"reset_5h"`
+	Reset7d        sql.NullString `json:"reset_7d"`
+	Reset1mo       sql.NullString `json:"reset_1mo"`
+	RewardsCount   int64          `json:"rewards_count"`
+	ThrottledUntil string         `json:"throttled_until"`
+	SyncedAt       string         `json:"synced_at"`
+}
+
 type Setting struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`

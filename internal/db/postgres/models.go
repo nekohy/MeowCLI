@@ -126,6 +126,29 @@ type Model struct {
 	Extra     json.RawMessage `json:"extra"`
 }
 
+type OpencodeGo struct {
+	ID         string             `json:"id"`
+	Status     string             `json:"status"`
+	ApiKey     string             `json:"api_key"`
+	AuthCookie string             `json:"auth_cookie"`
+	Reason     string             `json:"reason"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type OpencodeGoQuotum struct {
+	CredentialID   string             `json:"credential_id"`
+	Quota5h        float64            `json:"quota_5h"`
+	Quota7d        float64            `json:"quota_7d"`
+	Quota1mo       float64            `json:"quota_1mo"`
+	Reset5h        pgtype.Timestamptz `json:"reset_5h"`
+	Reset7d        pgtype.Timestamptz `json:"reset_7d"`
+	Reset1mo       pgtype.Timestamptz `json:"reset_1mo"`
+	RewardsCount   int32              `json:"rewards_count"`
+	ThrottledUntil pgtype.Timestamptz `json:"throttled_until"`
+	SyncedAt       pgtype.Timestamptz `json:"synced_at"`
+}
+
 type Setting struct {
 	Key       string             `json:"key"`
 	Value     string             `json:"value"`

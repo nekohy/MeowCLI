@@ -49,6 +49,9 @@ type settingsUpdateRequest struct {
 	AntigravityAPIEndpoint        *string `json:"antigravity_api_endpoint"`
 	AntigravityUseCredits         *bool   `json:"antigravity_use_credits"`
 	AntigravityUserAgent          *string `json:"antigravity_user_agent"`
+
+	// OpenCode Go handler settings
+	OpenCodeGoProxy *string `json:"opencode_go_proxy"`
 }
 
 func (a *AdminHandler) GetSettings(c *gin.Context) {
@@ -156,6 +159,8 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 	}
 	applyTrimmedStringSetting(req.AntigravityUserAgent, &next.AntigravityUserAgent)
 
+	applyTrimmedStringSetting(req.OpenCodeGoProxy, &next.OpenCodeGoProxy)
+
 	if err := validateProxyURL(next.GlobalProxy, "global_proxy"); err != nil {
 		return settings.Snapshot{}, err
 	}
@@ -166,6 +171,9 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 		return settings.Snapshot{}, err
 	}
 	if err := validateProxyURL(next.AntigravityProxy, "antigravity_proxy"); err != nil {
+		return settings.Snapshot{}, err
+	}
+	if err := validateProxyURL(next.OpenCodeGoProxy, "opencode_go_proxy"); err != nil {
 		return settings.Snapshot{}, err
 	}
 	if next.ThrottleMaxSeconds < next.ThrottleBaseSeconds {
@@ -207,6 +215,8 @@ func buildSettingsResponse(snapshot settings.Snapshot) gin.H {
 		"antigravity_api_endpoint":         snapshot.AntigravityAPIEndpoint,
 		"antigravity_use_credits":          snapshot.AntigravityUseCredits,
 		"antigravity_user_agent":           snapshot.AntigravityUserAgent,
+
+		"opencode_go_proxy": strings.TrimSpace(snapshot.OpenCodeGoProxy),
 	}
 }
 

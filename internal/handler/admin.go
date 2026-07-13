@@ -14,6 +14,7 @@ import (
 	antigravityapi "github.com/nekohy/MeowCLI/api/antigravity"
 	codexapi "github.com/nekohy/MeowCLI/api/codex"
 	geminiapi "github.com/nekohy/MeowCLI/api/gemini"
+	opencodegoapi "github.com/nekohy/MeowCLI/api/opencodego"
 	oauthcore "github.com/nekohy/MeowCLI/core"
 	coreantigravity "github.com/nekohy/MeowCLI/core/antigravity"
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
@@ -31,6 +32,7 @@ import (
 // CredentialRefresher 凭证变更后刷新调度器缓存
 type CredentialRefresher interface {
 	RefreshAvailable(ctx context.Context, handler utils.HandlerType) error
+	RefreshQuota(ctx context.Context, handler utils.HandlerType, id string) error
 	SyncQuotas(ctx context.Context, handler utils.HandlerType, ids []string)
 	InvalidateCredentials(handler utils.HandlerType, ids []string)
 	CachedCodexQuota(id string) (corecodex.CachedQuotaSnapshot, bool)
@@ -58,6 +60,7 @@ type AdminHandler struct {
 	codexAPI       *codexapi.Client
 	geminiAPI      *geminiapi.Client
 	antigravityAPI *antigravityapi.Client
+	openCodeGoAPI  *opencodegoapi.Client
 	oauthFlows     map[utils.HandlerType]oauthcore.OAuthFlow
 	authCache      *auth.KeyCache
 	credRefresh    CredentialRefresher
@@ -69,12 +72,13 @@ type AdminHandler struct {
 	mu             sync.Mutex
 }
 
-func NewAdminHandler(store db.Store, codexAPI *codexapi.Client, geminiAPI *geminiapi.Client, antigravityAPI *antigravityapi.Client) *AdminHandler {
+func NewAdminHandler(store db.Store, codexAPI *codexapi.Client, geminiAPI *geminiapi.Client, antigravityAPI *antigravityapi.Client, openCodeGoAPI *opencodegoapi.Client) *AdminHandler {
 	return &AdminHandler{
 		store:          store,
 		codexAPI:       codexAPI,
 		geminiAPI:      geminiAPI,
 		antigravityAPI: antigravityAPI,
+		openCodeGoAPI:  openCodeGoAPI,
 		importJobs:     newImportJobManager(defaultImportConcurrency),
 	}
 }
@@ -202,6 +206,8 @@ func normalizeModelInput(alias, origin, handler string, planTypes string, plugin
 		planTypes = utils.NormalizeCodeAssistPlanTypeList(planTypes)
 	case utils.HandlerCodex:
 		planTypes = corecodex.NormalizePlanTypeList(planTypes)
+	case utils.HandlerOpenCodeGo:
+		planTypes = ""
 	default:
 		return "", "", "", "", "", nil, fmt.Errorf("unsupported handler type: %q", parsedHandler)
 	}

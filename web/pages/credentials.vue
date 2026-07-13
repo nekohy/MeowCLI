@@ -31,6 +31,9 @@ import type {
   CredentialItem,
   CredentialThrottleStatusOption,
   GeminiCredentialItem,
+  OpenCodeGoCredentialItem,
+  OpenCodeGoReferralReward,
+  OpenCodeGoReferralRewards,
   UiTone,
 } from '~/types/admin'
 
@@ -73,6 +76,11 @@ const codexResetCredits = ref<CodexRateLimitResetCredits | null>(null)
 const codexResetLoading = ref(false)
 const codexResetConsuming = ref(false)
 const codexResetError = ref('')
+const openCodeGoRewardsDialogItem = ref<OpenCodeGoCredentialItem | null>(null)
+const openCodeGoRewards = ref<OpenCodeGoReferralRewards | null>(null)
+const openCodeGoRewardsLoading = ref(false)
+const openCodeGoRewardApplying = ref('')
+const openCodeGoRewardsError = ref('')
 
 const credentialHandlerKey = computed<CredentialHandlerKey>(() => admin.activeHandler.value?.key || '')
 const credentialEndpoint = computed(() => admin.activeHandler.value?.credential_endpoint || '')
@@ -85,12 +93,14 @@ const activeCredentialField = computed(() => (
 const isCodexHandler = computed(() => credentialHandlerKey.value === 'codex')
 const isGeminiHandler = computed(() => credentialHandlerKey.value === 'gemini')
 const isAntigravityHandler = computed(() => credentialHandlerKey.value === 'antigravity')
+const isOpenCodeGoHandler = computed(() => credentialHandlerKey.value === 'opencode-go')
 const supportsOAuth = computed(() => isCodexHandler.value || isGeminiHandler.value || isAntigravityHandler.value)
 
 const codexRows = computed(() => rows.value.filter(isCodexItem))
 const geminiRows = computed(() => rows.value.filter(isGeminiItem))
 const antigravityRows = computed(() => rows.value.filter(isAntigravityItem))
-const genericRows = computed(() => rows.value.filter((item) => !isCodexItem(item) && !isGeminiItem(item) && !isAntigravityItem(item)))
+const openCodeGoRows = computed(() => rows.value.filter(isOpenCodeGoItem))
+const genericRows = computed(() => rows.value.filter((item) => !isCodexItem(item) && !isGeminiItem(item) && !isAntigravityItem(item) && !isOpenCodeGoItem(item)))
 const rowsMatchActiveHandler = computed(() => rowsHandlerKey.value === credentialHandlerKey.value)
 const showHandlerLoadingState = computed(() => (
   Boolean(admin.activeHandler.value?.supports_credentials)
@@ -110,14 +120,19 @@ const oauthCallbackPlaceholder = '粘贴回调链接'
 const oauthSubmitDisabled = computed(() => !oauthFlow.value || !oauthCodeInput.value.trim())
 const creditsDialogOpen = computed(() => Boolean(creditsDialogItem.value))
 const codexResetDialogOpen = computed(() => Boolean(codexResetDialogItem.value))
+const openCodeGoRewardsDialogOpen = computed(() => Boolean(openCodeGoRewardsDialogItem.value))
 const creditsDialogTypes = computed(() => (
   creditsDialogItem.value ? antigravityCreditTypes(creditsDialogItem.value) : []
 ))
 
+function credentialPlanType(item: CredentialItem) {
+  return (item as { plan_type?: string | null }).plan_type || ''
+}
+
 const availablePlanTypes = computed(() => {
   const sourcePlanTypes = planTypes.value.length
     ? planTypes.value
-    : rows.value.map((item) => item.plan_type || '')
+    : rows.value.map(credentialPlanType)
   const orderedPlanTypes: string[] = []
   const seen = new Set<string>()
   sourcePlanTypes.forEach((rawPlanType) => {
@@ -199,6 +214,13 @@ const codexSortOptions = [
   { title: 'Spark退避', value: 'spark_throttled_until' },
 ]
 
+const openCodeGoSortOptions = [
+  { title: 'Score', value: 'score' },
+  { title: '5h额度', value: 'quota_5h' },
+  { title: '周限额', value: 'quota_7d' },
+  { title: '月限额', value: 'quota_1mo' },
+]
+
 const geminiSortOptions = [
   { title: 'Pro Score', value: 'pro_score' },
   { title: 'Pro错误率', value: 'pro_error_rate' },
@@ -248,7 +270,15 @@ const sortOrderOptions = [
 
 const credentialSortOptions = computed(() => [
   defaultSortOption,
-  ...(isAntigravityHandler.value ? antigravitySortOptions : isGeminiHandler.value ? geminiSortOptions : isCodexHandler.value ? codexSortOptions : []),
+  ...(isAntigravityHandler.value
+    ? antigravitySortOptions
+    : isGeminiHandler.value
+      ? geminiSortOptions
+      : isCodexHandler.value
+        ? codexSortOptions
+        : isOpenCodeGoHandler.value
+          ? openCodeGoSortOptions
+          : []),
 ])
 
 const hasActiveFilters = computed(() => (
@@ -295,14 +325,18 @@ function isAntigravityItem(item: CredentialItem): item is AntigravityCredentialI
   return item.handler === 'antigravity'
 }
 
+function isOpenCodeGoItem(item: CredentialItem): item is OpenCodeGoCredentialItem {
+  return item.handler === 'opencode-go'
+}
+
 function genericDetailEntries(item: CredentialItem) {
   const raw = item as Record<string, unknown>
   return [
     { label: '凭据 ID', value: item.id },
     { label: '邮箱', value: typeof raw.email === 'string' ? raw.email : '' },
     { label: 'Project ID', value: typeof raw.project_id === 'string' ? raw.project_id : '' },
-    { label: '套餐类型', value: planTypeText(item.plan_type || '') },
-    { label: 'AT到期', value: item.expired ? formatTime(String(item.expired)) : '-' },
+    { label: '套餐类型', value: planTypeText(credentialPlanType(item)) },
+    { label: 'AT到期', value: raw.expired ? formatTime(String(raw.expired)) : '-' },
     { label: '最近同步', value: item.synced_at ? formatTime(String(item.synced_at)) : '-' },
   ].filter((entry) => entry.value && entry.value !== 'unknown')
 }
@@ -587,6 +621,14 @@ function codexQuotaCards(item: CodexItem) {
   return cards.filter((card): card is NonNullable<typeof card> => card !== null)
 }
 
+function openCodeGoQuotaCards(item: OpenCodeGoCredentialItem) {
+  return [
+    codexQuotaCard('5 小时额度', item.quota, 'quota_5h', 'reset_5h'),
+    codexQuotaCard('7 天额度', item.quota, 'quota_7d', 'reset_7d'),
+    codexQuotaCard('月额度', item.quota, 'quota_1mo', 'reset_1mo'),
+  ].filter((card): card is NonNullable<typeof card> => card !== null)
+}
+
 function geminiQuotaCard(label: string, metric: GeminiCredentialItem['pro']) {
   const percent = geminiQuotaPercentValue(metric)
   const throttledUntil = activeThrottleUntil(metric.throttled_until)
@@ -719,6 +761,64 @@ function consumeCodexReset() {
         admin.notify(error instanceof Error ? error.message : '重置失败', 'danger')
       } finally {
         codexResetConsuming.value = false
+      }
+    },
+  })
+}
+
+function formatOpenCodeGoMoney(cents: number) {
+  const amount = Number(cents || 0) / 100
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
+}
+
+function openCodeGoRewardDescription(reward: OpenCodeGoReferralReward) {
+  if (reward.source === 'invitee') {
+    return reward.email ? `受邀加入（${reward.email}）` : '受邀加入奖励'
+  }
+  return reward.email ? `邀请 ${reward.email}` : '邀请奖励'
+}
+
+async function openOpenCodeGoRewardsDialog(item: OpenCodeGoCredentialItem) {
+  openCodeGoRewardsDialogItem.value = item
+  openCodeGoRewards.value = null
+  openCodeGoRewardsError.value = ''
+  openCodeGoRewardsLoading.value = true
+  try {
+    openCodeGoRewards.value = await adminApi.fetchOpenCodeGoReferralRewards(admin.token.value, item.id)
+  } catch (error) {
+    openCodeGoRewardsError.value = error instanceof Error ? error.message : '加载可用奖励失败'
+  } finally {
+    openCodeGoRewardsLoading.value = false
+  }
+}
+
+function closeOpenCodeGoRewardsDialog() {
+  if (openCodeGoRewardApplying.value) return
+  openCodeGoRewardsDialogItem.value = null
+  openCodeGoRewards.value = null
+  openCodeGoRewardsError.value = ''
+}
+
+function applyOpenCodeGoReward(reward: OpenCodeGoReferralReward) {
+  const item = openCodeGoRewardsDialogItem.value
+  if (!item) return
+  confirm.show({
+    title: '增加余额',
+    message: `确认应用 ${formatOpenCodeGoMoney(reward.amount_cents)} 奖励吗？官方会将奖励抵扣到当前 OpenCode Go 用量窗口。`,
+    confirmText: '确认增加',
+    confirmVariant: 'secondary',
+    action: async () => {
+      openCodeGoRewardApplying.value = reward.id
+      try {
+        await adminApi.applyOpenCodeGoReferralReward(admin.token.value, item.id, reward.id)
+        admin.notify('OpenCode Go 奖励已应用', 'success')
+        openCodeGoRewardApplying.value = ''
+        closeOpenCodeGoRewardsDialog()
+        await loadCredentials(page.value, pageSize.value)
+      } catch (error) {
+        admin.notify(error instanceof Error ? error.message : '增加余额失败', 'danger')
+      } finally {
+        openCodeGoRewardApplying.value = ''
       }
     },
   })
@@ -1415,6 +1515,103 @@ onBeforeUnmount(() => {
                 </VCard>
               </template>
 
+              <template v-else-if="isOpenCodeGoHandler">
+                <VCard
+                  v-for="item in openCodeGoRows"
+                  :key="item.id"
+                  color="surface-container"
+                  variant="flat"
+                >
+                  <VCardText class="stack-card-body">
+                    <div class="stack-card-top">
+                      <div class="d-flex align-start ga-3" style="min-width: 0">
+                        <VCheckboxBtn
+                          :model-value="selectedSet.has(item.id)"
+                          @update:model-value="() => toggleSelectOne(item.id)"
+                        />
+                        <div class="stack-card-copy">
+                          <div class="stack-card-title">
+                            {{ item.email }}
+                          </div>
+                          <div class="stack-card-meta">
+                            <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
+                              OpenCode Go
+                            </AdminBadge>
+                            <AdminBadge
+                              v-for="status in credentialStatusBadges(item.status)"
+                              :key="status"
+                              :tone="toneForStatus(status)"
+                              subtle
+                              :icon="credentialStatusIcon(status)"
+                            >
+                              {{ statusText(status) }}
+                            </AdminBadge>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      v-if="item.rewards_count > 0"
+                      class="quota-card"
+                      role="button"
+                      tabindex="0"
+                      style="cursor: pointer"
+                      @click="openOpenCodeGoRewardsDialog(item)"
+                      @keydown.enter="openOpenCodeGoRewardsDialog(item)"
+                      @keydown.space.prevent="openOpenCodeGoRewardsDialog(item)"
+                    >
+                      <div class="quota-row">
+                        <div class="quota-label text-medium-emphasis">增加余额</div>
+                        <span class="quota-value font-weight-bold text-accent">
+                          {{ item.rewards_count }} 次
+                        </span>
+                      </div>
+                    </div>
+
+                    <div v-if="openCodeGoQuotaCards(item).length" class="quota-grid">
+                      <div v-for="quota in openCodeGoQuotaCards(item)" :key="quota.label" class="quota-card">
+                        <div class="quota-row">
+                          <div class="quota-label text-medium-emphasis">{{ quota.label }}</div>
+                          <span :class="'text-' + quota.tone" class="quota-value font-weight-bold">
+                            {{ quota.value }}
+                          </span>
+                        </div>
+                        <VProgressLinear
+                          :model-value="quota.percent ?? 0"
+                          :color="quota.tone"
+                          rounded
+                          height="8"
+                        />
+                        <div class="quota-footer text-medium-emphasis">
+                          <div class="quota-caption">
+                            <span v-for="caption in quota.caption" :key="caption">
+                              <span class="quota-caption-text">{{ caption }}</span>
+                            </span>
+                          </div>
+                          <div class="quota-score">{{ quota.score }}</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="detail-grid">
+                      <div class="detail-block">
+                        <div class="detail-label text-medium-emphasis">工作区</div>
+                        <div class="detail-value">{{ item.workspace_id || '-' }}</div>
+                      </div>
+                      <div class="detail-block">
+                        <div class="detail-label text-medium-emphasis">最近同步</div>
+                        <div class="detail-value">{{ item.synced_at ? formatTime(item.synced_at) : '-' }}</div>
+                      </div>
+                    </div>
+
+                    <div v-if="shouldShowCredentialReason(item.status) && item.reason" class="reason-block">
+                      <div class="reason-label">{{ credentialReasonLabel(item.status) }}</div>
+                      <div class="reason-value">{{ item.reason }}</div>
+                    </div>
+                  </VCardText>
+                </VCard>
+              </template>
+
               <template v-else>
                 <VCard
                   v-for="item in genericRows"
@@ -1432,8 +1629,8 @@ onBeforeUnmount(() => {
                         <div class="stack-card-copy">
                           <div class="stack-card-title">{{ item.id }}</div>
                           <div class="stack-card-meta">
-                            <AdminBadge v-if="item.plan_type" tone="secondary" subtle icon="mdi-star-circle-outline">
-                              {{ planTypeText(item.plan_type) }}
+                            <AdminBadge v-if="credentialPlanType(item)" tone="secondary" subtle icon="mdi-star-circle-outline">
+                              {{ planTypeText(credentialPlanType(item)) }}
                             </AdminBadge>
                             <AdminBadge
                               v-for="status in credentialStatusBadges(item.status)"
@@ -1647,6 +1844,49 @@ onBeforeUnmount(() => {
           重置
         </AdminButton>
         <AdminButton variant="ghost" @click="closeCodexResetDialog">关闭</AdminButton>
+      </template>
+    </ModalDialog>
+
+    <ModalDialog
+      :open="openCodeGoRewardsDialogOpen"
+      title="增加余额"
+      description="应用可用邀请奖励；奖励会按 OpenCode 官方规则抵扣当前 Go 用量窗口"
+      icon="mdi-cash-plus"
+      max-width="680"
+      @close="closeOpenCodeGoRewardsDialog"
+    >
+      <div class="d-grid ga-4">
+        <div v-if="openCodeGoRewardsLoading" class="text-medium-emphasis">加载中…</div>
+        <div v-else-if="openCodeGoRewardsError" class="text-error">{{ openCodeGoRewardsError }}</div>
+        <div v-else-if="!openCodeGoRewards?.rewards?.length" class="text-medium-emphasis">暂无可用奖励</div>
+        <div v-else class="open-code-go-rewards-list d-grid ga-3">
+          <div
+            v-for="reward in openCodeGoRewards.rewards"
+            :key="reward.id"
+            class="detail-block"
+          >
+            <div class="d-flex align-center justify-space-between flex-wrap ga-3">
+              <div class="d-grid ga-1">
+                <div class="detail-value">{{ formatOpenCodeGoMoney(reward.amount_cents) }}</div>
+                <div class="text-body-2 text-medium-emphasis">{{ openCodeGoRewardDescription(reward) }}</div>
+                <div class="text-body-2 text-medium-emphasis">获得于 {{ formatTime(reward.created_at) }}</div>
+              </div>
+              <AdminButton
+                variant="secondary"
+                :loading="openCodeGoRewardApplying === reward.id"
+                :disabled="Boolean(openCodeGoRewardApplying)"
+                @click="applyOpenCodeGoReward(reward)"
+              >
+                增加余额
+              </AdminButton>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <AdminButton variant="ghost" :disabled="Boolean(openCodeGoRewardApplying)" @click="closeOpenCodeGoRewardsDialog">
+          关闭
+        </AdminButton>
       </template>
     </ModalDialog>
 

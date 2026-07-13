@@ -143,6 +143,8 @@ export interface SettingsSnapshot {
   antigravity_api_endpoint?: string
   antigravity_use_credits?: boolean
   antigravity_user_agent: string
+
+  opencode_go_proxy: string
 }
 
 export interface SettingsForm {
@@ -173,6 +175,8 @@ export interface SettingsForm {
   antigravity_api_endpoint?: string
   antigravity_use_credits?: boolean
   antigravity_user_agent: string
+
+  opencode_go_proxy: string
 }
 
 export interface CodexSchedulingMetric {
@@ -261,6 +265,32 @@ export interface AntigravityCredentialItem {
   credits: AntigravityCreditsMetric
 }
 
+export interface OpenCodeGoCredentialItem {
+  handler: 'opencode-go'
+  id: string
+  email: string
+  status: string[]
+  reason: string
+  workspace_id: string
+  synced_at: string
+  quota: CodexSchedulingMetric
+  rewards_count: number
+}
+
+export interface OpenCodeGoReferralReward {
+  id: string
+  source: string
+  status: string
+  email?: string
+  amount_cents: number
+  created_at: string
+}
+
+export interface OpenCodeGoReferralRewards {
+  rewards: OpenCodeGoReferralReward[]
+  total_cents: number
+}
+
 export interface GenericCredentialItem {
   handler: string
   id: string
@@ -272,7 +302,7 @@ export interface GenericCredentialItem {
   [key: string]: unknown
 }
 
-export type CredentialItem = CodexItem | GeminiCredentialItem | AntigravityCredentialItem | GenericCredentialItem
+export type CredentialItem = CodexItem | GeminiCredentialItem | AntigravityCredentialItem | OpenCodeGoCredentialItem | GenericCredentialItem
 
 export type CredentialHandlerKey = string
 

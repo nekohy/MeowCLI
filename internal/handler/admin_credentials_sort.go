@@ -28,6 +28,13 @@ var codexCredentialSortKeys = stringSet(
 	"spark_throttled_until",
 )
 
+var openCodeGoCredentialSortKeys = stringSet(
+	"score",
+	"quota_5h",
+	"quota_7d",
+	"quota_1mo",
+)
+
 var geminiCredentialSortKeys = stringSet(
 	"pro_score",
 	"flash_score",
@@ -123,6 +130,24 @@ func sortCodexListItems(items []codexListItem, options credentialSortOptions) {
 		}
 	}
 	sortCredentialItems(items, func(item codexListItem) string { return item.ID }, value, options.Order)
+}
+
+func sortOpenCodeGoListItems(items []openCodeGoListItem, options credentialSortOptions) {
+	value := func(item openCodeGoListItem) (float64, bool) {
+		switch options.By {
+		case "score":
+			return adjustedMetricScore(item.Quota.Score, item.Quota.Weight), true
+		case "quota_5h":
+			return item.Quota.Quota5h, true
+		case "quota_7d":
+			return item.Quota.Quota7d, true
+		case "quota_1mo":
+			return item.Quota.Quota1mo, true
+		default:
+			return 0, false
+		}
+	}
+	sortCredentialItems(items, func(item openCodeGoListItem) string { return item.ID }, value, options.Order)
 }
 
 func sortGeminiListItems(items []geminiListItem, options credentialSortOptions) {
@@ -257,6 +282,11 @@ func timeSortValue(value *time.Time) float64 {
 }
 
 func paginateCodexListItems(items []codexListItem, page, pageSize int) []codexListItem {
+	start, end := paginationBounds(len(items), page, pageSize)
+	return items[start:end]
+}
+
+func paginateOpenCodeGoListItems(items []openCodeGoListItem, page, pageSize int) []openCodeGoListItem {
 	start, end := paginationBounds(len(items), page, pageSize)
 	return items[start:end]
 }

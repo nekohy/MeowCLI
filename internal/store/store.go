@@ -43,6 +43,16 @@ type AntigravityCredential struct {
 	SyncedAt     time.Time `json:"synced_at"`
 }
 
+type OpenCodeGoCredential struct {
+	ID         string    `json:"id"`
+	Status     string    `json:"status"`
+	APIKey     string    `json:"-"`
+	AuthCookie string    `json:"-"`
+	Reason     string    `json:"reason"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type UpdateCodexTokensParams struct {
 	ID           string
 	Status       string
@@ -145,19 +155,19 @@ type ErrorRateSince struct {
 }
 
 type UpsertQuotaParams struct {
-	CredentialID  string
-	Quota5h       float64
-	Quota7d       float64
-	Quota1mo      float64
-	QuotaSpark5h  float64
-	QuotaSpark7d  float64
-	QuotaSpark1mo float64
-	Reset5h       time.Time
-	Reset7d       time.Time
-	Reset1mo      time.Time
-	ResetSpark5h  time.Time
-	ResetSpark7d  time.Time
-	ResetSpark1mo time.Time
+	CredentialID      string
+	Quota5h           float64
+	Quota7d           float64
+	Quota1mo          float64
+	QuotaSpark5h      float64
+	QuotaSpark7d      float64
+	QuotaSpark1mo     float64
+	Reset5h           time.Time
+	Reset7d           time.Time
+	Reset1mo          time.Time
+	ResetSpark5h      time.Time
+	ResetSpark7d      time.Time
+	ResetSpark1mo     time.Time
 	ResetCreditsCount int
 }
 
@@ -188,6 +198,17 @@ type UpsertAntigravityQuotaParams struct {
 	CreditsAmount  float64
 	CreditTypes    string
 	CreditsSynced  bool
+}
+
+type UpsertOpenCodeGoQuotaParams struct {
+	CredentialID string
+	Quota5h      float64
+	Quota7d      float64
+	Quota1mo     float64
+	Reset5h      time.Time
+	Reset7d      time.Time
+	Reset1mo     time.Time
+	RewardsCount int
 }
 
 type ReverseInfoFromModelRow struct {
@@ -346,6 +367,39 @@ type ListAntigravityRow struct {
 	SyncedAt                time.Time `json:"synced_at"`
 }
 
+type ListAvailableOpenCodeGoRow struct {
+	ID             string    `json:"id"`
+	AuthCookie     string    `json:"-"`
+	Quota5h        float64   `json:"quota_5h"`
+	Quota7d        float64   `json:"quota_7d"`
+	Quota1mo       float64   `json:"quota_1mo"`
+	Reset5h        time.Time `json:"reset_5h"`
+	Reset7d        time.Time `json:"reset_7d"`
+	Reset1mo       time.Time `json:"reset_1mo"`
+	RewardsCount   int       `json:"rewards_count"`
+	ThrottledUntil time.Time `json:"throttled_until"`
+	SyncedAt       time.Time `json:"synced_at"`
+}
+
+type ListOpenCodeGoRow struct {
+	ID             string    `json:"id"`
+	Status         string    `json:"status"`
+	APIKey         string    `json:"-"`
+	AuthCookie     string    `json:"-"`
+	Reason         string    `json:"reason"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	Quota5h        float64   `json:"quota_5h"`
+	Quota7d        float64   `json:"quota_7d"`
+	Quota1mo       float64   `json:"quota_1mo"`
+	Reset5h        time.Time `json:"reset_5h"`
+	Reset7d        time.Time `json:"reset_7d"`
+	Reset1mo       time.Time `json:"reset_1mo"`
+	RewardsCount   int       `json:"rewards_count"`
+	ThrottledUntil time.Time `json:"throttled_until"`
+	SyncedAt       time.Time `json:"synced_at"`
+}
+
 type CreateCodexParams struct {
 	ID           string
 	Status       string
@@ -377,6 +431,14 @@ type UpsertAntigravityParams struct {
 	ProjectID    string
 	PlanType     string
 	Reason       string
+}
+
+type UpsertOpenCodeGoParams struct {
+	ID         string
+	Status     string
+	APIKey     string
+	AuthCookie string
+	Reason     string
 }
 
 type ModelRow struct {
@@ -537,6 +599,17 @@ type Store interface {
 	UpdateAntigravityStatus(ctx context.Context, id string, status string, reason string) (AntigravityCredential, error)
 	RestoreExpiredThrottledAntigravity(ctx context.Context) error
 	NextAntigravityThrottleDeadline(ctx context.Context) (time.Time, error)
+	CountEnabledOpenCodeGo(ctx context.Context) (int64, error)
+	CountOpenCodeGo(ctx context.Context) (int64, error)
+	CountOpenCodeGoFiltered(ctx context.Context, filter CredentialFilterParams) (int64, error)
+	GetOpenCodeGo(ctx context.Context, id string) (OpenCodeGoCredential, error)
+	ListOpenCodeGo(ctx context.Context) ([]ListOpenCodeGoRow, error)
+	ListOpenCodeGoPaged(ctx context.Context, arg ListCredentialPagedParams) ([]ListOpenCodeGoRow, error)
+	UpsertOpenCodeGo(ctx context.Context, arg UpsertOpenCodeGoParams) (OpenCodeGoCredential, error)
+	DeleteOpenCodeGo(ctx context.Context, id string) error
+	UpdateOpenCodeGoStatus(ctx context.Context, id string, status string, reason string) (OpenCodeGoCredential, error)
+	RestoreExpiredThrottledOpenCodeGo(ctx context.Context) error
+	NextOpenCodeGoThrottleDeadline(ctx context.Context) (time.Time, error)
 
 	ReverseInfoFromModel(ctx context.Context, alias string) (ReverseInfoFromModelRow, error)
 	ListModels(ctx context.Context) ([]ModelRow, error)
@@ -551,6 +624,7 @@ type Store interface {
 	ListAvailableCodex(ctx context.Context) ([]ListAvailableCodexRow, error)
 	ListAvailableGeminiCLI(ctx context.Context) ([]ListAvailableGeminiCLIRow, error)
 	ListAvailableAntigravity(ctx context.Context) ([]ListAvailableAntigravityRow, error)
+	ListAvailableOpenCodeGo(ctx context.Context) ([]ListAvailableOpenCodeGoRow, error)
 
 	UpsertGeminiQuota(ctx context.Context, arg UpsertGeminiQuotaParams) error
 	SetGeminiQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
@@ -558,6 +632,9 @@ type Store interface {
 	UpsertAntigravityQuota(ctx context.Context, arg UpsertAntigravityQuotaParams) error
 	SetAntigravityQuotaThrottled(ctx context.Context, credentialID string, modelTier string, throttledUntil time.Time) error
 	DeleteAntigravityQuota(ctx context.Context, credentialID string) error
+	UpsertOpenCodeGoQuota(ctx context.Context, arg UpsertOpenCodeGoQuotaParams) error
+	SetOpenCodeGoQuotaThrottled(ctx context.Context, credentialID string, throttledUntil time.Time) error
+	DeleteOpenCodeGoQuota(ctx context.Context, credentialID string) error
 	ListAuthKeys(ctx context.Context) ([]AuthKey, error)
 	GetAuthKey(ctx context.Context, key string) (AuthKey, error)
 	CreateAuthKey(ctx context.Context, arg CreateAuthKeyParams) (AuthKey, error)

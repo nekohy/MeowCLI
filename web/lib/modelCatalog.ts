@@ -2,6 +2,7 @@ export const DEFAULT_MODEL_CATALOG_URLS: Record<string, string> = {
   antigravity: 'https://cdn.jsdelivr.net/gh/nekohy/MeowCLI@master/models-list/antigravity.json',
   codex: 'https://cdn.jsdelivr.net/gh/nekohy/MeowCLI@master/models-list/codex.json',
   gemini: 'https://cdn.jsdelivr.net/gh/nekohy/MeowCLI@master/models-list/gemini-cli.json',
+  'opencode-go': 'https://cdn.jsdelivr.net/gh/nekohy/MeowCLI@master/models-list/opencode-go.json',
 }
 
 export interface ModelCatalogItem {

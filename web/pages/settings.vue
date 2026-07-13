@@ -204,6 +204,7 @@ function normalizeSettingsForm(source: SettingsForm): SettingsForm {
     codex_proxy: source.codex_proxy.trim(),
     gemini_proxy: source.gemini_proxy.trim(),
     antigravity_proxy: source.antigravity_proxy.trim(),
+    opencode_go_proxy: source.opencode_go_proxy.trim(),
     codex_user_agent: source.codex_user_agent.trim(),
     antigravity_user_agent: source.antigravity_user_agent.trim(),
     antigravity_api_endpoint: joinAntigravityAPIEndpointInput(splitAntigravityAPIEndpointInput(source.antigravity_api_endpoint)),
@@ -469,6 +470,36 @@ watch(
             </div>
           </div>
           <VIcon icon="mdi-chevron-right" />
+        </div>
+      </div>
+    </SectionCard>
+
+    <SectionCard title="OpenCode Go" icon="mdi-code-braces-box">
+      <div class="setting-field-stack">
+        <div class="settings-item">
+          <div class="settings-item-copy">
+            <div class="settings-item-title">OpenCode Go 代理</div>
+            <div class="settings-item-description text-medium-emphasis">未设置时回退到全局代理</div>
+          </div>
+          <VTextField
+            v-model="form.opencode_go_proxy"
+            placeholder="http://127.0.0.1:7890"
+            hide-details
+            class="settings-item-control"
+          />
+        </div>
+
+        <div class="settings-item">
+          <div class="settings-item-copy">
+            <div class="settings-item-title">Base URL</div>
+            <div class="settings-item-description text-medium-emphasis">OpenAI 兼容的 Chat Completions 渠道</div>
+          </div>
+          <VTextField
+            model-value="https://opencode.ai/zen/go"
+            readonly
+            hide-details
+            class="settings-item-control"
+          />
         </div>
       </div>
     </SectionCard>

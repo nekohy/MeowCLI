@@ -69,6 +69,13 @@ func Setup(r *gin.Engine, deps Deps) {
 			apiGroup.PUT("/antigravity/status", deps.Admin.BatchUpdateAntigravityStatus)
 			apiGroup.DELETE("/antigravity", deps.Admin.BatchDeleteAntigravity)
 
+			apiGroup.GET("/opencode-go", deps.Admin.ListOpenCodeGo)
+			apiGroup.POST("/opencode-go", deps.Admin.BatchCreateOpenCodeGo)
+			apiGroup.PUT("/opencode-go/status", deps.Admin.BatchUpdateOpenCodeGoStatus)
+			apiGroup.DELETE("/opencode-go", deps.Admin.BatchDeleteOpenCodeGo)
+			apiGroup.GET("/opencode-go/referral-rewards", deps.Admin.ListOpenCodeGoReferralRewards)
+			apiGroup.POST("/opencode-go/referral-rewards/apply", deps.Admin.ApplyOpenCodeGoReferralReward)
+
 			apiGroup.POST("/oauth/:provider/start", deps.Admin.StartOAuth)
 			apiGroup.POST("/oauth/:provider/callback", deps.Admin.OAuthCallback)
 

@@ -13,6 +13,7 @@ import (
 	coreantigravity "github.com/nekohy/MeowCLI/core/antigravity"
 	corecodex "github.com/nekohy/MeowCLI/core/codex"
 	coreGemini "github.com/nekohy/MeowCLI/core/gemini"
+	coreopencodego "github.com/nekohy/MeowCLI/core/opencodego"
 	"github.com/nekohy/MeowCLI/core/scheduling"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	storedb "github.com/nekohy/MeowCLI/internal/store"
@@ -201,6 +202,8 @@ func modelTier(info *ResolvedModel) string {
 		return coreGemini.ResolveModelTier(info.Origin)
 	case utils.HandlerAntigravity:
 		return coreantigravity.ResolveModelTier(info.Origin)
+	case utils.HandlerOpenCodeGo:
+		return coreopencodego.ModelTierDefault
 	default:
 		return ""
 	}

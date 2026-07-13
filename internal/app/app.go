@@ -13,10 +13,12 @@ import (
 	"github.com/nekohy/MeowCLI/api/codex"
 	codexutils "github.com/nekohy/MeowCLI/api/codex/utils"
 	"github.com/nekohy/MeowCLI/api/gemini"
+	opencodegoapi "github.com/nekohy/MeowCLI/api/opencodego"
 	oauthcore "github.com/nekohy/MeowCLI/core"
 	coreAntigravity "github.com/nekohy/MeowCLI/core/antigravity"
 	coreCodex "github.com/nekohy/MeowCLI/core/codex"
 	coreGemini "github.com/nekohy/MeowCLI/core/gemini"
+	coreOpenCodeGo "github.com/nekohy/MeowCLI/core/opencodego"
 	"github.com/nekohy/MeowCLI/db/postgres"
 	"github.com/nekohy/MeowCLI/db/sqlite"
 	"github.com/nekohy/MeowCLI/internal/auth"
@@ -122,6 +124,17 @@ func Run(ctx context.Context, cfg Config) error {
 	antigravityScheduler.SetLogStore(logStore)
 	antigravityScheduler.StartQuotaSyncer(ctx)
 
+	openCodeGoClient := opencodegoapi.NewClient()
+	openCodeGoClient.SetSettingsProvider(settingsSvc)
+	openCodeGoManager, err := coreOpenCodeGo.NewManager(store)
+	if err != nil {
+		return fmt.Errorf("init opencode go manager: %w", err)
+	}
+	openCodeGoScheduler := coreOpenCodeGo.NewScheduler(store, openCodeGoManager, openCodeGoClient)
+	openCodeGoScheduler.SetSettingsProvider(settingsSvc)
+	openCodeGoScheduler.SetLogStore(logStore)
+	openCodeGoScheduler.StartQuotaSyncer(ctx)
+
 	modelCache := &modelCacheResolver{store: store}
 	pluginRegistry := pluginloader.DefaultRegistry()
 	h := bridge.NewHandler(
@@ -130,15 +143,17 @@ func Run(ctx context.Context, cfg Config) error {
 			utils.HandlerCodex:       codexScheduler,
 			utils.HandlerGemini:      geminiScheduler,
 			utils.HandlerAntigravity: antigravityScheduler,
+			utils.HandlerOpenCodeGo:  openCodeGoScheduler,
 		},
 		codexClient,
 		geminiClient,
 		antigravityClient,
+		openCodeGoClient,
 	)
 	h.SetSettingsProvider(settingsSvc)
 	h.SetPluginRegistry(pluginRegistry)
 
-	adminHandler := handler.NewAdminHandler(store, codexClient, geminiClient, antigravityClient)
+	adminHandler := handler.NewAdminHandler(store, codexClient, geminiClient, antigravityClient, openCodeGoClient)
 	adminHandler.SetPluginRegistry(pluginRegistry)
 	oauthFlows, err := newOAuthFlows()
 	if err != nil {
@@ -151,6 +166,7 @@ func Run(ctx context.Context, cfg Config) error {
 		codex:       codexScheduler,
 		gemini:      geminiScheduler,
 		antigravity: antigravityScheduler,
+		opencodeGo:  openCodeGoScheduler,
 	})
 	adminHandler.SetLogStore(logStore)
 	adminHandler.SetSettingsService(settingsSvc)
@@ -406,6 +422,8 @@ func parseModelPlanTypes(handler utils.HandlerType, raw string) []string {
 		return utils.ParseCodeAssistPlanTypeList(raw)
 	case utils.HandlerCodex:
 		return coreCodex.ParsePlanTypeList(raw)
+	case utils.HandlerOpenCodeGo:
+		return nil
 	default:
 		return nil
 	}
@@ -415,6 +433,7 @@ type credentialRefreshDispatcher struct {
 	codex       *coreCodex.Scheduler
 	gemini      *coreGemini.Scheduler
 	antigravity *coreAntigravity.Scheduler
+	opencodeGo  *coreOpenCodeGo.Scheduler
 }
 
 func (d *credentialRefreshDispatcher) RefreshAvailable(ctx context.Context, handler utils.HandlerType) error {
@@ -428,8 +447,26 @@ func (d *credentialRefreshDispatcher) RefreshAvailable(ctx context.Context, hand
 	case utils.HandlerCodex:
 		_, err := d.codex.RefreshAvailable(ctx)
 		return err
+	case utils.HandlerOpenCodeGo:
+		_, err := d.opencodeGo.RefreshAvailable(ctx)
+		return err
 	default:
 		return fmt.Errorf("unsupported credential handler %q", handler)
+	}
+}
+
+func (d *credentialRefreshDispatcher) RefreshQuota(ctx context.Context, handler utils.HandlerType, id string) error {
+	if d == nil {
+		return errors.New("credential scheduler is unavailable")
+	}
+	switch handler {
+	case utils.HandlerOpenCodeGo:
+		if d.opencodeGo == nil {
+			return errors.New("opencode go scheduler is unavailable")
+		}
+		return d.opencodeGo.RefreshQuota(ctx, id)
+	default:
+		return fmt.Errorf("quota refresh is unsupported for credential handler %q", handler)
 	}
 }
 
@@ -441,6 +478,8 @@ func (d *credentialRefreshDispatcher) SyncQuotas(ctx context.Context, handler ut
 		d.antigravity.SyncCredentials(ctx, ids)
 	case utils.HandlerCodex:
 		d.codex.SyncCredentials(ctx, ids)
+	case utils.HandlerOpenCodeGo:
+		d.opencodeGo.SyncCredentials(ctx, ids)
 	}
 }
 
@@ -465,6 +504,10 @@ func (d *credentialRefreshDispatcher) InvalidateCredentials(handler utils.Handle
 		case utils.HandlerCodex:
 			if d.codex != nil {
 				d.codex.InvalidateCredential(id)
+			}
+		case utils.HandlerOpenCodeGo:
+			if d.opencodeGo != nil {
+				d.opencodeGo.InvalidateCredential(id)
 			}
 		}
 	}

@@ -109,6 +109,14 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 	if err != nil {
 		return overviewResponse{}, err
 	}
+	openCodeGoTotal, err := a.store.CountOpenCodeGo(ctx)
+	if err != nil {
+		return overviewResponse{}, err
+	}
+	openCodeGoEnabled, err := a.store.CountEnabledOpenCodeGo(ctx)
+	if err != nil {
+		return overviewResponse{}, err
+	}
 
 	for i := range handlers {
 		handlers[i].Plugins = a.availablePluginsForHandler(handlers[i].Key, handlers[i].SupportedAPI)
@@ -132,13 +140,16 @@ func (a *AdminHandler) buildOverview(ctx context.Context) (overviewResponse, err
 		case utils.HandlerAntigravity:
 			handlers[i].CredentialsTotal = int(antigravityTotal)
 			handlers[i].CredentialsEnabled = antigravityEnabled
+		case utils.HandlerOpenCodeGo:
+			handlers[i].CredentialsTotal = int(openCodeGoTotal)
+			handlers[i].CredentialsEnabled = openCodeGoEnabled
 		}
 	}
 
 	return overviewResponse{
 		Summary: overviewSummary{
-			CredentialsEnabled: codexEnabled + geminiEnabled + antigravityEnabled,
-			CredentialsTotal:   int(codexTotal + geminiTotal + antigravityTotal),
+			CredentialsEnabled: codexEnabled + geminiEnabled + antigravityEnabled + openCodeGoEnabled,
+			CredentialsTotal:   int(codexTotal + geminiTotal + antigravityTotal + openCodeGoTotal),
 			ModelsTotal:        int(modelsTotal),
 			LogsTotal:          logs.TotalStats.Total,
 			AuthKeysTotal:      authKeysTotal,
@@ -245,6 +256,28 @@ func defaultHandlerOverview() []handlerOverview {
 				{Value: "throttled:flashlite", Label: "Lite退避", Metric: "flashlite"},
 				{Value: "throttled:tab", Label: "Tab退避", Metric: "tab"},
 				{Value: "throttled:image", Label: "Image退避", Metric: "image"},
+			},
+		},
+		{
+			Key:                 utils.HandlerOpenCodeGo,
+			Label:               "OpenCode Go",
+			Status:              "available",
+			SupportedAPI:        []utils.APIType{utils.APICompletion},
+			SupportsCredentials: true,
+			CredentialEndpoint:  credentialsEndpointForHandler(utils.HandlerOpenCodeGo),
+			CredentialFields: []credentialField{
+				{
+					Key:         "tokens",
+					Label:       "Cookie",
+					Kind:        "textarea",
+					Placeholder: "Fe26开头的Auth值",
+					HelpText:    "",
+					Preferred:   true,
+				},
+			},
+			CredentialStatusOptions: []string{"enabled", "disabled"},
+			CredentialThrottleStatusOptions: []credentialThrottleStatusOption{
+				{Value: "throttled:default", Label: "Default退避", Metric: "default"},
 			},
 		},
 	}

@@ -12,6 +12,7 @@ import type {
   ModelItem,
   OAuthCallbackResponse,
   OAuthStartResponse,
+  OpenCodeGoReferralRewards,
   OverviewResponse,
   PaginatedResponse,
   SettingsSnapshot,
@@ -219,6 +220,19 @@ export const adminApi = {
       token,
       method: 'POST',
       body: { credential_id: credentialId },
+    })
+  },
+  fetchOpenCodeGoReferralRewards(token: string, credentialId: string) {
+    return apiRequest<OpenCodeGoReferralRewards>('/opencode-go/referral-rewards', {
+      token,
+      query: { credential_id: credentialId },
+    })
+  },
+  applyOpenCodeGoReferralReward(token: string, credentialId: string, referralId: string) {
+    return apiRequest<{ ok: boolean; quota_refreshed: boolean }>('/opencode-go/referral-rewards/apply', {
+      token,
+      method: 'POST',
+      body: { credential_id: credentialId, referral_id: referralId },
     })
   },
   startOAuth(token: string, provider: string) {

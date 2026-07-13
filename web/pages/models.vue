@@ -55,6 +55,7 @@ const handlerIconByKey: Record<string, string> = {
   codex: 'mdi-console',
   gemini: 'mdi-google-circles-communities',
   antigravity: 'mdi-compass-outline',
+  'opencode-go': 'mdi-code-braces-box',
 }
 
 const modalHandlerConfig = computed(() => (

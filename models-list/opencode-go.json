@@ -1,0 +1,42 @@
+[
+  {
+    "id": "glm-5.2",
+    "name": "GLM-5.2",
+    "description": ""
+  },
+  {
+    "id": "glm-5.1",
+    "name": "GLM-5.1",
+    "description": ""
+  },
+  {
+    "id": "kimi-k2.7-code",
+    "name": "Kimi K2.7 Code",
+    "description": ""
+  },
+  {
+    "id": "kimi-k2.6",
+    "name": "Kimi K2.6",
+    "description": ""
+  },
+  {
+    "id": "deepseek-v4-pro",
+    "name": "DeepSeek V4 Pro",
+    "description": ""
+  },
+  {
+    "id": "deepseek-v4-flash",
+    "name": "DeepSeek V4 Flash",
+    "description": ""
+  },
+  {
+    "id": "mimo-v2.5-pro",
+    "name": "MiMo-V2.5-Pro",
+    "description": ""
+  },
+  {
+    "id": "mimo-v2.5",
+    "name": "MiMo-V2.5",
+    "description": ""
+  }
+]

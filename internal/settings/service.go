@@ -40,6 +40,8 @@ const (
 	KeyAntigravityAPIEndpoint        = "antigravity_api_endpoint"
 	KeyAntigravityUseCredits         = "antigravity_use_credits"
 	KeyAntigravityUserAgent          = "antigravity_user_agent"
+
+	KeyOpenCodeGoProxy = "opencode_go_proxy"
 )
 
 const (
@@ -93,6 +95,8 @@ type Snapshot struct {
 	AntigravityAPIEndpoint        string `json:"antigravity_api_endpoint"`
 	AntigravityUseCredits         bool   `json:"antigravity_use_credits"`
 	AntigravityUserAgent          string `json:"antigravity_user_agent"`
+
+	OpenCodeGoProxy string `json:"opencode_go_proxy"`
 }
 
 type Provider interface {
@@ -140,6 +144,8 @@ func DefaultSnapshot() Snapshot {
 		AntigravityAPIEndpoint:        DefaultAntigravityAPIEndpoint,
 		AntigravityUseCredits:         false,
 		AntigravityUserAgent:          "",
+
+		OpenCodeGoProxy: "",
 	}
 }
 
@@ -265,6 +271,8 @@ func (s Snapshot) Normalize() Snapshot {
 	s.AntigravityAPIEndpoint = NormalizeAntigravityAPIEndpoint(s.AntigravityAPIEndpoint)
 	s.AntigravityUserAgent = strings.TrimSpace(s.AntigravityUserAgent)
 
+	s.OpenCodeGoProxy = strings.TrimSpace(s.OpenCodeGoProxy)
+
 	return s
 }
 
@@ -297,6 +305,13 @@ func (s Snapshot) EffectiveGeminiProxy() string {
 func (s Snapshot) EffectiveAntigravityProxy() string {
 	if s.AntigravityProxy != "" {
 		return s.AntigravityProxy
+	}
+	return s.GlobalProxy
+}
+
+func (s Snapshot) EffectiveOpenCodeGoProxy() string {
+	if s.OpenCodeGoProxy != "" {
+		return s.OpenCodeGoProxy
 	}
 	return s.GlobalProxy
 }
@@ -396,6 +411,8 @@ func (s Snapshot) SettingParams() []db.UpsertSettingParams {
 		{Key: KeyAntigravityAPIEndpoint, Value: s.AntigravityAPIEndpoint},
 		{Key: KeyAntigravityUseCredits, Value: strconv.FormatBool(s.AntigravityUseCredits)},
 		{Key: KeyAntigravityUserAgent, Value: s.AntigravityUserAgent},
+
+		{Key: KeyOpenCodeGoProxy, Value: s.OpenCodeGoProxy},
 	}
 }
 
@@ -476,6 +493,10 @@ func applyValues(target *Snapshot, values map[string]string) {
 	}
 	if value, ok := valueForKeys(values, KeyAntigravityUserAgent); ok {
 		target.AntigravityUserAgent = strings.TrimSpace(value)
+	}
+
+	if value, ok := valueForKeys(values, KeyOpenCodeGoProxy); ok {
+		target.OpenCodeGoProxy = strings.TrimSpace(value)
 	}
 }
 

@@ -80,7 +80,6 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		d.Close()
 		return nil, err
 	}
-
 	return &Store{
 		db:      d,
 		queries: sqlcsqlite.New(d),

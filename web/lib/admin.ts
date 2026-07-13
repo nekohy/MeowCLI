@@ -107,6 +107,8 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   antigravity_preferred_plan_types: '',
   antigravity_api_endpoint: 'daily_sandbox,daily',
   antigravity_user_agent: '',
+
+  opencode_go_proxy: '',
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -425,6 +427,8 @@ export function settingsToForm(data: SettingsSnapshot): SettingsForm {
     antigravity_proxy: data.antigravity_proxy,
     antigravity_preferred_plan_types: data.antigravity_preferred_plan_types.trim(),
     antigravity_user_agent: data.antigravity_user_agent,
+
+    opencode_go_proxy: data.opencode_go_proxy,
   }
   if (typeof data.antigravity_api_endpoint === 'string') {
     form.antigravity_api_endpoint = joinAntigravityAPIEndpointInput([data.antigravity_api_endpoint])
@@ -462,6 +466,8 @@ export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
     antigravity_proxy: form.antigravity_proxy.trim(),
     antigravity_preferred_plan_types: form.antigravity_preferred_plan_types.trim(),
     antigravity_user_agent: form.antigravity_user_agent.trim(),
+
+    opencode_go_proxy: form.opencode_go_proxy.trim(),
   }
   if (typeof form.antigravity_api_endpoint === 'string') {
     payload.antigravity_api_endpoint = joinAntigravityAPIEndpointInput([form.antigravity_api_endpoint])
