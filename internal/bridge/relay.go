@@ -128,11 +128,14 @@ func (h *Handler) handleSendFailure(cfg upstreamRelay, credID string, err error,
 func (h *Handler) handleSuccessfulResponse(c *gin.Context, cfg upstreamRelay, credID string, resp *http.Response, started time.Time) {
 	timing, err := h.writeUpstreamResponse(c, resp, cfg.backend, cfg.responseModel, cfg.replaceResponseModel, cfg.streamRequest, started)
 	metrics := cfg.logMetrics(timing.firstByte, timing.duration, "")
+	recordCtx := detachedRecordContext(cfg.ctx)
 	if err != nil {
 		if cfg.ctx.Err() != nil {
+			// 客户端意外断开时仍然记录日志
+			cfg.scheduler.RecordSuccess(recordCtx, credID, int32(resp.StatusCode), cfg.modelTier, metrics)
 			return
 		}
-		cfg.scheduler.RecordFailure(cfg.ctx, credID, 0, cfg.modelTier, 0, metrics)
+		cfg.scheduler.RecordFailure(recordCtx, credID, 0, cfg.modelTier, 0, metrics)
 		log.Warn().Err(err).Str("credential", credID).Int("status", resp.StatusCode).Msg("relay response write failed")
 		if !c.Writer.Written() {
 			writeRelayError(c, errRelayResponseFailed)
@@ -140,7 +143,14 @@ func (h *Handler) handleSuccessfulResponse(c *gin.Context, cfg upstreamRelay, cr
 		return
 	}
 	h.bindSessionCredential(cfg.sessionKey, credID)
-	cfg.scheduler.RecordSuccess(cfg.ctx, credID, int32(resp.StatusCode), cfg.modelTier, metrics)
+	cfg.scheduler.RecordSuccess(recordCtx, credID, int32(resp.StatusCode), cfg.modelTier, metrics)
+}
+
+func detachedRecordContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }
 
 func (h *Handler) handleUpstreamError(c *gin.Context, cfg upstreamRelay, credID string, resp *http.Response, started time.Time, attempt int, state *retryTracker) bool {
