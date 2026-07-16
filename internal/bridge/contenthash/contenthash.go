@@ -30,16 +30,30 @@ const (
 // Both methods receive a private request AST copy.
 type Protocol interface {
 	Normalize(root *ast.Node) error
-	Build(root *ast.Node, seed uint64) (Fingerprint, error)
+	Collect(root *ast.Node, collector *Collector) error
 }
 
-// Build copies the request AST before delegating to the protocol implementation.
-func Build(root *ast.Node, seed uint64, protocol Protocol) (Fingerprint, error) {
+// Build copies and normalizes the request AST, then asks the protocol to collect cacheable elements.
+// Elements are counted before any JSON marshaling or hashing; requests below minimumElements are rejected
+// without calculating element digests.
+func Build(root *ast.Node, seed uint64, minimumElements int, protocol Protocol) (Fingerprint, error) {
+	return build(root, seed, minimumElements, protocol, digest)
+}
+
+type elementHasher func(seed uint64, kind Kind, rawJSON []byte) Element
+
+func build(root *ast.Node, seed uint64, minimumElements int, protocol Protocol, hasher elementHasher) (Fingerprint, error) {
 	if root == nil || !root.Exists() {
 		return Fingerprint{}, fmt.Errorf("content fingerprint AST is nil")
 	}
 	if protocol == nil {
 		return Fingerprint{}, fmt.Errorf("content fingerprint protocol is nil")
+	}
+	if minimumElements <= 0 {
+		return Fingerprint{}, fmt.Errorf("content fingerprint minimum elements must be positive")
+	}
+	if hasher == nil {
+		return Fingerprint{}, fmt.Errorf("content fingerprint hasher is nil")
 	}
 
 	cloned, err := clone(root)
@@ -52,7 +66,15 @@ func Build(root *ast.Node, seed uint64, protocol Protocol) (Fingerprint, error) 
 	if err := protocol.Normalize(cloned); err != nil {
 		return Fingerprint{}, err
 	}
-	return protocol.Build(cloned, seed)
+
+	collector := NewCollector()
+	if err := protocol.Collect(cloned, collector); err != nil {
+		return Fingerprint{}, err
+	}
+	if !collector.hashable(minimumElements) {
+		return Fingerprint{FirstDialogue: collector.firstDialogue}, nil
+	}
+	return collector.fingerprint(seed, hasher)
 }
 
 func clone(root *ast.Node) (*ast.Node, error) {
@@ -68,25 +90,42 @@ func clone(root *ast.Node) (*ast.Node, error) {
 	return &cloned, nil
 }
 
-// Collector contains the protocol-independent element validation and hashing logic.
+type collectedElement struct {
+	node *ast.Node
+	kind Kind
+}
+
+// Collector contains the protocol-independent element validation and collection logic.
+// Hashing is deliberately deferred until every element has been collected and counted.
 type Collector struct {
-	seed          uint64
-	elements      []Element
+	elements      []collectedElement
 	firstDialogue int
 }
 
-func NewCollector(seed uint64) *Collector {
-	return &Collector{seed: seed}
+func NewCollector() *Collector {
+	return &Collector{}
 }
 
-func (c *Collector) Fingerprint() Fingerprint {
-	return Fingerprint{
-		Elements:      c.elements,
+func (c *Collector) hashable(minimumElements int) bool {
+	return c.firstDialogue > 0 && len(c.elements) >= minimumElements
+}
+
+func (c *Collector) fingerprint(seed uint64, hasher elementHasher) (Fingerprint, error) {
+	fingerprint := Fingerprint{
+		Elements:      make([]Element, 0, len(c.elements)),
 		FirstDialogue: c.firstDialogue,
 	}
+	for _, element := range c.elements {
+		rawJSON, err := element.node.MarshalJSON()
+		if err != nil {
+			return Fingerprint{}, err
+		}
+		fingerprint.Elements = append(fingerprint.Elements, hasher(seed, element.kind, rawJSON))
+	}
+	return fingerprint, nil
 }
 
-// Add appends one non-empty AST value to the fingerprint.
+// Add appends one non-empty AST value to the pending element sequence without hashing it.
 func (c *Collector) Add(node *ast.Node, kind Kind) error {
 	empty, err := valueEmpty(node)
 	if err != nil {
@@ -96,14 +135,10 @@ func (c *Collector) Add(node *ast.Node, kind Kind) error {
 		return nil
 	}
 
-	rawJSON, err := node.MarshalJSON()
-	if err != nil {
-		return err
-	}
 	if kind == KindDialogue && c.firstDialogue == 0 {
 		c.firstDialogue = len(c.elements) + 1
 	}
-	c.elements = append(c.elements, digest(c.seed, kind, rawJSON))
+	c.elements = append(c.elements, collectedElement{node: node, kind: kind})
 	return nil
 }
 

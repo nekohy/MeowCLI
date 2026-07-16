@@ -24,33 +24,32 @@ func (Builder) Normalize(root *ast.Node) error {
 	return removeCacheControl(root)
 }
 
-func (Builder) Build(root *ast.Node, seed uint64) (contenthash.Fingerprint, error) {
-	collector := contenthash.NewCollector(seed)
+func (Builder) Collect(root *ast.Node, collector *contenthash.Collector) error {
 	system := root.Get("system")
 	switch contenthash.NodeType(system) {
 	case ast.V_NONE, ast.V_NULL:
 	case ast.V_STRING:
 		if err := collector.Add(system, contenthash.KindContext); err != nil {
-			return contenthash.Fingerprint{}, err
+			return err
 		}
 	case ast.V_ARRAY:
 		if !contenthash.ValidateArrayItems(system, ast.V_OBJECT) {
-			return contenthash.Fingerprint{}, fmt.Errorf("Messages system must be an object array")
+			return fmt.Errorf("Messages system must be an object array")
 		}
 		if err := collector.Add(system, contenthash.KindContext); err != nil {
-			return contenthash.Fingerprint{}, err
+			return err
 		}
 	default:
-		return contenthash.Fingerprint{}, fmt.Errorf("Messages system must be a string or object array")
+		return fmt.Errorf("Messages system must be a string or object array")
 	}
 
 	if err := collector.CollectObjectArray(root.Get("tools"), contenthash.KindTools); err != nil {
-		return contenthash.Fingerprint{}, err
+		return err
 	}
 	if err := collectMessages(collector, root.Get("messages")); err != nil {
-		return contenthash.Fingerprint{}, err
+		return err
 	}
-	return collector.Fingerprint(), nil
+	return nil
 }
 
 func collectMessages(collector *contenthash.Collector, node *ast.Node) error {

@@ -13,6 +13,9 @@ import (
 	"github.com/bytedance/sonic/ast"
 )
 
+// 触发缓存的最小元素数量
+const minimumContentAffinityElements = 4
+
 // contentElementFingerprint 是一个请求序列元素的进程内快速指纹。
 // 类型通过派生 seed 隔离，Trie 中只保留 8 字节摘要，不保存原始请求内容。
 type contentElementFingerprint = contenthash.Element
@@ -23,8 +26,6 @@ type contentHash struct {
 	elements      []contentElementFingerprint
 	firstDialogue int
 }
-
-const minimumContentAffinityElements = 4
 
 func (f contentHash) valid() bool {
 	return f.firstDialogue > 0 &&
@@ -58,7 +59,7 @@ func buildContentHash(root *ast.Node, seed uint64, apiType utils.APIType) (conte
 		return contentHash{}, false
 	}
 
-	built, err := contenthash.Build(root, seed, protocol)
+	built, err := contenthash.Build(root, seed, minimumContentAffinityElements, protocol)
 	if err != nil {
 		return contentHash{}, false
 	}

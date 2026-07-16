@@ -17,18 +17,17 @@ func (Builder) Normalize(_ *ast.Node) error {
 	return nil
 }
 
-func (Builder) Build(root *ast.Node, seed uint64) (contenthash.Fingerprint, error) {
-	collector := contenthash.NewCollector(seed)
+func (Builder) Collect(root *ast.Node, collector *contenthash.Collector) error {
 	if err := collector.CollectWholeValue(root.Get("instructions"), contenthash.KindContext, ast.V_STRING); err != nil {
-		return contenthash.Fingerprint{}, err
+		return err
 	}
 	if err := collector.CollectObjectArray(root.Get("tools"), contenthash.KindTools); err != nil {
-		return contenthash.Fingerprint{}, err
+		return err
 	}
 	if err := collectInput(collector, root.Get("input")); err != nil {
-		return contenthash.Fingerprint{}, err
+		return err
 	}
-	return collector.Fingerprint(), nil
+	return nil
 }
 
 func collectInput(collector *contenthash.Collector, node *ast.Node) error {

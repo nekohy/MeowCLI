@@ -15,16 +15,15 @@ func (Builder) Normalize(_ *ast.Node) error {
 	return nil
 }
 
-func (Builder) Build(root *ast.Node, seed uint64) (contenthash.Fingerprint, error) {
-	collector := contenthash.NewCollector(seed)
+func (Builder) Collect(root *ast.Node, collector *contenthash.Collector) error {
 	if err := collector.CollectWholeValue(root.Get("systemInstruction"), contenthash.KindContext, ast.V_OBJECT); err != nil {
-		return contenthash.Fingerprint{}, err
+		return err
 	}
 	if err := collector.CollectObjectArray(root.Get("tools"), contenthash.KindTools); err != nil {
-		return contenthash.Fingerprint{}, err
+		return err
 	}
 	if err := collector.CollectObjectSequence(root.Get("contents")); err != nil {
-		return contenthash.Fingerprint{}, err
+		return err
 	}
-	return collector.Fingerprint(), nil
+	return nil
 }
