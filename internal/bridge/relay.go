@@ -106,19 +106,36 @@ func (h *Handler) relayUpstream(c *gin.Context, cfg upstreamRelay) {
 }
 
 func (h *Handler) selectRelayCredential(cfg upstreamRelay, state retryTracker) (string, error) {
-	preferred := h.preferredCredential(cfg.sessionKey, state.graceCredentialID)
 	selection := scheduling.CredentialSelection{
-		PreferredCredentialID: preferred,
-		AllowedPlanTypes:      cfg.allowedPlans,
-		ModelTier:             cfg.modelTier,
+		AllowedPlanTypes: cfg.allowedPlans,
+		ModelTier:        cfg.modelTier,
 	}
-	credID, err := cfg.scheduler.SelectCredential(cfg.ctx, selection)
-	if err == nil || preferred == "" {
-		return credID, err
+	selectCredential := func(preferred string) (string, error) {
+		selection.PreferredCredentialID = preferred
+		return cfg.scheduler.SelectCredential(cfg.ctx, selection)
 	}
 
-	selection.PreferredCredentialID = ""
-	return cfg.scheduler.SelectCredential(cfg.ctx, selection)
+	preferred := h.preferredCredential(cfg.sessionKey, state.graceCredentialID)
+	if preferred != "" {
+		credID, err := selectCredential(preferred)
+		if err == nil {
+			return credID, nil
+		}
+	}
+
+	// hasLastErr 已经能表示“请求进入重试” 内容粘性只参与首次选择，
+	// 优先级低于显式 prompt_cache_key；请求发出后的重试完全沿用原逻辑
+	if !state.hasLastErr {
+		contentPreferred := h.contentAffinity.match(cfg.contentAffinity.modelName, cfg.contentAffinity.fingerprint)
+		if contentPreferred != "" && contentPreferred != preferred {
+			credID, err := selectCredential(contentPreferred)
+			if err == nil {
+				return credID, nil
+			}
+		}
+	}
+
+	return selectCredential("")
 }
 
 func (h *Handler) handleAuthFailure(cfg upstreamRelay, credID string, err error, state *retryTracker) bool {
@@ -159,6 +176,7 @@ func (h *Handler) handleSuccessfulResponse(c *gin.Context, cfg upstreamRelay, cr
 		return
 	}
 	h.bindSessionCredential(cfg.sessionKey, credID)
+	h.contentAffinity.bind(cfg.contentAffinity.modelName, cfg.contentAffinity.fingerprint, credID)
 	cfg.scheduler.RecordSuccess(recordCtx, credID, int32(resp.StatusCode), cfg.modelTier, metrics)
 }
 
