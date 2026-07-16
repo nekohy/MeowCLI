@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"container/heap"
 	"crypto/rand"
 	"encoding/binary"
 	"sync"
@@ -14,8 +15,8 @@ import (
 
 const defaultContentAffinityTTL = time.Hour
 
-// contentAffinityPrefix 是所有内容亲和匹配都必须完全相同的固定前缀。
-// 前缀不足 minimumContentAffinityElements 的请求不会绑定，因此不需要进入 Radix Trie。
+// contentAffinityPrefix 是所有内容亲和匹配都必须完全相同的固定前缀
+// 前缀不足 minimumContentAffinityElements 的请求不会绑定，因此不需要进入 Radix Trie
 type contentAffinityPrefix [minimumContentAffinityElements]contentElementFingerprint
 
 // contentTrieNode 表示一条压缩后的 Radix 边，一条边可以包含多个连续元素
@@ -31,7 +32,65 @@ type contentTrieNode struct {
 	credential      string
 	boundSequence   uint64
 	nearestTerminal *contentTrieNode
+	candidateHeap   *contentAffinityCandidateHeap
 	depth           uint32
+}
+
+// contentAffinityCandidateHeap 按每个直接 child 的 nearestTerminal 排序
+// positions 允许 child 候选改变或被删除时使用 heap.Fix/heap.Remove 增量维护
+type contentAffinityCandidateHeap struct {
+	nodes     []*contentTrieNode
+	positions map[*contentTrieNode]int
+}
+
+func newContentAffinityCandidateHeap(children map[contentElementFingerprint]*contentTrieNode) *contentAffinityCandidateHeap {
+	// 建堆时把所有直接 child 纳入索引，后续更新不再扫描整个 children map
+	candidates := &contentAffinityCandidateHeap{
+		nodes:     make([]*contentTrieNode, 0, len(children)),
+		positions: make(map[*contentTrieNode]int, len(children)),
+	}
+	for _, child := range children {
+		candidates.positions[child] = len(candidates.nodes)
+		candidates.nodes = append(candidates.nodes, child)
+	}
+	heap.Init(candidates)
+	return candidates
+}
+
+func (h *contentAffinityCandidateHeap) Len() int {
+	return len(h.nodes)
+}
+
+func (h *contentAffinityCandidateHeap) Less(left, right int) bool {
+	return betterContentTerminal(h.nodes[left].nearestTerminal, h.nodes[right].nearestTerminal)
+}
+
+func (h *contentAffinityCandidateHeap) Swap(left, right int) {
+	h.nodes[left], h.nodes[right] = h.nodes[right], h.nodes[left]
+	h.positions[h.nodes[left]] = left
+	h.positions[h.nodes[right]] = right
+}
+
+func (h *contentAffinityCandidateHeap) Push(value any) {
+	node := value.(*contentTrieNode)
+	h.positions[node] = len(h.nodes)
+	h.nodes = append(h.nodes, node)
+}
+
+func (h *contentAffinityCandidateHeap) Pop() any {
+	last := len(h.nodes) - 1
+	node := h.nodes[last]
+	h.nodes[last] = nil
+	h.nodes = h.nodes[:last]
+	delete(h.positions, node)
+	return node
+}
+
+func (h *contentAffinityCandidateHeap) bestTerminal() *contentTrieNode {
+	if len(h.nodes) == 0 {
+		return nil
+	}
+	return h.nodes[0].nearestTerminal
 }
 
 type contentAffinityLookup struct {
@@ -44,8 +103,8 @@ type contentAffinityBucket struct {
 	root   *contentTrieNode
 }
 
-// 每个模型独占一组固定前缀桶和结构锁，匹配查询不会串行化到一把全局锁上。
-// 每个桶只保存共享前四个元素的后缀 Trie，因此不会产生深度 1～3 的分叉节点。
+// 每个模型独占一组固定前缀桶和结构锁，匹配查询不会串行化到一把全局锁上
+// 每个桶只保存共享前 minimumContentAffinityElements 个元素的后缀 Trie，因此不会产生深度 1～(minimumContentAffinityElements - 1) 的分叉节点
 type contentAffinityTrie struct {
 	bindMu       sync.Mutex
 	mu           sync.RWMutex
@@ -187,7 +246,7 @@ func (t *contentAffinityTable) configureCapacity(capacity int) {
 	t.capacityMu.Lock()
 	defer t.capacityMu.Unlock()
 	if t.capacity.Load() != target {
-		// 先发布目标值；同值并发调用可直接返回，当前调用仍会完成实际缩放。
+		// 先发布目标值；同值并发调用可直接返回，当前调用仍会完成实际缩放
 		t.capacity.Store(target)
 		t.entries.SetMaximum(uint64(capacity))
 	}
@@ -224,11 +283,83 @@ func setContentChild(parent, child *contentTrieNode) {
 	if parent.children == nil {
 		parent.children = make(map[contentElementFingerprint]*contentTrieNode)
 	}
-	parent.children[child.incoming[0]] = child
+	key := child.incoming[0]
+	previous, replaced := parent.children[key]
+	parent.children[key] = child
+
+	candidates := parent.candidateHeap
+	if candidates == nil {
+		// 第 11 个 child 写入后一次性从线性模式升级为索引堆模式
+		parent.rebuildCandidateHeap()
+		return
+	}
+	if !replaced {
+		heap.Push(candidates, child)
+		return
+	}
+	position, ok := candidates.positions[previous]
+	if !ok {
+		// 索引异常时从 children map 重建，避免保留错误候选
+		parent.rebuildCandidateHeap()
+		return
+	}
+	// Radix 分裂和路径压缩会用新节点替换同一个边首元素下的旧节点
+	delete(candidates.positions, previous)
+	candidates.nodes[position] = child
+	candidates.positions[child] = position
+	heap.Fix(candidates, position)
 }
 
-// lookup 已由固定前缀桶确认前四个元素完全相同，只在后缀中查找最长公共前缀。
-// 发生分叉后，直接使用节点上预计算的最近终点。
+func deleteContentChild(parent *contentTrieNode, key contentElementFingerprint) *contentTrieNode {
+	child := parent.children[key]
+	if child == nil {
+		return nil
+	}
+	delete(parent.children, key)
+
+	candidates := parent.candidateHeap
+	if candidates == nil {
+		return child
+	}
+	position, ok := candidates.positions[child]
+	if !ok {
+		parent.rebuildCandidateHeap()
+		return child
+	}
+	heap.Remove(candidates, position)
+	if len(parent.children) <= contentAffinityCandidateHeapThreshold {
+		// 分支数降回 10 时释放堆和位置表，恢复低常数的线性模式
+		parent.candidateHeap = nil
+	}
+	return child
+}
+
+func (node *contentTrieNode) rebuildCandidateHeap() {
+	if len(node.children) <= contentAffinityCandidateHeapThreshold {
+		node.candidateHeap = nil
+		return
+	}
+	node.candidateHeap = newContentAffinityCandidateHeap(node.children)
+}
+
+func refreshContentChildCandidate(parent, child *contentTrieNode) {
+	candidates := parent.candidateHeap
+	if candidates == nil {
+		return
+	}
+	position, ok := candidates.positions[child]
+	if !ok {
+		if len(child.incoming) > 0 && parent.children[child.incoming[0]] == child {
+			parent.rebuildCandidateHeap()
+		}
+		return
+	}
+	// child 的 nearestTerminal 深度或绑定顺序变化后只修复对应堆位置
+	heap.Fix(candidates, position)
+}
+
+// lookup 已由固定前缀桶确认前 minimumContentAffinityElements 个元素完全相同，只在后缀中查找最长公共前缀
+// 发生分叉后，直接使用节点上预计算的最近终点
 func (trie *contentAffinityTrie) lookup(bucket *contentAffinityBucket, fingerprint contentHash) contentAffinityLookup {
 	result := contentAffinityLookup{matchedDepth: uint32(minimumContentAffinityElements)}
 	current := bucket.root
@@ -264,7 +395,7 @@ func commonElementPrefix(left, right []contentElementFingerprint) int {
 	return limit
 }
 
-// insert 只为固定四元素前缀之后的新后缀创建节点，已有后缀继续由不同分支共享。
+// insert 只为固定四元素前缀之后的新后缀创建节点，已有后缀继续由不同分支共享
 func (trie *contentAffinityTrie) insert(bucket *contentAffinityBucket, fingerprint contentHash, credential string) *contentTrieNode {
 	current := bucket.root
 	position := minimumContentAffinityElements
@@ -336,29 +467,52 @@ func (trie *contentAffinityTrie) propagateTerminal(terminal *contentTrieNode) {
 				(nearest.depth == terminal.depth && !terminalNewer(terminal, nearest))) {
 			return
 		}
-		node.nearestTerminal = terminal
+		trie.setNearestTerminal(node, terminal)
 	}
 }
 
 func (trie *contentAffinityTrie) recomputeNode(node *contentTrieNode) {
 	if node.terminal {
-		node.nearestTerminal = node
+		trie.setNearestTerminal(node, node)
 		return
 	}
 
-	// 对同一个祖先，相对距离的排序等同于终点绝对深度的排序。
+	// 对同一个祖先，相对距离的排序等同于终点绝对深度的排序
 	var best *contentTrieNode
-	for _, child := range node.children {
-		candidate := child.nearestTerminal
-		if candidate == nil {
-			continue
-		}
-		if best == nil || candidate.depth < best.depth ||
-			(candidate.depth == best.depth && terminalNewer(candidate, best)) {
-			best = candidate
+	if node.candidateHeap != nil {
+		// 高扇出节点直接读取堆顶，避免每次过期都遍历全部 children
+		best = node.candidateHeap.bestTerminal()
+	} else {
+		for _, child := range node.children {
+			candidate := child.nearestTerminal
+			if betterContentTerminal(candidate, best) {
+				best = candidate
+			}
 		}
 	}
-	node.nearestTerminal = best
+	trie.setNearestTerminal(node, best)
+}
+
+func (trie *contentAffinityTrie) setNearestTerminal(node, terminal *contentTrieNode) {
+	node.nearestTerminal = terminal
+	if node.parent != nil {
+		refreshContentChildCandidate(node.parent, node)
+	}
+}
+
+func betterContentTerminal(left, right *contentTrieNode) bool {
+	if left == nil {
+		return false
+	}
+	if right == nil {
+		return true
+	}
+	if left.depth != right.depth {
+		// 终点越浅表示与当前公共前缀越接近
+		return left.depth < right.depth
+	}
+	// 深度相同时优先最近完成绑定的终点
+	return terminalNewer(left, right)
 }
 
 func terminalNewer(left, right *contentTrieNode) bool {
@@ -371,7 +525,7 @@ func (trie *contentAffinityTrie) expireTerminal(node *contentTrieNode) {
 	node.credential = ""
 	node.boundSequence = 0
 
-	// 先裁剪无终点的路径，再从第一个仍保留的节点向上重算，避免删除前后重复扫描父节点。
+	// 先裁剪无终点的路径，再从第一个仍保留的节点向上重算，避免删除前后重复扫描父节点
 	recomputeFrom := trie.pruneEmptyPath(node)
 	if recomputeFrom != nil {
 		trie.recomputePath(recomputeFrom)
@@ -381,15 +535,15 @@ func (trie *contentAffinityTrie) expireTerminal(node *contentTrieNode) {
 	}
 }
 
-// pruneEmptyPath 删除或合并已经不再承载终点的后缀节点，并返回需要重新计算的最高有效子树根。
-// 遇到 terminal 祖先时，该祖先及更高节点的最近终点仍是它自己，无需重新计算。
+// pruneEmptyPath 删除或合并已经不再承载终点的后缀节点，并返回需要重新计算的最高有效子树根
+// 遇到 terminal 祖先时，该祖先及更高节点的最近终点仍是它自己，无需重新计算
 func (trie *contentAffinityTrie) pruneEmptyPath(node *contentTrieNode) *contentTrieNode {
 	bucketRoot := node.bucket.root
 	for node != bucketRoot && !node.terminal {
 		switch len(node.children) {
 		case 0:
 			parent := node.parent
-			delete(parent.children, node.incoming[0])
+			deleteContentChild(parent, node.incoming[0])
 			node.parent = nil
 			node = parent
 		case 1:
@@ -398,11 +552,12 @@ func (trie *contentAffinityTrie) pruneEmptyPath(node *contentTrieNode) *contentT
 			combined := make([]contentElementFingerprint, 0, len(node.incoming)+len(child.incoming))
 			combined = append(combined, node.incoming...)
 			combined = append(combined, child.incoming...)
-			parent.children[node.incoming[0]] = child
 			child.parent = parent
 			child.incoming = combined
+			setContentChild(parent, child)
 			node.parent = nil
 			node.children = nil
+			node.candidateHeap = nil
 			node = parent
 		default:
 			return node
