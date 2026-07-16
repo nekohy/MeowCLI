@@ -10,20 +10,20 @@ import (
 
 // Quota 包含从上游获取的配额使用情况和重置时间
 type Quota struct {
-	PlanType      string
-	Quota5h       float64   // 5h 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
-	Quota7d       float64   // 7d 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
-	Quota1mo      float64   // 1mo 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
-	QuotaSpark5h  float64   // Spark 5h 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
-	QuotaSpark7d  float64   // Spark 7d 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
-	QuotaSpark1mo float64   // Spark 1mo 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
-	Reset5h       time.Time // 5h 窗口重置绝对时间（零值表示无此窗口）
-	Reset7d       time.Time // 7d 窗口重置绝对时间（零值表示无此窗口）
-	Reset1mo      time.Time // 1mo 窗口重置绝对时间（零值表示无此窗口）
-	ResetSpark5h  time.Time // Spark 5h 窗口重置绝对时间（零值表示无此窗口）
-	ResetSpark7d  time.Time // Spark 7d 窗口重置绝对时间（零值表示无此窗口）
-	ResetSpark1mo time.Time // Spark 1mo 窗口重置绝对时间（零值表示无此窗口）
-	ResetCreditsCount int // rate-limit reset credits 可用数量（来自 usage 响应，仅内存缓存）
+	PlanType          string
+	Quota5h           float64   // 5h 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
+	Quota7d           float64   // 7d 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
+	Quota1mo          float64   // 1mo 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
+	QuotaSpark5h      float64   // Spark 5h 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
+	QuotaSpark7d      float64   // Spark 7d 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
+	QuotaSpark1mo     float64   // Spark 1mo 窗口剩余比率 (0.0–1.0)，无此窗口时为 1.0
+	Reset5h           time.Time // 5h 窗口重置绝对时间（零值表示无此窗口）
+	Reset7d           time.Time // 7d 窗口重置绝对时间（零值表示无此窗口）
+	Reset1mo          time.Time // 1mo 窗口重置绝对时间（零值表示无此窗口）
+	ResetSpark5h      time.Time // Spark 5h 窗口重置绝对时间（零值表示无此窗口）
+	ResetSpark7d      time.Time // Spark 7d 窗口重置绝对时间（零值表示无此窗口）
+	ResetSpark1mo     time.Time // Spark 1mo 窗口重置绝对时间（零值表示无此窗口）
+	ResetCreditsCount int       // rate-limit reset credits 可用数量（来自 usage 响应，仅内存缓存）
 
 	// HasDefaultQuota / HasSparkQuota distinguish partial updates from response
 	// headers. Callers ignore updates when neither flag is set.
@@ -144,7 +144,7 @@ const MonthlyWindowSeconds int64 = 30 * 24 * 60 * 60
 
 // WindowMatches reports whether actual falls within ±10% of target.
 // 上游 limit_window_seconds 可能存在小幅漂移，因此在 5h/7d/30d 窗口判断时
-// 允许上下浮动 10%，落在此区间内即视为匹配。
+// 允许上下浮动 10%，落在此区间内即视为匹配
 func WindowMatches(target, actual int64) bool {
 	if target == 0 {
 		return actual == 0
