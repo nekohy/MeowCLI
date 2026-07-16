@@ -50,6 +50,8 @@ plugin.Manifest{
 - `SetBody([]byte)`：直接替换请求体，并清空已经解析的 AST。
 - `Bytes()`：返回最终请求体。如果已经解析 JSON，会在插件链末尾统一 marshal。
 
+bridge、内容亲和指纹和插件共用一个请求级 lazy AST，并在链末统一 marshal 一次。
+
 # 新增插件
 
 1. 在 `plugin/<handler/api>/<plugin-name>/` 下创建插件子包

@@ -1,12 +1,14 @@
 package plugin
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
 
+	"github.com/bytedance/sonic"
 	"github.com/bytedance/sonic/ast"
 	"github.com/nekohy/MeowCLI/utils"
 )
@@ -34,6 +36,7 @@ func (c *Context) SetBody(body []byte) {
 	c.json = nil
 }
 
+// JSON 返回请求级共享的惰性 AST，bridge 和多个插件只解析一次
 func (c *Context) JSON() (*ast.Node, error) {
 	if c == nil {
 		return nil, fmt.Errorf("plugin context is nil")
@@ -41,11 +44,12 @@ func (c *Context) JSON() (*ast.Node, error) {
 	if c.json != nil {
 		return c.json, nil
 	}
-	var root ast.Node
-	if err := root.UnmarshalJSON(c.body); err != nil {
-		return nil, err
+	trimmed := bytes.TrimSpace(c.body)
+	if len(trimmed) == 0 {
+		return nil, fmt.Errorf("request body is empty")
 	}
-	if err := root.Load(); err != nil {
+	root, err := sonic.GetWithOptions(trimmed, ast.SearchOptions{ValidateJSON: true})
+	if err != nil {
 		return nil, err
 	}
 	c.json = &root
@@ -148,8 +152,17 @@ func (r *Registry) Available(handler utils.HandlerType, apiType utils.APIType) [
 }
 
 func (r *Registry) Run(ctx context.Context, enabled []string, req *Context) ([]byte, error) {
+	if err := r.Apply(ctx, enabled, req); err != nil {
+		return nil, err
+	}
+	return req.Bytes()
+}
+
+// Apply 依次修改同一个请求 Context，不在插件链结束时强制序列化
+// 调用方可以继续复用 Context 中缓存的最终 AST
+func (r *Registry) Apply(ctx context.Context, enabled []string, req *Context) error {
 	if req == nil {
-		return nil, fmt.Errorf("plugin context is nil")
+		return fmt.Errorf("plugin context is nil")
 	}
 	for _, name := range enabled {
 		name = strings.TrimSpace(name)
@@ -158,17 +171,17 @@ func (r *Registry) Run(ctx context.Context, enabled []string, req *Context) ([]b
 		}
 		p, ok := r.Get(name)
 		if !ok {
-			return nil, fmt.Errorf("plugin %q is not registered", name)
+			return fmt.Errorf("plugin %q is not registered", name)
 		}
 		manifest := p.Manifest()
 		if !manifest.Supports(req.Handler, req.APIType) {
 			continue
 		}
 		if err := p.Apply(ctx, req); err != nil {
-			return nil, fmt.Errorf("plugin %q: %w", name, err)
+			return fmt.Errorf("plugin %q: %w", name, err)
 		}
 	}
-	return req.Bytes()
+	return nil
 }
 
 func (m Manifest) SupportsHandler(handler utils.HandlerType) bool {
