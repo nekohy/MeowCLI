@@ -26,6 +26,7 @@ type settingsUpdateRequest struct {
 	ThrottleMaxSeconds          *int    `json:"throttle_max_seconds"`
 	RelayMaxRetries             *int    `json:"relay_max_retries"`
 	WeightedBestCount           *int    `json:"weighted_best_count"`
+	ContentAffinityMaxEntries   *int    `json:"content_affinity_max_entries"`
 
 	// Admin/backend-only operation settings
 	ImportConcurrency    *int `json:"import_concurrency"`
@@ -119,6 +120,9 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 	if err := applyPositiveSetting("weighted_best_count", req.WeightedBestCount, &next.WeightedBestCount); err != nil {
 		return settings.Snapshot{}, err
 	}
+	if err := applyPositiveSetting("content_affinity_max_entries", req.ContentAffinityMaxEntries, &next.ContentAffinityMaxEntries); err != nil {
+		return settings.Snapshot{}, err
+	}
 
 	if err := applyPositiveSetting("import_concurrency", req.ImportConcurrency, &next.ImportConcurrency); err != nil {
 		return settings.Snapshot{}, err
@@ -196,6 +200,7 @@ func buildSettingsResponse(snapshot settings.Snapshot) gin.H {
 		"throttle_max_seconds":           snapshot.ThrottleMaxSeconds,
 		"relay_max_retries":              snapshot.RelayMaxRetries,
 		"weighted_best_count":            snapshot.WeightedBestCount,
+		"content_affinity_max_entries":   snapshot.ContentAffinityMaxEntries,
 
 		"import_concurrency":     snapshot.ImportConcurrency,
 		"logs_retention_seconds": snapshot.LogsRetentionSeconds,

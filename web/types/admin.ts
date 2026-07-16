@@ -124,6 +124,7 @@ export interface SettingsSnapshot {
   throttle_max_seconds: number
   relay_max_retries: number
   weighted_best_count: number
+  content_affinity_max_entries: number
 
   import_concurrency: number
   logs_retention_seconds: number
@@ -156,6 +157,7 @@ export interface SettingsForm {
   throttle_max_seconds: string
   relay_max_retries: string
   weighted_best_count: string
+  content_affinity_max_entries: string
 
   import_concurrency: string
   logs_retention_seconds: string

@@ -89,6 +89,7 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   throttle_max_seconds: '1800',
   relay_max_retries: '3',
   weighted_best_count: '10',
+  content_affinity_max_entries: '100000',
 
   import_concurrency: '4',
   logs_retention_seconds: '86400',
@@ -410,6 +411,7 @@ export function settingsToForm(data: SettingsSnapshot): SettingsForm {
     throttle_max_seconds: String(data.throttle_max_seconds),
     relay_max_retries: String(data.relay_max_retries),
     weighted_best_count: String(data.weighted_best_count),
+    content_affinity_max_entries: String(data.content_affinity_max_entries),
 
     import_concurrency: String(data.import_concurrency),
     logs_retention_seconds: String(data.logs_retention_seconds),
@@ -449,6 +451,7 @@ export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
     throttle_max_seconds: Number(form.throttle_max_seconds),
     relay_max_retries: Number(form.relay_max_retries),
     weighted_best_count: Number(form.weighted_best_count),
+    content_affinity_max_entries: Number(form.content_affinity_max_entries),
 
     import_concurrency: Number(form.import_concurrency),
     logs_retention_seconds: Number(form.logs_retention_seconds),

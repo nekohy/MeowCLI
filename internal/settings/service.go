@@ -21,6 +21,7 @@ const (
 	KeyThrottleMaxSeconds          = "throttle_max_seconds"
 	KeyRelayMaxRetries             = "relay_max_retries"
 	KeyWeightedBestCount           = "weighted_best_count"
+	KeyContentAffinityMaxEntries   = "content_affinity_max_entries"
 
 	KeyImportConcurrency    = "import_concurrency"
 	KeyLogsRetentionSeconds = "logs_retention_seconds"
@@ -55,9 +56,10 @@ const (
 )
 
 const (
-	defaultWeightedBestCount = 10
-	defaultImportConcurrency = 4
-	defaultMaxLogRows        = 100000
+	defaultWeightedBestCount         = 10
+	defaultImportConcurrency         = 4
+	defaultMaxLogRows                = 100000
+	DefaultContentAffinityMaxEntries = 100000
 )
 
 const (
@@ -76,6 +78,7 @@ type Snapshot struct {
 	ThrottleMaxSeconds          int    `json:"throttle_max_seconds"`
 	RelayMaxRetries             int    `json:"relay_max_retries"`
 	WeightedBestCount           int    `json:"weighted_best_count"`
+	ContentAffinityMaxEntries   int    `json:"content_affinity_max_entries"`
 
 	ImportConcurrency    int `json:"import_concurrency"`
 	LogsRetentionSeconds int `json:"logs_retention_seconds"`
@@ -125,6 +128,7 @@ func DefaultSnapshot() Snapshot {
 		ThrottleMaxSeconds:          30 * 60,
 		RelayMaxRetries:             3,
 		WeightedBestCount:           defaultWeightedBestCount,
+		ContentAffinityMaxEntries:   DefaultContentAffinityMaxEntries,
 
 		ImportConcurrency:    defaultImportConcurrency,
 		LogsRetentionSeconds: defaultLogsRetentionSeconds,
@@ -246,6 +250,9 @@ func (s Snapshot) Normalize() Snapshot {
 	}
 	if s.WeightedBestCount <= 0 {
 		s.WeightedBestCount = defaults.WeightedBestCount
+	}
+	if s.ContentAffinityMaxEntries <= 0 {
+		s.ContentAffinityMaxEntries = defaults.ContentAffinityMaxEntries
 	}
 
 	if s.ImportConcurrency <= 0 {
@@ -392,6 +399,7 @@ func (s Snapshot) SettingParams() []db.UpsertSettingParams {
 		{Key: KeyThrottleMaxSeconds, Value: strconv.Itoa(s.ThrottleMaxSeconds)},
 		{Key: KeyRelayMaxRetries, Value: strconv.Itoa(s.RelayMaxRetries)},
 		{Key: KeyWeightedBestCount, Value: strconv.Itoa(s.WeightedBestCount)},
+		{Key: KeyContentAffinityMaxEntries, Value: strconv.Itoa(s.ContentAffinityMaxEntries)},
 
 		{Key: KeyImportConcurrency, Value: strconv.Itoa(s.ImportConcurrency)},
 		{Key: KeyLogsRetentionSeconds, Value: strconv.Itoa(s.LogsRetentionSeconds)},
@@ -440,6 +448,9 @@ func applyValues(target *Snapshot, values map[string]string) {
 	}
 	if parsed, ok := intValueForKeys(values, KeyWeightedBestCount); ok {
 		target.WeightedBestCount = parsed
+	}
+	if parsed, ok := intValueForKeys(values, KeyContentAffinityMaxEntries); ok {
+		target.ContentAffinityMaxEntries = parsed
 	}
 
 	if parsed, ok := intValueForKeys(values, KeyImportConcurrency); ok {

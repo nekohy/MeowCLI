@@ -150,6 +150,13 @@ const numericFields = [
     suffix: '条',
   },
   {
+    key: 'content_affinity_max_entries',
+    label: '内容亲和总容量',
+    hint: '所有模型合计最多保留的内容亲和记录数',
+    min: 1,
+    suffix: '条',
+  },
+  {
     key: 'throttle_base_seconds',
     label: '退避起始',
     hint: '首次退避等待时长',
@@ -180,7 +187,7 @@ const numericFieldLookup = new Map<NumericFieldKey, (typeof numericFields)[numbe
 const numericGroups = [
   {
     title: '调度策略',
-    fields: ['relay_max_retries', 'weighted_best_count', 'import_concurrency', 'refresh_before_seconds'] as NumericFieldKey[],
+    fields: ['relay_max_retries', 'weighted_best_count', 'content_affinity_max_entries', 'import_concurrency', 'refresh_before_seconds'] as NumericFieldKey[],
   },
   {
     title: '数据保留',
