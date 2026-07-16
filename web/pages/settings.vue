@@ -496,18 +496,6 @@ watch(
           />
         </div>
 
-        <div class="settings-item">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">Base URL</div>
-            <div class="settings-item-description text-medium-emphasis">OpenAI 兼容的 Chat Completions 渠道</div>
-          </div>
-          <VTextField
-            model-value="https://opencode.ai/zen/go"
-            readonly
-            hide-details
-            class="settings-item-control"
-          />
-        </div>
       </div>
     </SectionCard>
 
