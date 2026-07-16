@@ -16,7 +16,6 @@ import (
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	"github.com/nekohy/MeowCLI/utils"
-	"github.com/tidwall/gjson"
 )
 
 const (
@@ -84,6 +83,17 @@ func (c *Client) ReplaceModel(body []byte, model string) []byte {
 	return updated
 }
 
+func (c *Client) PrepareRequest(root *ast.Node, apiType utils.APIType, _ api.BackendOpts) (api.PreparedRequest, error) {
+	if apiType != utils.APIGemini {
+		return api.PreparedRequest{}, fmt.Errorf("unsupported gemini api type %q", apiType)
+	}
+	request, err := utils.UnwrapRequestEnvelope(root)
+	if err != nil {
+		return api.PreparedRequest{}, fmt.Errorf("prepare gemini request: %w", err)
+	}
+	return api.PreparedRequest{Root: request, PayloadAPIType: utils.APIGemini}, nil
+}
+
 func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	ctx := req.Ctx
 	body := req.Body
@@ -140,10 +150,6 @@ type WrappedCodeAssistRequest struct {
 }
 
 func wrapCodeAssistBody(body []byte, modelName, projectID string) []byte {
-	request := gjson.GetBytes(body, "request")
-	if request.Exists() {
-		body = sonic.NoCopyRawMessage(request.Raw)
-	}
 	wrapped, err := sonic.Marshal(WrappedCodeAssistRequest{
 		Model:   modelName,
 		Project: projectID,

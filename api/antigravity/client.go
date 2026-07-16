@@ -19,7 +19,6 @@ import (
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/internal/settings"
 	"github.com/nekohy/MeowCLI/utils"
-	"github.com/tidwall/gjson"
 )
 
 const readBodyLimit = 4 << 20
@@ -84,6 +83,29 @@ func (c *Client) ReplaceModel(body []byte, model string) []byte {
 	return updated
 }
 
+func (c *Client) PrepareRequest(root *ast.Node, apiType utils.APIType, opts api.BackendOpts) (api.PreparedRequest, error) {
+	if apiType != utils.APIGemini {
+		return api.PreparedRequest{}, fmt.Errorf("unsupported antigravity api type %q", apiType)
+	}
+	typed, ok := opts.(*Options)
+	if !ok || typed == nil {
+		return api.PreparedRequest{}, fmt.Errorf("antigravity options are required")
+	}
+	request, err := utils.UnwrapRequestEnvelope(root)
+	if err != nil {
+		return api.PreparedRequest{}, fmt.Errorf("prepare antigravity request: %w", err)
+	}
+	if err := normalizeGeminiRequestForAntigravity(request, typed.ModelName); err != nil {
+		return api.PreparedRequest{}, fmt.Errorf("normalize antigravity request: %w", err)
+	}
+	if !isAntigravityImageModel(typed.ModelName) {
+		if _, err := request.Set("sessionId", ast.NewString(generateStableSessionID(request))); err != nil {
+			return api.PreparedRequest{}, fmt.Errorf("set antigravity session id: %w", err)
+		}
+	}
+	return api.PreparedRequest{Root: request, PayloadAPIType: utils.APIGemini}, nil
+}
+
 func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	var opts Options
 	if req.Opts != nil {
@@ -144,10 +166,6 @@ type wrappedRequest struct {
 
 func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes []string, useCredits bool) []byte {
 	request := body
-	if nested := gjson.GetBytes(body, "request"); nested.Exists() {
-		request = []byte(nested.Raw)
-	}
-	request = normalizeGeminiRequestForAntigravity(request, modelName)
 	var enabledCreditTypes []string
 	if useCredits {
 		if normalized := normalizeCreditTypes(creditTypes); len(normalized) > 0 {
@@ -155,7 +173,7 @@ func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes [
 		}
 	}
 
-	isImageModel := strings.Contains(strings.ToLower(modelName), "image")
+	isImageModel := isAntigravityImageModel(modelName)
 	requestType := "agent"
 	requestID := "agent-" + uuid.NewString()
 	if isImageModel {
@@ -166,9 +184,6 @@ func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes [
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
 		projectID = defaultProjectID
-	}
-	if !isImageModel {
-		request = setAntigravityRequestSessionID(request, generateStableSessionID(request))
 	}
 	wrapped, err := sonic.Marshal(wrappedRequest{
 		Project:            projectID,
@@ -185,19 +200,8 @@ func wrapAntigravityBody(body []byte, modelName, projectID string, creditTypes [
 	return wrapped
 }
 
-func setAntigravityRequestSessionID(request []byte, sessionID string) []byte {
-	var root ast.Node
-	if err := root.UnmarshalJSON(request); err != nil {
-		return request
-	}
-	if _, err := root.Set("sessionId", ast.NewString(sessionID)); err != nil {
-		return request
-	}
-	out, err := root.MarshalJSON()
-	if err != nil {
-		return request
-	}
-	return out
+func isAntigravityImageModel(modelName string) bool {
+	return strings.Contains(strings.ToLower(modelName), "image")
 }
 
 func normalizeCreditTypes(values []string) []string {
@@ -270,21 +274,24 @@ func (c *Client) httpClient() *http.Client {
 	return c.client
 }
 
-func generateStableSessionID(payload []byte) string {
-	contents := gjson.GetBytes(payload, "contents")
-	if contents.IsArray() {
-		for _, content := range contents.Array() {
-			if content.Get("role").String() != "user" {
-				continue
-			}
-			text := content.Get("parts.0.text").String()
-			if text == "" {
-				continue
-			}
-			h := sha256.Sum256([]byte(text))
-			n := int64(binary.BigEndian.Uint64(h[:8])) & 0x7FFFFFFFFFFFFFFF
-			return "-" + strconv.FormatInt(n, 10)
+func generateStableSessionID(payload *ast.Node) string {
+	contents := payload.Get("contents")
+	for index := 0; index < nodeLen(contents); index++ {
+		content := contents.Index(index)
+		if astString(content.Get("role")) != "user" {
+			continue
 		}
+		parts := content.Get("parts")
+		if nodeLen(parts) == 0 {
+			continue
+		}
+		text := astString(parts.Index(0).Get("text"))
+		if text == "" {
+			continue
+		}
+		h := sha256.Sum256([]byte(text))
+		n := int64(binary.BigEndian.Uint64(h[:8])) & 0x7FFFFFFFFFFFFFFF
+		return "-" + strconv.FormatInt(n, 10)
 	}
 	return generateSessionID()
 }

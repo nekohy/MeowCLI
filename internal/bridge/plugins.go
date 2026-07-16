@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bytedance/sonic/ast"
 	requestplugin "github.com/nekohy/MeowCLI/plugin"
 	"github.com/nekohy/MeowCLI/utils"
 )
@@ -16,27 +17,22 @@ func (h *Handler) SetPluginRegistry(registry *requestplugin.Registry) {
 	h.plugins = registry
 }
 
-func (h *Handler) runModelPlugins(ctx context.Context, req pluginRequest) ([]byte, error) {
-	if h == nil || h.plugins == nil || len(req.EnabledPlugins) == 0 {
-		return req.Body, nil
-	}
-	pluginCtx := requestplugin.NewContext(req.Body)
-	pluginCtx.Alias = req.Alias
-	pluginCtx.Origin = req.Origin
-	pluginCtx.Handler = req.Handler
-	pluginCtx.APIType = req.APIType
-	pluginCtx.Stream = req.Stream
-	return h.plugins.Run(ctx, req.EnabledPlugins, pluginCtx)
+func preparePluginContext(request *requestplugin.Context, alias string, model *ResolvedModel, apiType utils.APIType, stream bool) *requestplugin.Context {
+	request.Alias = alias
+	request.Origin = model.Origin
+	request.Handler = model.Handler
+	request.APIType = apiType
+	request.Stream = stream
+	return request
 }
 
-type pluginRequest struct {
-	Alias          string
-	Origin         string
-	Handler        utils.HandlerType
-	APIType        utils.APIType
-	Stream         bool
-	EnabledPlugins []string
-	Body           []byte
+func (h *Handler) runModelPlugins(ctx context.Context, enabled []string, req *requestplugin.Context) (*ast.Node, error) {
+	if h.plugins != nil && len(enabled) > 0 {
+		if err := h.plugins.Apply(ctx, enabled, req); err != nil {
+			return nil, err
+		}
+	}
+	return req.JSON()
 }
 
 func parseEnabledPlugins(raw string) []string {

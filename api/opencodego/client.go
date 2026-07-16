@@ -132,6 +132,16 @@ func (c *Client) ReplaceModel(body []byte, model string) []byte {
 	return updated
 }
 
+func (c *Client) PrepareRequest(root *ast.Node, apiType utils.APIType, _ api.BackendOpts) (api.PreparedRequest, error) {
+	if apiType != utils.APICompletion {
+		return api.PreparedRequest{}, fmt.Errorf("unsupported opencode go api type %q", apiType)
+	}
+	if root == nil {
+		return api.PreparedRequest{}, fmt.Errorf("opencode go request JSON is nil")
+	}
+	return api.PreparedRequest{Root: root, PayloadAPIType: apiType}, nil
+}
+
 func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	if req == nil {
 		return nil, errors.New("opencode go request is nil")

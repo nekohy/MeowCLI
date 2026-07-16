@@ -11,6 +11,7 @@ import (
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/api/antigravity"
 	"github.com/nekohy/MeowCLI/api/gemini"
+	requestplugin "github.com/nekohy/MeowCLI/plugin"
 	"github.com/nekohy/MeowCLI/utils"
 
 	"github.com/bytedance/sonic"
@@ -42,37 +43,36 @@ func (h *Handler) handleGemini(c *gin.Context) {
 		writeRelayError(c, errUnsupportedAPIType)
 		return
 	}
+	request := preparePluginContext(requestplugin.NewContext(body), alias, target.info, utils.APIGemini, stream)
 
-	body, err = h.runModelPlugins(ctx, pluginRequest{
-		Alias:          alias,
-		Origin:         target.info.Origin,
-		Handler:        target.info.Handler,
-		APIType:        utils.APIGemini,
-		Stream:         stream,
-		EnabledPlugins: target.info.EnabledPlugins,
-		Body:           body,
-	})
+	finalPluginJSON, err := h.runModelPlugins(ctx, target.info.EnabledPlugins, request)
 	if err != nil {
 		writeRelayError(c, pluginFailure(err))
 		return
 	}
 	backendOptions := generateContentBackendOptions(target.info.Handler, target.info.Origin, action, c.Request.URL.RawQuery)
-
+	prepared, err := target.backend.PrepareRequest(finalPluginJSON, utils.APIGemini, backendOptions)
+	if err != nil {
+		writeRelayError(c, errReadRequestBody)
+		return
+	}
 	h.relayUpstream(c, upstreamRelay{
-		ctx:                   ctx,
-		scheduler:             target.sched,
-		requestHeaders:        c.Request.Header,
-		allowedPlans:          target.info.AllowedPlanTypes,
-		streamRequest:         stream,
-		modelAlias:            alias,
-		modelTier:             modelTier(target.info),
-		apiType:               utils.APIGemini,
-		backend:               target.backend,
-		replaceResponseModel:  alias != target.info.Origin,
-		responseModel:         alias,
-		requestBody:           body,
-		backendOptions:        backendOptions,
-		prepareBackendOptions: prepareGenerateContentBackendOptions(target.sched),
+		ctx:                    ctx,
+		scheduler:              target.sched,
+		requestHeaders:         c.Request.Header,
+		allowedPlans:           target.info.AllowedPlanTypes,
+		streamRequest:          stream,
+		modelAlias:             alias,
+		modelTier:              modelTier(target.info),
+		apiType:                utils.APIGemini,
+		backend:                target.backend,
+		replaceResponseModel:   alias != target.info.Origin,
+		responseModel:          alias,
+		requestJSON:            prepared.Root,
+		backendOptions:         backendOptions,
+		prepareBackendOptions:  prepareGenerateContentBackendOptions(target.sched),
+		contentAffinityEnabled: target.info.ContentAffinity,
+		payloadAPIType:         prepared.PayloadAPIType,
 	})
 }
 

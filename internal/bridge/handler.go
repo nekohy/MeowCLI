@@ -30,6 +30,7 @@ type ResolvedModel struct {
 	Handler          utils.HandlerType
 	AllowedPlanTypes []string
 	EnabledPlugins   []string
+	ContentAffinity  bool
 }
 
 // ModelStore provides model alias resolution.

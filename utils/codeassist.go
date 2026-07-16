@@ -1,6 +1,11 @@
 package utils
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/bytedance/sonic/ast"
+)
 
 const (
 	CodeAssistPlanTypeUltra   = "ultra"
@@ -10,6 +15,28 @@ const (
 )
 
 const projectCredentialIDSeparator = "__"
+
+// UnwrapRequestEnvelope 返回 Code Assist 信封中的实际请求；标准请求则原样返回。
+func UnwrapRequestEnvelope(root *ast.Node) (*ast.Node, error) {
+	if root == nil {
+		return nil, fmt.Errorf("request JSON is nil")
+	}
+	if err := root.Load(); err != nil {
+		return nil, fmt.Errorf("load request JSON: %w", err)
+	}
+	if root.TypeSafe() != ast.V_OBJECT {
+		return nil, fmt.Errorf("request must be a JSON object")
+	}
+
+	request := root.Get("request")
+	if !request.Exists() {
+		return root, nil
+	}
+	if request.TypeSafe() != ast.V_OBJECT {
+		return nil, fmt.Errorf("request envelope field must be a JSON object")
+	}
+	return request, nil
+}
 
 func DefaultProjectCredentialID(email, projectID string) string {
 	email = strings.ToLower(strings.TrimSpace(email))

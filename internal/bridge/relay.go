@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/bytedance/sonic/ast"
 	"github.com/nekohy/MeowCLI/api"
 	"github.com/nekohy/MeowCLI/core/scheduling"
 	db "github.com/nekohy/MeowCLI/internal/store"
@@ -16,21 +17,24 @@ import (
 )
 
 type upstreamRelay struct {
-	ctx                   context.Context
-	scheduler             CredentialScheduler
-	requestHeaders        http.Header
-	allowedPlans          []string
-	streamRequest         bool
-	modelAlias            string
-	modelTier             string
-	apiType               utils.APIType
-	backend               api.Backend
-	replaceResponseModel  bool
-	responseModel         string
-	requestBody           []byte
-	backendOptions        api.BackendOpts
-	prepareBackendOptions func(context.Context, string, api.BackendOpts) (api.BackendOpts, error)
-	sessionKey            string
+	ctx                    context.Context
+	scheduler              CredentialScheduler
+	requestHeaders         http.Header
+	allowedPlans           []string
+	streamRequest          bool
+	modelAlias             string
+	modelTier              string
+	apiType                utils.APIType
+	backend                api.Backend
+	replaceResponseModel   bool
+	responseModel          string
+	requestJSON            *ast.Node
+	backendOptions         api.BackendOpts
+	prepareBackendOptions  func(context.Context, string, api.BackendOpts) (api.BackendOpts, error)
+	sessionKey             string
+	contentAffinityEnabled bool
+	payloadAPIType         utils.APIType
+	contentAffinity        contentAffinityRequest
 }
 
 type retryTracker struct {
@@ -40,9 +44,21 @@ type retryTracker struct {
 	graceRetriedCredentialID string
 }
 
-// relayUpstream executes the common retry loop shared by all relay handlers.
-// It writes the response or an error to c and returns.
+// relayUpstream 是所有协议共用的上游重试循环，最终负责写回响应或错误
 func (h *Handler) relayUpstream(c *gin.Context, cfg upstreamRelay) {
+	if cfg.requestJSON == nil {
+		writeRelayError(c, errReadRequestBody)
+		return
+	}
+	if cfg.contentAffinityEnabled {
+		h.contentAffinity.configureCapacity(h.settingsSnapshot().ContentAffinityMaxEntries)
+		cfg.contentAffinity = h.buildContentAffinityRequest(cfg.modelAlias, cfg.payloadAPIType, cfg.requestJSON)
+	}
+	requestBody, err := cfg.requestJSON.MarshalJSON()
+	if err != nil {
+		writeRelayError(c, errReadRequestBody)
+		return
+	}
 	state := retryTracker{}
 	for attempt := 1; attempt <= h.maxAttempts(); attempt++ {
 		credID, err := h.selectRelayCredential(cfg, state)
@@ -64,7 +80,7 @@ func (h *Handler) relayUpstream(c *gin.Context, cfg upstreamRelay) {
 
 		headers := cfg.upstreamHeaders(authHeaders)
 		upstreamStarted := time.Now()
-		resp, err := cfg.send(credID, headers)
+		resp, err := cfg.send(credID, headers, requestBody)
 		if err != nil {
 			if h.handleSendFailure(cfg, credID, err, upstreamStarted, attempt, &state) {
 				return
@@ -261,7 +277,7 @@ func (cfg upstreamRelay) upstreamHeaders(authHeaders http.Header) http.Header {
 	return headers
 }
 
-func (cfg upstreamRelay) send(credentialID string, headers http.Header) (*http.Response, error) {
+func (cfg upstreamRelay) send(credentialID string, headers http.Header, body []byte) (*http.Response, error) {
 	opts := cfg.backendOptions
 	if cfg.prepareBackendOptions != nil {
 		prepared, err := cfg.prepareBackendOptions(cfg.ctx, credentialID, opts)
@@ -273,9 +289,10 @@ func (cfg upstreamRelay) send(credentialID string, headers http.Header) (*http.R
 	return cfg.backend.Chat(&api.Request{
 		Ctx:     cfg.ctx,
 		CredID:  credentialID,
-		Body:    cfg.requestBody,
+		Body:    body,
 		Headers: headers,
 		APIType: cfg.apiType,
+		Stream:  cfg.streamRequest,
 		Opts:    opts,
 	})
 }

@@ -2,36 +2,9 @@ package completion
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"strings"
-
-	"github.com/bytedance/sonic"
-	"github.com/tidwall/gjson"
 )
-
-func rawJSONMessage(v gjson.Result) json.RawMessage {
-	if !v.Exists() {
-		return nil
-	}
-	return json.RawMessage(v.Raw)
-}
-
-func marshalRaw(v any) json.RawMessage {
-	out, err := sonic.Marshal(v)
-	if err != nil {
-		return nil
-	}
-	return out
-}
-
-func appendRaw[T any](items []json.RawMessage, v T) []json.RawMessage {
-	raw := marshalRaw(v)
-	if len(raw) == 0 {
-		return items
-	}
-	return append(items, raw)
-}
 
 func ptr[T any](v T) *T {
 	return &v

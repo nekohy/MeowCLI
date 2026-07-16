@@ -1,11 +1,13 @@
 package bridge
 
 import (
+	"fmt"
 	"strings"
 
+	requestplugin "github.com/nekohy/MeowCLI/plugin"
 	"github.com/nekohy/MeowCLI/utils"
 
-	"github.com/bytedance/sonic"
+	"github.com/bytedance/sonic/ast"
 	"github.com/gin-gonic/gin"
 )
 
@@ -26,8 +28,14 @@ func (h *Handler) handleResponses(c *gin.Context, apiType utils.APIType) {
 		return
 	}
 
-	var parsed relayRequest
-	if err := sonic.Unmarshal(body, &parsed); err != nil {
+	request := requestplugin.NewContext(body)
+	requestJSON, err := request.JSON()
+	if err != nil {
+		writeRelayError(c, errReadRequestBody)
+		return
+	}
+	parsed, err := parseRelayRequest(requestJSON)
+	if err != nil {
 		writeRelayError(c, errReadRequestBody)
 		return
 	}
@@ -44,41 +52,86 @@ func (h *Handler) handleResponses(c *gin.Context, apiType utils.APIType) {
 		return
 	}
 
+	request = preparePluginContext(request, alias, target.info, apiType, parsed.Stream)
+
 	needReplace := alias != target.info.Origin
-	upstreamBody := body
 	if needReplace {
-		upstreamBody = target.backend.ReplaceModel(body, target.info.Origin)
+		if _, err := requestJSON.Set("model", ast.NewString(target.info.Origin)); err != nil {
+			writeRelayError(c, errReadRequestBody)
+			return
+		}
 	}
 
-	upstreamBody, err := h.runModelPlugins(ctx, pluginRequest{
-		Alias:          alias,
-		Origin:         target.info.Origin,
-		Handler:        target.info.Handler,
-		APIType:        apiType,
-		Stream:         parsed.Stream,
-		EnabledPlugins: target.info.EnabledPlugins,
-		Body:           upstreamBody,
-	})
+	finalPluginJSON, err := h.runModelPlugins(ctx, target.info.EnabledPlugins, request)
 	if err != nil {
 		writeRelayError(c, pluginFailure(err))
 		return
 	}
-
+	prepared, err := target.backend.PrepareRequest(finalPluginJSON, apiType, nil)
+	if err != nil {
+		writeRelayError(c, errReadRequestBody)
+		return
+	}
 	sessionKey := sessionAffinityKey(target.info.Handler, parsed.SessionID, h.settingsSnapshot())
 
 	h.relayUpstream(c, upstreamRelay{
-		ctx:                  ctx,
-		scheduler:            target.sched,
-		requestHeaders:       c.Request.Header,
-		allowedPlans:         target.info.AllowedPlanTypes,
-		streamRequest:        parsed.Stream,
-		modelAlias:           alias,
-		modelTier:            modelTier(target.info),
-		apiType:              apiType,
-		backend:              target.backend,
-		replaceResponseModel: needReplace,
-		responseModel:        alias,
-		requestBody:          upstreamBody,
-		sessionKey:           sessionKey,
+		ctx:                    ctx,
+		scheduler:              target.sched,
+		requestHeaders:         c.Request.Header,
+		allowedPlans:           target.info.AllowedPlanTypes,
+		streamRequest:          parsed.Stream,
+		modelAlias:             alias,
+		modelTier:              modelTier(target.info),
+		apiType:                apiType,
+		backend:                target.backend,
+		replaceResponseModel:   needReplace,
+		responseModel:          alias,
+		requestJSON:            prepared.Root,
+		sessionKey:             sessionKey,
+		contentAffinityEnabled: target.info.ContentAffinity,
+		payloadAPIType:         prepared.PayloadAPIType,
 	})
+}
+
+func parseRelayRequest(root *ast.Node) (relayRequest, error) {
+	if root == nil || root.TypeSafe() != ast.V_OBJECT {
+		return relayRequest{}, fmt.Errorf("request body must be a JSON object")
+	}
+	model, err := requestString(root, "model")
+	if err != nil {
+		return relayRequest{}, err
+	}
+	sessionID, err := requestString(root, "prompt_cache_key")
+	if err != nil {
+		return relayRequest{}, err
+	}
+	stream, err := requestBool(root, "stream")
+	if err != nil {
+		return relayRequest{}, err
+	}
+	return relayRequest{Model: model, SessionID: sessionID, Stream: stream}, nil
+}
+
+func requestString(root *ast.Node, key string) (string, error) {
+	node := root.Get(key)
+	switch astNodeType(node) {
+	case ast.V_NONE, ast.V_NULL:
+		return "", nil
+	case ast.V_STRING:
+		return node.StrictString()
+	default:
+		return "", fmt.Errorf("request field %q must be a string", key)
+	}
+}
+
+func requestBool(root *ast.Node, key string) (bool, error) {
+	node := root.Get(key)
+	switch astNodeType(node) {
+	case ast.V_NONE, ast.V_NULL:
+		return false, nil
+	case ast.V_TRUE, ast.V_FALSE:
+		return node.StrictBool()
+	default:
+		return false, fmt.Errorf("request field %q must be a boolean", key)
+	}
 }

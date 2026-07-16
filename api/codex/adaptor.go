@@ -137,6 +137,22 @@ func (c *Client) ReplaceModel(body []byte, model string) []byte {
 	return updated
 }
 
+func (c *Client) PrepareRequest(root *ast.Node, apiType utils.APIType, _ api.BackendOpts) (api.PreparedRequest, error) {
+	payloadAPIType := apiType
+	if apiType == utils.APICompletion {
+		converted, err := completionconvert.Convert(root)
+		if err != nil {
+			return api.PreparedRequest{}, err
+		}
+		root = converted
+		payloadAPIType = utils.APIResponses
+	}
+	if err := prepareCodexResponsesRequestJSON(root); err != nil {
+		return api.PreparedRequest{}, err
+	}
+	return api.PreparedRequest{Root: root, PayloadAPIType: payloadAPIType}, nil
+}
+
 // Chat 向上游 Codex API 发送请求，返回原始 *http.Response（调用方负责关闭 Body）
 // headers 应已包含认证头（Authorization, Chatgpt-Account-Id 等），由调用方负责组合
 // OnBeforeRequest 最终强制 User-Agent 等默认头
@@ -145,20 +161,7 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	body := req.Body
 	credentialID := req.CredID
 	headers := req.Headers
-	if req.APIType == utils.APICompletion {
-		model := gjson.GetBytes(body, "model").String()
-		converted, err := completionconvert.Convert(model, body, gjson.GetBytes(body, "stream").Bool())
-		if err != nil {
-			return nil, err
-		}
-		body = converted
-	}
-	// Codex upstream only supports stream processing reliably; preserve the
-	// client's requested mode locally and force the upstream request to stream.
-	body, clientStream, err := prepareCodexResponsesRequestBody(body)
-	if err != nil {
-		return nil, err
-	}
+	clientStream := req.Stream
 
 	r := c.client.R().
 		SetContext(ctx).
@@ -224,50 +227,28 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	return raw, nil
 }
 
-func prepareCodexResponsesRequestBody(body []byte) ([]byte, bool, error) {
-	if !json.Valid(body) {
-		return body, false, fmt.Errorf("invalid responses request JSON")
+func prepareCodexResponsesRequestJSON(root *ast.Node) error {
+	if root == nil || root.TypeSafe() != ast.V_OBJECT {
+		return fmt.Errorf("responses request must be a JSON object")
 	}
-
-	var root ast.Node
-	if err := root.UnmarshalJSON(body); err != nil {
-		return body, false, fmt.Errorf("parse responses request: %w", err)
-	}
-
-	clientStream := false
-	stream := root.Get("stream")
-	if stream.Exists() {
-		parsed, err := stream.Bool()
-		if err != nil {
-			return body, false, fmt.Errorf("parse responses request stream: %w", err)
-		}
-		clientStream = parsed
-	}
-
 	if _, err := root.Set("stream", ast.NewBool(true)); err != nil {
-		return body, clientStream, fmt.Errorf("set responses request stream: %w", err)
+		return fmt.Errorf("set responses request stream: %w", err)
 	}
 	if _, err := root.Set("store", ast.NewBool(false)); err != nil {
-		return body, clientStream, fmt.Errorf("set responses request store: %w", err)
+		return fmt.Errorf("set responses request store: %w", err)
 	}
 	if !root.Get("instructions").Exists() {
 		if _, err := root.Set("instructions", ast.NewString("")); err != nil {
-			return body, clientStream, fmt.Errorf("set responses request instructions: %w", err)
+			return fmt.Errorf("set responses request instructions: %w", err)
 		}
 	}
 	if _, err := root.Unset("temperature"); err != nil {
-		return body, clientStream, fmt.Errorf("unset responses request temperature: %w", err)
+		return fmt.Errorf("unset responses request temperature: %w", err)
 	}
 	if _, err := root.Unset("max_output_tokens"); err != nil {
-		return body, clientStream, fmt.Errorf("unset responses request max_output_tokens: %w", err)
+		return fmt.Errorf("unset responses request max_output_tokens: %w", err)
 	}
-
-	out, err := root.MarshalJSON()
-	if err != nil {
-		return body, clientStream, fmt.Errorf("marshal responses request: %w", err)
-	}
-
-	return out, clientStream, nil
+	return nil
 }
 func resolveQuotaTierFromBody(body []byte) string {
 	model := strings.ToLower(gjson.GetBytes(body, "model").String())

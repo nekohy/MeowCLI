@@ -1,6 +1,7 @@
 package antigravity
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -8,38 +9,32 @@ import (
 	"github.com/google/uuid"
 )
 
-func normalizeGeminiRequestForAntigravity(body []byte, modelName string) []byte {
-	root, parseErr := ast.NewParser(string(body)).Parse()
-	if parseErr != 0 || !astObjectExists(&root) {
-		return body
+func normalizeGeminiRequestForAntigravity(root *ast.Node, modelName string) error {
+	if !astObjectExists(root) {
+		return fmt.Errorf("gemini request must be a JSON object")
 	}
 
 	if _, err := root.Unset("safetySettings"); err != nil {
-		return body
+		return err
 	}
 
 	isClaude := strings.Contains(strings.ToLower(modelName), "claude")
 	if isClaude {
-		if err := setClaudeFunctionCallingMode(&root); err != nil {
-			return body
+		if err := setClaudeFunctionCallingMode(root); err != nil {
+			return err
 		}
 
 		// Claude 模型要求 Gemini 工具声明携带 parameters 而不是 parametersJsonSchema
 		if err := normalizeClaudeTools(root.Get("tools")); err != nil {
-			return body
+			return err
 		}
 	}
 
 	// 补齐 functionCall 和 functionResponse 的 Tool ID
 	if err := normalizeContents(root.Get("contents"), isClaude); err != nil {
-		return body
+		return err
 	}
-
-	out, err := root.MarshalJSON()
-	if err != nil {
-		return body
-	}
-	return out
+	return nil
 }
 
 func setClaudeFunctionCallingMode(root *ast.Node) error {
