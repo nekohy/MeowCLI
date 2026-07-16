@@ -12,7 +12,7 @@ func (s *Store) ReverseInfoFromModel(ctx context.Context, alias string) (db.Reve
 	if err != nil {
 		return db.ReverseInfoFromModelRow{}, wrapError(err)
 	}
-	return reverseInfoTo(row.Origin, row.Handler, row.PlanTypes, row.Plugin, row.ContentAffinity, row.Extra), nil
+	return reverseInfoTo(row.Origin, row.Handler, row.PlanTypes, row.Plugin, row.ContentAffinity, row.FillFirst, row.Extra), nil
 }
 
 func (s *Store) ListModels(ctx context.Context) ([]db.ModelRow, error) {
@@ -22,7 +22,7 @@ func (s *Store) ListModels(ctx context.Context) ([]db.ModelRow, error) {
 	}
 	resolved := make([]db.ModelRow, len(rows))
 	for i, row := range rows {
-		resolved[i] = modelRowTo(row.Alias, row.Origin, row.Handler, row.PlanTypes, row.Plugin, row.ContentAffinity, row.Extra)
+		resolved[i] = modelRowTo(row.Alias, row.Origin, row.Handler, row.PlanTypes, row.Plugin, row.ContentAffinity, row.FillFirst, row.Extra)
 	}
 	return resolved, nil
 }
@@ -42,13 +42,14 @@ func (s *Store) CreateModel(ctx context.Context, arg db.CreateModelParams) (db.M
 		Handler:         arg.Handler,
 		PlanTypes:       arg.PlanTypes,
 		Plugin:          arg.Plugin,
-		ContentAffinity: arg.ContentAffinity,
+		ContentAffinity: arg.Scheduling.ContentAffinity,
+		FillFirst:       arg.Scheduling.FillFirst,
 		Extra:           arg.Extra,
 	})
 	if err != nil {
 		return db.ModelRow{}, wrapError(err)
 	}
-	return modelRowTo(row.Alias, row.Origin, row.Handler, row.PlanTypes, row.Plugin, row.ContentAffinity, row.Extra), nil
+	return modelRowTo(row.Alias, row.Origin, row.Handler, row.PlanTypes, row.Plugin, row.ContentAffinity, row.FillFirst, row.Extra), nil
 }
 
 func (s *Store) UpdateModel(ctx context.Context, arg db.UpdateModelParams) (db.ModelRow, error) {
@@ -58,13 +59,14 @@ func (s *Store) UpdateModel(ctx context.Context, arg db.UpdateModelParams) (db.M
 		Handler:         arg.Handler,
 		PlanTypes:       arg.PlanTypes,
 		Plugin:          arg.Plugin,
-		ContentAffinity: arg.ContentAffinity,
+		ContentAffinity: arg.Scheduling.ContentAffinity,
+		FillFirst:       arg.Scheduling.FillFirst,
 		Extra:           arg.Extra,
 	})
 	if err != nil {
 		return db.ModelRow{}, wrapError(err)
 	}
-	return modelRowTo(row.Alias, row.Origin, row.Handler, row.PlanTypes, row.Plugin, row.ContentAffinity, row.Extra), nil
+	return modelRowTo(row.Alias, row.Origin, row.Handler, row.PlanTypes, row.Plugin, row.ContentAffinity, row.FillFirst, row.Extra), nil
 }
 
 func (s *Store) DeleteModel(ctx context.Context, alias string) error {

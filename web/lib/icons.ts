@@ -1,5 +1,6 @@
 import {
   mdiAccountBadgeOutline,
+  mdiAccountSyncOutline,
   mdiAlertCircle,
   mdiAlertCircleOutline,
   mdiAppleKeyboardCommand,
@@ -111,6 +112,7 @@ import {
   mdiTextBoxSearchOutline,
   mdiThemeLightDark,
   mdiTimerSand,
+  mdiTuneVariant,
   mdiUnfoldMoreHorizontal,
   mdiVectorLink,
   mdiViewDashboard,
@@ -124,6 +126,7 @@ import {
 
 export const mdiIconPaths: Record<string, string> = {
   'mdi-account-badge-outline': mdiAccountBadgeOutline,
+  'mdi-account-sync-outline': mdiAccountSyncOutline,
   'mdi-alert-circle': mdiAlertCircle,
   'mdi-alert-circle-outline': mdiAlertCircleOutline,
   'mdi-apple-keyboard-command': mdiAppleKeyboardCommand,
@@ -235,6 +238,7 @@ export const mdiIconPaths: Record<string, string> = {
   'mdi-text-box-search-outline': mdiTextBoxSearchOutline,
   'mdi-theme-light-dark': mdiThemeLightDark,
   'mdi-timer-sand': mdiTimerSand,
+  'mdi-tune-variant': mdiTuneVariant,
   'mdi-unfold-more-horizontal': mdiUnfoldMoreHorizontal,
   'mdi-vector-link': mdiVectorLink,
   'mdi-view-dashboard': mdiViewDashboard,

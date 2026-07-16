@@ -158,6 +158,7 @@ func ensureModelColumns(ctx context.Context, d *sql.DB) error {
 	}{
 		{name: "plugin", sql: "ALTER TABLE models ADD COLUMN plugin TEXT NOT NULL DEFAULT ''"},
 		{name: "content_affinity", sql: "ALTER TABLE models ADD COLUMN content_affinity BOOLEAN NOT NULL DEFAULT FALSE"},
+		{name: "fill_first", sql: "ALTER TABLE models ADD COLUMN fill_first BOOLEAN NOT NULL DEFAULT FALSE"},
 	}
 	for _, addition := range additions {
 		if columns[addition.name] {

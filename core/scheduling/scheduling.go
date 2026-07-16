@@ -43,6 +43,23 @@ type CredentialSelection struct {
 	ModelTier             string
 }
 
+// ModelScheduling 汇总模型级调度策略；策略开关由管理层保证互斥。
+type ModelScheduling struct {
+	ContentAffinity bool `json:"content_affinity"`
+	FillFirst       bool `json:"fill_first"`
+}
+
+func (s ModelScheduling) Valid() bool {
+	enabled := 0
+	if s.ContentAffinity {
+		enabled++
+	}
+	if s.FillFirst {
+		enabled++
+	}
+	return enabled <= 1
+}
+
 type RetryDecision struct {
 	Delay          time.Duration
 	SameCredential bool

@@ -57,22 +57,22 @@ func (h *Handler) handleGemini(c *gin.Context) {
 		return
 	}
 	h.relayUpstream(c, upstreamRelay{
-		ctx:                    ctx,
-		scheduler:              target.sched,
-		requestHeaders:         c.Request.Header,
-		allowedPlans:           target.info.AllowedPlanTypes,
-		streamRequest:          stream,
-		modelAlias:             alias,
-		modelTier:              modelTier(target.info),
-		apiType:                utils.APIGemini,
-		backend:                target.backend,
-		replaceResponseModel:   alias != target.info.Origin,
-		responseModel:          alias,
-		requestJSON:            prepared.Root,
-		backendOptions:         backendOptions,
-		prepareBackendOptions:  prepareGenerateContentBackendOptions(target.sched),
-		contentAffinityEnabled: target.info.ContentAffinity,
-		payloadAPIType:         prepared.PayloadAPIType,
+		ctx:                   ctx,
+		scheduler:             target.sched,
+		requestHeaders:        c.Request.Header,
+		allowedPlans:          target.info.AllowedPlanTypes,
+		streamRequest:         stream,
+		modelAlias:            alias,
+		modelTier:             modelTier(target.info),
+		apiType:               utils.APIGemini,
+		backend:               target.backend,
+		replaceResponseModel:  alias != target.info.Origin,
+		responseModel:         alias,
+		requestJSON:           prepared.Root,
+		backendOptions:        backendOptions,
+		prepareBackendOptions: prepareGenerateContentBackendOptions(target.sched),
+		modelScheduling:       target.info.Scheduling,
+		payloadAPIType:        prepared.PayloadAPIType,
 	})
 }
 

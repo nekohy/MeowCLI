@@ -321,13 +321,37 @@ export interface OAuthCallbackResponse {
   id: string
 }
 
-export interface ModelItem {
+export interface ModelScheduling {
+  content_affinity: boolean
+  fill_first: boolean
+}
+
+export interface ModelInput extends ModelScheduling {
+  origin: string
+  handler: string
+  plan_types: string
+  plugin: string
+  extra: Record<string, unknown>
+}
+
+export interface CreateModelInput extends ModelInput {
+  alias: string
+}
+
+export interface BatchModelInput extends Partial<ModelScheduling> {
+  aliases: string[]
+  handler: string
+  plan_types: string
+  plugin: string
+  extra: Record<string, unknown>
+}
+
+export interface ModelItem extends ModelScheduling {
   alias: string
   origin: string
   handler: string
   plan_types: string
   plugin: string
-  content_affinity: boolean
   extra: Record<string, unknown>
 }
 

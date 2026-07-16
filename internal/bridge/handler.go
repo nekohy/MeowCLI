@@ -30,7 +30,7 @@ type ResolvedModel struct {
 	Handler          utils.HandlerType
 	AllowedPlanTypes []string
 	EnabledPlugins   []string
-	ContentAffinity  bool
+	Scheduling       scheduling.ModelScheduling
 }
 
 // ModelStore provides model alias resolution.
@@ -78,6 +78,7 @@ type Handler struct {
 	schedulers      map[utils.HandlerType]CredentialScheduler
 	settings        settings.Provider
 	sessions        *otter.Cache[string, string]
+	fillFirst       *fillFirstCache
 	contentAffinity *contentAffinityTable
 	plugins         *requestplugin.Registry
 }
@@ -92,6 +93,7 @@ func NewHandler(models ModelStore, schedulers map[utils.HandlerType]CredentialSc
 		models:          models,
 		schedulers:      schedulers,
 		sessions:        newSessionAffinityCache(),
+		fillFirst:       newFillFirstCache(),
 		contentAffinity: newContentAffinityTable(),
 		plugins:         pluginloader.DefaultRegistry(),
 	}

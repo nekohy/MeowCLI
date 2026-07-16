@@ -8,6 +8,12 @@ import {
   type ModelCatalogItem,
 } from '~/lib/modelCatalog'
 import { resolveCreateModelHandler } from '~/lib/modelForm'
+import {
+  modelSchedulingFields,
+  resolveModelSchedulingStrategy,
+  type ModelSchedulingSelection,
+  type ModelSchedulingStrategy,
+} from '~/lib/modelScheduling'
 import type { ModelItem, PluginInfo } from '~/types/admin'
 
 function hasExtra(extra: unknown): boolean {
@@ -37,7 +43,7 @@ const modalOrigin = ref('')
 const modalHandler = ref('gemini')
 const modalPlanTypes = ref('')
 const modalPlugins = ref<string[]>([])
-const modalContentAffinity = ref(false)
+const modalSchedulingStrategy = ref<ModelSchedulingStrategy>('default')
 const modalExtra = ref('{}')
 const modalError = ref('')
 const modelCatalogOpen = ref(false)
@@ -50,7 +56,7 @@ const modelCatalogUrlByHandler = ref<Record<string, string>>({})
 const batchModalOpen = ref(false)
 const batchPlanTypes = ref('')
 const batchPlugins = ref<string[]>([])
-const batchContentAffinity = ref<'preserve' | 'enabled' | 'disabled'>('preserve')
+const batchSchedulingStrategy = ref<ModelSchedulingSelection>('preserve')
 const batchExtra = ref('{}')
 const batchError = ref('')
 const handlerIconByKey: Record<string, string> = {
@@ -352,7 +358,7 @@ function openCreateModal() {
   )
   modalPlanTypes.value = defaultPlanTypesForHandler(modalHandler.value)
   modalPlugins.value = []
-  modalContentAffinity.value = false
+  modalSchedulingStrategy.value = 'default'
   modalExtra.value = '{}'
   modalError.value = ''
   modalOpen.value = true
@@ -365,7 +371,7 @@ function openEditModal(item: ModelItem) {
   modalHandler.value = item.handler
   modalPlanTypes.value = joinPlanTypeInput(modelPlanTypes(item), planTypesForHandler(item.handler)) || defaultPlanTypesForHandler(item.handler)
   modalPlugins.value = modelPlugins(item)
-  modalContentAffinity.value = item.content_affinity
+  modalSchedulingStrategy.value = resolveModelSchedulingStrategy(item)
   modalExtra.value = safeStringify(item.extra)
   modalError.value = ''
   modalOpen.value = true
@@ -405,7 +411,7 @@ function openBatchModal() {
   }
   batchPlanTypes.value = defaultPlanTypesForHandler(handlerFilter.value)
   batchPlugins.value = []
-  batchContentAffinity.value = 'preserve'
+  batchSchedulingStrategy.value = 'preserve'
   batchExtra.value = '{}'
   batchError.value = ''
   batchModalOpen.value = true
@@ -441,6 +447,16 @@ function batchPluginDescription(name: string) {
   return batchAvailablePlugins.value.find((plugin) => plugin.name === name)?.description || ''
 }
 
+function updateModalSchedulingStrategy(value: ModelSchedulingSelection) {
+  if (value !== 'preserve') {
+    modalSchedulingStrategy.value = value
+  }
+}
+
+function updateBatchSchedulingStrategy(value: ModelSchedulingSelection) {
+  batchSchedulingStrategy.value = value
+}
+
 async function saveModel() {
   actionBusy.value = true
   modalError.value = ''
@@ -460,7 +476,7 @@ async function saveModel() {
       plugin: modalPlugins.value
         .filter((name) => modalAvailablePlugins.value.some((plugin) => plugin.name === name))
         .join(','),
-      content_affinity: modalContentAffinity.value,
+      ...modelSchedulingFields(modalSchedulingStrategy.value),
       extra,
     }
 
@@ -508,9 +524,9 @@ async function saveBatchModels() {
       plugin: batchPlugins.value
         .filter((name) => batchAvailablePlugins.value.some((plugin) => plugin.name === name))
         .join(','),
-      ...(batchContentAffinity.value === 'preserve'
+      ...(batchSchedulingStrategy.value === 'preserve'
         ? {}
-        : { content_affinity: batchContentAffinity.value === 'enabled' }),
+        : modelSchedulingFields(batchSchedulingStrategy.value)),
       extra,
     })
 
@@ -728,7 +744,7 @@ watch(
               </AdminBadge>
             </div>
 
-            <div v-if="modelPlugins(item).length || item.content_affinity" class="d-flex flex-wrap ga-2 align-center">
+            <div v-if="modelPlugins(item).length || item.content_affinity || item.fill_first" class="d-flex flex-wrap ga-2 align-center">
               <AdminBadge
                 v-for="pluginName in modelPlugins(item)"
                 :key="pluginName"
@@ -747,6 +763,15 @@ watch(
                 class="model-affinity-badge"
               >
                 内容亲和
+              </AdminBadge>
+              <AdminBadge
+                v-if="item.fill_first"
+                tone="secondary"
+                subtle
+                icon="mdi-account-sync-outline"
+                class="model-affinity-badge"
+              >
+                凭据续用
               </AdminBadge>
             </div>
 
@@ -852,25 +877,11 @@ watch(
           @click="modalAvailablePlugins.length && modelPluginOrder.openModal()"
           @click:append-inner="modelPluginOrder.openModal()"
         />
-        <div class="model-affinity-setting">
-          <div class="model-affinity-setting-icon">
-            <VIcon icon="mdi-vector-link" size="22" />
-          </div>
-          <label class="model-affinity-setting-copy" for="model-content-affinity">
-            <span class="model-affinity-setting-title">内容亲和调度</span>
-            <span id="model-content-affinity-description" class="model-affinity-setting-description">
-              复用请求hash命中率高的凭据，提高缓存命中率<br>
-              测试性功能，可能存在bug，略微占用性能
-            </span>
-          </label>
-          <VSwitch
-            id="model-content-affinity"
-            v-model="modalContentAffinity"
-            class="model-affinity-switch"
-            aria-label="内容亲和调度"
-            aria-describedby="model-content-affinity-description"
-          />
-        </div>
+        <ModelSchedulingSelector
+          id="model-scheduling-strategy"
+          :model-value="modalSchedulingStrategy"
+          @update:model-value="updateModalSchedulingStrategy"
+        />
         <VTextarea
           v-model="modalExtra"
           rows="4"
@@ -997,7 +1008,7 @@ watch(
     <ModalDialog
       :open="batchModalOpen"
       :title="batchModalTitle"
-      :description="`将统一覆盖 ${selectedBatchItems.length} 个已选模型的套餐、插件和附加参数，并按选择处理内容亲和开关`"
+      :description="`将统一覆盖 ${selectedBatchItems.length} 个已选模型的套餐、插件和附加参数，并按选择处理调度策略`"
       icon="mdi-pencil-outline"
       max-width="640"
       @close="closeBatchModal"
@@ -1024,26 +1035,12 @@ watch(
           @click="batchAvailablePlugins.length && batchPluginOrder.openModal()"
           @click:append-inner="batchPluginOrder.openModal()"
         />
-        <div class="model-affinity-setting model-affinity-setting--batch">
-          <div class="model-affinity-setting-icon">
-            <VIcon icon="mdi-vector-link" size="22" />
-          </div>
-          <div class="model-affinity-setting-copy">
-            <span class="model-affinity-setting-title">内容亲和调度</span>
-            <span class="model-affinity-setting-description">选择“保持不变”不会修改各模型当前状态</span>
-          </div>
-          <VChipGroup
-            v-model="batchContentAffinity"
-            mandatory
-            color="primary"
-            class="model-affinity-options"
-            aria-label="批量内容亲和调度"
-          >
-            <VChip value="preserve" filter size="small">保持不变</VChip>
-            <VChip value="enabled" filter size="small">开启</VChip>
-            <VChip value="disabled" filter size="small">关闭</VChip>
-          </VChipGroup>
-        </div>
+        <ModelSchedulingSelector
+          id="batch-model-scheduling-strategy"
+          :model-value="batchSchedulingStrategy"
+          allow-preserve
+          @update:model-value="updateBatchSchedulingStrategy"
+        />
         <VTextarea
           v-model="batchExtra"
           rows="4"
@@ -1366,88 +1363,6 @@ watch(
   font-weight: 400;
 }
 
-.model-affinity-setting {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  column-gap: 10px;
-  row-gap: 10px;
-  align-items: center;
-  min-height: 76px;
-  padding-block: 12px;
-  padding-inline: 12px 16px;
-  border: 1px solid rgba(var(--v-theme-outline-variant), 0.82);
-  border-radius: var(--admin-radius-control);
-  background: transparent;
-}
-
-.model-affinity-setting-icon {
-  display: grid;
-  place-items: center;
-  align-self: center;
-  width: 24px;
-  height: 24px;
-  color: rgba(var(--v-theme-on-surface), 0.82);
-}
-
-.model-affinity-setting-copy {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  cursor: pointer;
-}
-
-.model-affinity-setting-title {
-  color: rgb(var(--v-theme-on-surface));
-  font-size: 0.9rem;
-  font-weight: 750;
-  line-height: 1.3;
-}
-
-.model-affinity-setting-description {
-  color: rgba(var(--v-theme-on-surface), 0.68);
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-
-.model-affinity-switch {
-  justify-self: end;
-}
-
-.model-affinity-setting--batch {
-  align-items: start;
-}
-
-.model-affinity-setting--batch .model-affinity-setting-copy {
-  cursor: default;
-}
-
-.model-affinity-setting--batch .model-affinity-setting-icon {
-  grid-row: 1 / span 2;
-}
-
-.model-affinity-options {
-  grid-column: 2 / -1;
-  min-width: 0;
-  margin-top: -4px;
-}
-
-.model-affinity-options :deep(.v-slide-group__content) {
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.model-affinity-options :deep(.v-chip),
-.model-affinity-options :deep(.v-chip--selected) {
-  border: 1px solid rgba(var(--v-theme-outline-variant), 0.72) !important;
-  background: transparent !important;
-  color: rgba(var(--v-theme-on-surface), 0.78) !important;
-}
-
-.model-affinity-options :deep(.v-chip__underlay),
-.model-affinity-options :deep(.v-chip__overlay) {
-  display: none !important;
-}
-
 .model-plugin-badge {
   max-width: 100%;
   height: auto !important;
@@ -1536,11 +1451,6 @@ watch(
 }
 
 @media (max-width: 720px) {
-  .model-affinity-setting--batch .model-affinity-options {
-    grid-column: 1 / -1;
-    margin-top: 0;
-  }
-
   .model-origin-row {
     grid-template-columns: 1fr;
   }

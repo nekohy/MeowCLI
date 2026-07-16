@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/nekohy/MeowCLI/core/scheduling"
 )
 
 type Codex struct {
@@ -211,13 +213,15 @@ type UpsertOpenCodeGoQuotaParams struct {
 	RewardsCount int
 }
 
+type ModelScheduling = scheduling.ModelScheduling
+
 type ReverseInfoFromModelRow struct {
-	Origin          string          `json:"origin"`
-	Handler         string          `json:"handler"`
-	PlanTypes       string          `json:"plan_types"`
-	Plugin          string          `json:"plugin"`
-	ContentAffinity bool            `json:"content_affinity"`
-	Extra           json.RawMessage `json:"extra"`
+	Origin    string `json:"origin"`
+	Handler   string `json:"handler"`
+	PlanTypes string `json:"plan_types"`
+	Plugin    string `json:"plugin"`
+	ModelScheduling
+	Extra json.RawMessage `json:"extra"`
 }
 
 type ListAvailableCodexRow struct {
@@ -443,33 +447,33 @@ type UpsertOpenCodeGoParams struct {
 }
 
 type ModelRow struct {
-	Alias           string          `json:"alias"`
-	Origin          string          `json:"origin"`
-	Handler         string          `json:"handler"`
-	PlanTypes       string          `json:"plan_types"`
-	Plugin          string          `json:"plugin"`
-	ContentAffinity bool            `json:"content_affinity"`
-	Extra           json.RawMessage `json:"extra"`
+	Alias     string `json:"alias"`
+	Origin    string `json:"origin"`
+	Handler   string `json:"handler"`
+	PlanTypes string `json:"plan_types"`
+	Plugin    string `json:"plugin"`
+	ModelScheduling
+	Extra json.RawMessage `json:"extra"`
 }
 
 type CreateModelParams struct {
-	Alias           string
-	Origin          string
-	Handler         string
-	PlanTypes       string
-	Plugin          string
-	ContentAffinity bool
-	Extra           json.RawMessage
+	Alias      string
+	Origin     string
+	Handler    string
+	PlanTypes  string
+	Plugin     string
+	Scheduling ModelScheduling
+	Extra      json.RawMessage
 }
 
 type UpdateModelParams struct {
-	Alias           string
-	Origin          string
-	Handler         string
-	PlanTypes       string
-	Plugin          string
-	ContentAffinity bool
-	Extra           json.RawMessage
+	Alias      string
+	Origin     string
+	Handler    string
+	PlanTypes  string
+	Plugin     string
+	Scheduling ModelScheduling
+	Extra      json.RawMessage
 }
 
 type LogRow struct {

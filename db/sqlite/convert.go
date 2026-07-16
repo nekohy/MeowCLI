@@ -61,26 +61,32 @@ func geminiCredentialTo(value sqlcsqlite.Gemini) db.GeminiCredential {
 	}
 }
 
-func reverseInfoTo(origin string, handler string, planTypes string, plugin string, contentAffinity bool, extra string) db.ReverseInfoFromModelRow {
+func reverseInfoTo(origin string, handler string, planTypes string, plugin string, contentAffinity bool, fillFirst bool, extra string) db.ReverseInfoFromModelRow {
 	return db.ReverseInfoFromModelRow{
-		Origin:          origin,
-		Handler:         handler,
-		PlanTypes:       planTypes,
-		Plugin:          plugin,
-		ContentAffinity: contentAffinity,
-		Extra:           json.RawMessage(extra),
+		Origin:    origin,
+		Handler:   handler,
+		PlanTypes: planTypes,
+		Plugin:    plugin,
+		ModelScheduling: db.ModelScheduling{
+			ContentAffinity: contentAffinity,
+			FillFirst:       fillFirst,
+		},
+		Extra: json.RawMessage(extra),
 	}
 }
 
-func modelRowTo(alias, origin, handler, planTypes, plugin string, contentAffinity bool, extra string) db.ModelRow {
+func modelRowTo(alias, origin, handler, planTypes, plugin string, contentAffinity bool, fillFirst bool, extra string) db.ModelRow {
 	return db.ModelRow{
-		Alias:           alias,
-		Origin:          origin,
-		Handler:         handler,
-		PlanTypes:       planTypes,
-		Plugin:          plugin,
-		ContentAffinity: contentAffinity,
-		Extra:           json.RawMessage(extra),
+		Alias:     alias,
+		Origin:    origin,
+		Handler:   handler,
+		PlanTypes: planTypes,
+		Plugin:    plugin,
+		ModelScheduling: db.ModelScheduling{
+			ContentAffinity: contentAffinity,
+			FillFirst:       fillFirst,
+		},
+		Extra: json.RawMessage(extra),
 	}
 }
 

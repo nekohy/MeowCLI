@@ -17,24 +17,24 @@ import (
 )
 
 type upstreamRelay struct {
-	ctx                    context.Context
-	scheduler              CredentialScheduler
-	requestHeaders         http.Header
-	allowedPlans           []string
-	streamRequest          bool
-	modelAlias             string
-	modelTier              string
-	apiType                utils.APIType
-	backend                api.Backend
-	replaceResponseModel   bool
-	responseModel          string
-	requestJSON            *ast.Node
-	backendOptions         api.BackendOpts
-	prepareBackendOptions  func(context.Context, string, api.BackendOpts) (api.BackendOpts, error)
-	sessionKey             string
-	contentAffinityEnabled bool
-	payloadAPIType         utils.APIType
-	contentAffinity        contentAffinityRequest
+	ctx                   context.Context
+	scheduler             CredentialScheduler
+	requestHeaders        http.Header
+	allowedPlans          []string
+	streamRequest         bool
+	modelAlias            string
+	modelTier             string
+	apiType               utils.APIType
+	backend               api.Backend
+	replaceResponseModel  bool
+	responseModel         string
+	requestJSON           *ast.Node
+	backendOptions        api.BackendOpts
+	prepareBackendOptions func(context.Context, string, api.BackendOpts) (api.BackendOpts, error)
+	sessionKey            string
+	modelScheduling       scheduling.ModelScheduling
+	payloadAPIType        utils.APIType
+	contentAffinity       contentAffinityRequest
 }
 
 type retryTracker struct {
@@ -50,7 +50,7 @@ func (h *Handler) relayUpstream(c *gin.Context, cfg upstreamRelay) {
 		writeRelayError(c, errReadRequestBody)
 		return
 	}
-	if cfg.contentAffinityEnabled {
+	if cfg.modelScheduling.ContentAffinity {
 		h.contentAffinity.configureCapacity(h.settingsSnapshot().ContentAffinityMaxEntries)
 		cfg.contentAffinity = h.buildContentAffinityRequest(cfg.modelAlias, cfg.payloadAPIType, cfg.requestJSON)
 	}
@@ -75,6 +75,7 @@ func (h *Handler) relayUpstream(c *gin.Context, cfg upstreamRelay) {
 			if h.handleAuthFailure(cfg, credID, err, &state) {
 				return
 			}
+			h.fillFirst.deleteIf(cfg.modelAlias, credID)
 			continue
 		}
 
@@ -85,6 +86,7 @@ func (h *Handler) relayUpstream(c *gin.Context, cfg upstreamRelay) {
 			if h.handleSendFailure(cfg, credID, err, upstreamStarted, attempt, &state) {
 				return
 			}
+			h.fillFirst.deleteIf(cfg.modelAlias, credID)
 			continue
 		}
 
@@ -96,6 +98,9 @@ func (h *Handler) relayUpstream(c *gin.Context, cfg upstreamRelay) {
 		stop := h.handleUpstreamError(c, cfg, credID, resp, upstreamStarted, attempt, &state)
 		if stop {
 			return
+		}
+		if state.graceCredentialID == "" {
+			h.fillFirst.deleteIf(cfg.modelAlias, credID)
 		}
 	}
 
@@ -122,10 +127,21 @@ func (h *Handler) selectRelayCredential(cfg upstreamRelay, state retryTracker) (
 			return credID, nil
 		}
 	}
+	// 凭据续用低于显式会话亲和，且进入重试后直接交回原有调度逻辑。
+	if cfg.modelScheduling.FillFirst && !state.hasLastErr {
+		fillFirstPreferred, _ := h.fillFirst.GetIfPresent(cfg.modelAlias)
+		if fillFirstPreferred != "" && fillFirstPreferred != preferred {
+			credID, err := selectCredential(fillFirstPreferred)
+			if err == nil {
+				return credID, nil
+			}
+			h.fillFirst.deleteIf(cfg.modelAlias, fillFirstPreferred)
+		}
+	}
 
 	// hasLastErr 已经能表示“请求进入重试” 内容粘性只参与首次选择，
 	// 优先级低于显式 prompt_cache_key；请求发出后的重试完全沿用原逻辑
-	if !state.hasLastErr {
+	if cfg.modelScheduling.ContentAffinity && !state.hasLastErr {
 		contentPreferred := h.contentAffinity.match(cfg.contentAffinity.modelName, cfg.contentAffinity.fingerprint)
 		if contentPreferred != "" && contentPreferred != preferred {
 			credID, err := selectCredential(contentPreferred)
@@ -159,6 +175,9 @@ func (h *Handler) handleSendFailure(cfg upstreamRelay, credID string, err error,
 }
 
 func (h *Handler) handleSuccessfulResponse(c *gin.Context, cfg upstreamRelay, credID string, resp *http.Response, started time.Time) {
+	if cfg.modelScheduling.FillFirst {
+		h.fillFirst.SetIfAbsent(cfg.modelAlias, credID)
+	}
 	timing, err := h.writeUpstreamResponse(c, resp, cfg.backend, cfg.responseModel, cfg.replaceResponseModel, cfg.streamRequest, started)
 	metrics := cfg.logMetrics(timing.firstByte, timing.duration, "")
 	recordCtx := detachedRecordContext(cfg.ctx)
@@ -168,6 +187,7 @@ func (h *Handler) handleSuccessfulResponse(c *gin.Context, cfg upstreamRelay, cr
 			cfg.scheduler.RecordSuccess(recordCtx, credID, int32(resp.StatusCode), cfg.modelTier, metrics)
 			return
 		}
+		h.fillFirst.deleteIf(cfg.modelAlias, credID)
 		cfg.scheduler.RecordFailure(recordCtx, credID, 0, cfg.modelTier, 0, metrics)
 		log.Warn().Err(err).Str("credential", credID).Int("status", resp.StatusCode).Msg("relay response write failed")
 		if !c.Writer.Written() {

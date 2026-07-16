@@ -306,12 +306,15 @@ func (r *modelCacheResolver) ResolveModel(ctx context.Context, alias string) (*b
 		if !ok {
 			return nil, fmt.Errorf("unknown handler type: %q", row.Handler)
 		}
+		if !row.ModelScheduling.Valid() {
+			return nil, fmt.Errorf("model %q has conflicting scheduling strategies", alias)
+		}
 		info := bridge.ResolvedModel{
 			Origin:           row.Origin,
 			Handler:          ht,
 			AllowedPlanTypes: parseModelPlanTypes(ht, row.PlanTypes),
 			EnabledPlugins:   parseEnabledPlugins(row.Plugin),
-			ContentAffinity:  row.ContentAffinity,
+			Scheduling:       row.ModelScheduling,
 		}
 		r.storeModelCache(alias, modelCacheEntry{
 			info:      info,

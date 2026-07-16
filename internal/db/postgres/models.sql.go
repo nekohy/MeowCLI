@@ -33,9 +33,9 @@ func (q *Queries) CountModelsByHandler(ctx context.Context, handler string) (int
 }
 
 const createModel = `-- name: CreateModel :one
-INSERT INTO models (alias, origin, handler, plan_types, plugin, content_affinity, extra)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING alias, origin, handler, plan_types, plugin, content_affinity, extra
+INSERT INTO models (alias, origin, handler, plan_types, plugin, content_affinity, fill_first, extra)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING alias, origin, handler, plan_types, plugin, content_affinity, fill_first, extra
 `
 
 type CreateModelParams struct {
@@ -45,6 +45,7 @@ type CreateModelParams struct {
 	PlanTypes       string          `json:"plan_types"`
 	Plugin          string          `json:"plugin"`
 	ContentAffinity bool            `json:"content_affinity"`
+	FillFirst       bool            `json:"fill_first"`
 	Extra           json.RawMessage `json:"extra"`
 }
 
@@ -56,6 +57,7 @@ func (q *Queries) CreateModel(ctx context.Context, arg CreateModelParams) (Model
 		arg.PlanTypes,
 		arg.Plugin,
 		arg.ContentAffinity,
+		arg.FillFirst,
 		arg.Extra,
 	)
 	var i Model
@@ -66,6 +68,7 @@ func (q *Queries) CreateModel(ctx context.Context, arg CreateModelParams) (Model
 		&i.PlanTypes,
 		&i.Plugin,
 		&i.ContentAffinity,
+		&i.FillFirst,
 		&i.Extra,
 	)
 	return i, err
@@ -84,7 +87,7 @@ func (q *Queries) DeleteModel(ctx context.Context, alias string) (int64, error) 
 }
 
 const listModels = `-- name: ListModels :many
-SELECT alias, origin, handler, plan_types, plugin, content_affinity, extra
+SELECT alias, origin, handler, plan_types, plugin, content_affinity, fill_first, extra
 FROM models
 ORDER BY alias
 `
@@ -105,6 +108,7 @@ func (q *Queries) ListModels(ctx context.Context) ([]Model, error) {
 			&i.PlanTypes,
 			&i.Plugin,
 			&i.ContentAffinity,
+			&i.FillFirst,
 			&i.Extra,
 		); err != nil {
 			return nil, err
@@ -118,7 +122,7 @@ func (q *Queries) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 const reverseInfoFromModel = `-- name: ReverseInfoFromModel :one
-SELECT origin, handler, plan_types, plugin, content_affinity, extra
+SELECT origin, handler, plan_types, plugin, content_affinity, fill_first, extra
 FROM models
 WHERE alias = $1
 LIMIT 1
@@ -130,6 +134,7 @@ type ReverseInfoFromModelRow struct {
 	PlanTypes       string          `json:"plan_types"`
 	Plugin          string          `json:"plugin"`
 	ContentAffinity bool            `json:"content_affinity"`
+	FillFirst       bool            `json:"fill_first"`
 	Extra           json.RawMessage `json:"extra"`
 }
 
@@ -142,6 +147,7 @@ func (q *Queries) ReverseInfoFromModel(ctx context.Context, alias string) (Rever
 		&i.PlanTypes,
 		&i.Plugin,
 		&i.ContentAffinity,
+		&i.FillFirst,
 		&i.Extra,
 	)
 	return i, err
@@ -149,9 +155,9 @@ func (q *Queries) ReverseInfoFromModel(ctx context.Context, alias string) (Rever
 
 const updateModel = `-- name: UpdateModel :one
 UPDATE models
-SET origin = $2, handler = $3, plan_types = $4, plugin = $5, content_affinity = $6, extra = $7
+SET origin = $2, handler = $3, plan_types = $4, plugin = $5, content_affinity = $6, fill_first = $7, extra = $8
 WHERE alias = $1
-RETURNING alias, origin, handler, plan_types, plugin, content_affinity, extra
+RETURNING alias, origin, handler, plan_types, plugin, content_affinity, fill_first, extra
 `
 
 type UpdateModelParams struct {
@@ -161,6 +167,7 @@ type UpdateModelParams struct {
 	PlanTypes       string          `json:"plan_types"`
 	Plugin          string          `json:"plugin"`
 	ContentAffinity bool            `json:"content_affinity"`
+	FillFirst       bool            `json:"fill_first"`
 	Extra           json.RawMessage `json:"extra"`
 }
 
@@ -172,6 +179,7 @@ func (q *Queries) UpdateModel(ctx context.Context, arg UpdateModelParams) (Model
 		arg.PlanTypes,
 		arg.Plugin,
 		arg.ContentAffinity,
+		arg.FillFirst,
 		arg.Extra,
 	)
 	var i Model
@@ -182,6 +190,7 @@ func (q *Queries) UpdateModel(ctx context.Context, arg UpdateModelParams) (Model
 		&i.PlanTypes,
 		&i.Plugin,
 		&i.ContentAffinity,
+		&i.FillFirst,
 		&i.Extra,
 	)
 	return i, err

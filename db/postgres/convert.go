@@ -60,26 +60,32 @@ func geminiCredentialTo(value sqlcpostgres.Gemini) db.GeminiCredential {
 	}
 }
 
-func reverseInfoTo(origin string, handler string, planTypes string, plugin string, contentAffinity bool, extra json.RawMessage) db.ReverseInfoFromModelRow {
+func reverseInfoTo(origin string, handler string, planTypes string, plugin string, contentAffinity bool, fillFirst bool, extra json.RawMessage) db.ReverseInfoFromModelRow {
 	return db.ReverseInfoFromModelRow{
-		Origin:          origin,
-		Handler:         handler,
-		PlanTypes:       planTypes,
-		Plugin:          plugin,
-		ContentAffinity: contentAffinity,
-		Extra:           extra,
+		Origin:    origin,
+		Handler:   handler,
+		PlanTypes: planTypes,
+		Plugin:    plugin,
+		ModelScheduling: db.ModelScheduling{
+			ContentAffinity: contentAffinity,
+			FillFirst:       fillFirst,
+		},
+		Extra: extra,
 	}
 }
 
-func modelRowTo(alias, origin, handler, planTypes string, plugin string, contentAffinity bool, extra json.RawMessage) db.ModelRow {
+func modelRowTo(alias, origin, handler, planTypes string, plugin string, contentAffinity bool, fillFirst bool, extra json.RawMessage) db.ModelRow {
 	return db.ModelRow{
-		Alias:           alias,
-		Origin:          origin,
-		Handler:         handler,
-		PlanTypes:       planTypes,
-		Plugin:          plugin,
-		ContentAffinity: contentAffinity,
-		Extra:           extra,
+		Alias:     alias,
+		Origin:    origin,
+		Handler:   handler,
+		PlanTypes: planTypes,
+		Plugin:    plugin,
+		ModelScheduling: db.ModelScheduling{
+			ContentAffinity: contentAffinity,
+			FillFirst:       fillFirst,
+		},
+		Extra: extra,
 	}
 }
 

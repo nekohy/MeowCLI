@@ -124,6 +124,7 @@ type Model struct {
 	PlanTypes       string          `json:"plan_types"`
 	Plugin          string          `json:"plugin"`
 	ContentAffinity bool            `json:"content_affinity"`
+	FillFirst       bool            `json:"fill_first"`
 	Extra           json.RawMessage `json:"extra"`
 }
 

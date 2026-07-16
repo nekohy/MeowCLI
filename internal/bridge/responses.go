@@ -75,21 +75,21 @@ func (h *Handler) handleResponses(c *gin.Context, apiType utils.APIType) {
 	sessionKey := sessionAffinityKey(target.info.Handler, parsed.SessionID, h.settingsSnapshot())
 
 	h.relayUpstream(c, upstreamRelay{
-		ctx:                    ctx,
-		scheduler:              target.sched,
-		requestHeaders:         c.Request.Header,
-		allowedPlans:           target.info.AllowedPlanTypes,
-		streamRequest:          parsed.Stream,
-		modelAlias:             alias,
-		modelTier:              modelTier(target.info),
-		apiType:                apiType,
-		backend:                target.backend,
-		replaceResponseModel:   needReplace,
-		responseModel:          alias,
-		requestJSON:            prepared.Root,
-		sessionKey:             sessionKey,
-		contentAffinityEnabled: target.info.ContentAffinity,
-		payloadAPIType:         prepared.PayloadAPIType,
+		ctx:                  ctx,
+		scheduler:            target.sched,
+		requestHeaders:       c.Request.Header,
+		allowedPlans:         target.info.AllowedPlanTypes,
+		streamRequest:        parsed.Stream,
+		modelAlias:           alias,
+		modelTier:            modelTier(target.info),
+		apiType:              apiType,
+		backend:              target.backend,
+		replaceResponseModel: needReplace,
+		responseModel:        alias,
+		requestJSON:          prepared.Root,
+		sessionKey:           sessionKey,
+		modelScheduling:      target.info.Scheduling,
+		payloadAPIType:       prepared.PayloadAPIType,
 	})
 }
 

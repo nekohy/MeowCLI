@@ -1,15 +1,18 @@
 import type {
   AuthKeyItem,
+  BatchModelInput,
   BatchDeleteResponse,
   BatchModelUpdateResponse,
   BatchStatusResponse,
   CodexRateLimitResetCredits,
   CredentialItem,
   CreateAuthKeyResponse,
+  CreateModelInput,
   ImportJobListResponse,
   ImportJobStartResponse,
   LogListResponse,
   ModelItem,
+  ModelInput,
   OAuthCallbackResponse,
   OAuthStartResponse,
   OpenCodeGoReferralRewards,
@@ -274,17 +277,17 @@ export const adminApi = {
   listModels(token: string) {
     return apiRequest<ModelItem[]>('/models', { token })
   },
-  createModel(token: string, payload: { alias: string; origin: string; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown>; content_affinity: boolean }) {
+  createModel(token: string, payload: CreateModelInput) {
     return apiRequest<ModelItem>('/models', { token, method: 'POST', body: payload })
   },
-  updateModel(token: string, alias: string, payload: { origin: string; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown>; content_affinity: boolean }) {
+  updateModel(token: string, alias: string, payload: ModelInput) {
     return apiRequest<ModelItem>(`/models/${encodeURIComponent(alias)}`, {
       token,
       method: 'PUT',
       body: payload,
     })
   },
-  batchUpdateModels(token: string, payload: { aliases: string[]; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown>; content_affinity?: boolean }) {
+  batchUpdateModels(token: string, payload: BatchModelInput) {
     return apiRequest<BatchModelUpdateResponse>('/models/batch', {
       token,
       method: 'PUT',

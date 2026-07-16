@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS models (
     plan_types TEXT NOT NULL DEFAULT '',
     plugin TEXT NOT NULL DEFAULT '',
     content_affinity BOOLEAN NOT NULL DEFAULT FALSE,
+    fill_first BOOLEAN NOT NULL DEFAULT FALSE,
     extra TEXT NOT NULL DEFAULT '{}'
 );
 

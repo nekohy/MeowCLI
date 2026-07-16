@@ -11,32 +11,39 @@ import (
 )
 
 type createModelReq struct {
-	Alias           string          `json:"alias" binding:"required"`
-	Origin          string          `json:"origin" binding:"required"`
-	Handler         string          `json:"handler" binding:"required"`
-	PlanTypes       string          `json:"plan_types"`
-	Plugin          string          `json:"plugin"`
-	Extra           json.RawMessage `json:"extra"`
-	ContentAffinity bool            `json:"content_affinity"`
+	Alias     string          `json:"alias" binding:"required"`
+	Origin    string          `json:"origin" binding:"required"`
+	Handler   string          `json:"handler" binding:"required"`
+	PlanTypes string          `json:"plan_types"`
+	Plugin    string          `json:"plugin"`
+	Extra     json.RawMessage `json:"extra"`
+	db.ModelScheduling
 }
 
 type updateModelReq struct {
-	Origin          string          `json:"origin" binding:"required"`
-	Handler         string          `json:"handler" binding:"required"`
-	PlanTypes       string          `json:"plan_types"`
-	Plugin          string          `json:"plugin"`
-	Extra           json.RawMessage `json:"extra"`
-	ContentAffinity bool            `json:"content_affinity"`
+	Origin    string          `json:"origin" binding:"required"`
+	Handler   string          `json:"handler" binding:"required"`
+	PlanTypes string          `json:"plan_types"`
+	Plugin    string          `json:"plugin"`
+	Extra     json.RawMessage `json:"extra"`
+	db.ModelScheduling
+}
+
+type ModelSchedulingPatch struct {
+	ContentAffinity *bool `json:"content_affinity"`
+	FillFirst       *bool `json:"fill_first"`
 }
 
 type batchUpdateModelsReq struct {
-	Aliases         []string        `json:"aliases" binding:"required"`
-	Handler         string          `json:"handler" binding:"required"`
-	PlanTypes       string          `json:"plan_types"`
-	Plugin          string          `json:"plugin"`
-	Extra           json.RawMessage `json:"extra"`
-	ContentAffinity *bool           `json:"content_affinity"`
+	Aliases   []string        `json:"aliases" binding:"required"`
+	Handler   string          `json:"handler" binding:"required"`
+	PlanTypes string          `json:"plan_types"`
+	Plugin    string          `json:"plugin"`
+	Extra     json.RawMessage `json:"extra"`
+	ModelSchedulingPatch
 }
+
+const conflictingModelSchedulingStrategies = "content_affinity and fill_first are mutually exclusive"
 
 func (a *AdminHandler) ListModels(c *gin.Context) {
 	rows, err := a.store.ListModels(c.Request.Context())
@@ -58,14 +65,18 @@ func (a *AdminHandler) CreateModel(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if !req.ModelScheduling.Valid() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": conflictingModelSchedulingStrategies})
+		return
+	}
 	row, err := a.store.CreateModel(c.Request.Context(), db.CreateModelParams{
-		Alias:           alias,
-		Origin:          origin,
-		Handler:         handler,
-		PlanTypes:       planTypes,
-		Plugin:          plugins,
-		ContentAffinity: req.ContentAffinity,
-		Extra:           extra,
+		Alias:      alias,
+		Origin:     origin,
+		Handler:    handler,
+		PlanTypes:  planTypes,
+		Plugin:     plugins,
+		Scheduling: req.ModelScheduling,
+		Extra:      extra,
 	})
 	if writeStoreError(c, err, "", "model alias already exists") {
 		return
@@ -86,14 +97,18 @@ func (a *AdminHandler) UpdateModel(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if !req.ModelScheduling.Valid() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": conflictingModelSchedulingStrategies})
+		return
+	}
 	row, err := a.store.UpdateModel(c.Request.Context(), db.UpdateModelParams{
-		Alias:           alias,
-		Origin:          origin,
-		Handler:         handler,
-		PlanTypes:       planTypes,
-		Plugin:          plugins,
-		ContentAffinity: req.ContentAffinity,
-		Extra:           extra,
+		Alias:      alias,
+		Origin:     origin,
+		Handler:    handler,
+		PlanTypes:  planTypes,
+		Plugin:     plugins,
+		Scheduling: req.ModelScheduling,
+		Extra:      extra,
 	})
 	if writeStoreError(c, err, "model not found", "") {
 		return
@@ -112,6 +127,10 @@ func (a *AdminHandler) BatchUpdateModels(c *gin.Context) {
 	aliases := normalizeBatchModelAliases(req.Aliases)
 	if len(aliases) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "aliases are required"})
+		return
+	}
+	if req.ContentAffinity != nil && req.FillFirst != nil && *req.ContentAffinity && *req.FillFirst {
+		c.JSON(http.StatusBadRequest, gin.H{"error": conflictingModelSchedulingStrategies})
 		return
 	}
 
@@ -139,18 +158,15 @@ func (a *AdminHandler) BatchUpdateModels(c *gin.Context) {
 			})
 			continue
 		}
-		contentAffinity := row.ContentAffinity
-		if req.ContentAffinity != nil {
-			contentAffinity = *req.ContentAffinity
-		}
+		scheduling := mergeModelScheduling(row.ModelScheduling, req.ModelSchedulingPatch)
 		if _, err := a.store.UpdateModel(ctx, db.UpdateModelParams{
-			Alias:           alias,
-			Origin:          row.Origin,
-			Handler:         row.Handler,
-			PlanTypes:       planTypes,
-			Plugin:          plugins,
-			ContentAffinity: contentAffinity,
-			Extra:           extra,
+			Alias:      alias,
+			Origin:     row.Origin,
+			Handler:    row.Handler,
+			PlanTypes:  planTypes,
+			Plugin:     plugins,
+			Scheduling: scheduling,
+			Extra:      extra,
 		}); err != nil {
 			errs = append(errs, batchError{
 				Input: alias,
@@ -208,4 +224,20 @@ func normalizeBatchModelAliases(raw []string) []string {
 func strconvQuote(value string) string {
 	bytes, _ := json.Marshal(value)
 	return string(bytes)
+}
+
+func mergeModelScheduling(scheduling db.ModelScheduling, update ModelSchedulingPatch) db.ModelScheduling {
+	if update.ContentAffinity != nil {
+		scheduling.ContentAffinity = *update.ContentAffinity
+		if *update.ContentAffinity {
+			scheduling.FillFirst = false
+		}
+	}
+	if update.FillFirst != nil {
+		scheduling.FillFirst = *update.FillFirst
+		if *update.FillFirst {
+			scheduling.ContentAffinity = false
+		}
+	}
+	return scheduling
 }
