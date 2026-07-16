@@ -374,7 +374,7 @@ watch(
         <div class="settings-item settings-item--toggle">
           <div class="settings-item-copy">
             <div class="settings-item-title">启用粘性对话</div>
-            <div class="settings-item-description text-medium-emphasis">Codex 目前共享缓存，非必要不用启用</div>
+            <div class="settings-item-description text-medium-emphasis">Codex 目前共享缓存，非必要不用启用，优先于内容粘性</div>
           </div>
           <VSwitch v-model="form.codex_enable_sticky_session" />
         </div>

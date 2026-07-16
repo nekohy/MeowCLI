@@ -859,8 +859,8 @@ watch(
           <label class="model-affinity-setting-copy" for="model-content-affinity">
             <span class="model-affinity-setting-title">内容亲和调度</span>
             <span id="model-content-affinity-description" class="model-affinity-setting-description">
-              根据系统指令、工具和消息前缀复用凭据，提高上游缓存命中率<br>
-              指纹至少包含 4 个元素时才会匹配并写入
+              复用请求hash命中率高的凭据，提高缓存命中率<br>
+              测试性功能，可能存在bug，略微占用性能
             </span>
           </label>
           <VSwitch
