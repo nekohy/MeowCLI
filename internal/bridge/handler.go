@@ -72,12 +72,13 @@ type relayTarget struct {
 }
 
 type Handler struct {
-	backends   map[utils.HandlerType]api.Backend
-	models     ModelStore
-	schedulers map[utils.HandlerType]CredentialScheduler
-	settings   settings.Provider
-	sessions   *otter.Cache[string, string]
-	plugins    *requestplugin.Registry
+	backends        map[utils.HandlerType]api.Backend
+	models          ModelStore
+	schedulers      map[utils.HandlerType]CredentialScheduler
+	settings        settings.Provider
+	sessions        *otter.Cache[string, string]
+	contentAffinity *contentAffinityTable
+	plugins         *requestplugin.Registry
 }
 
 func NewHandler(models ModelStore, schedulers map[utils.HandlerType]CredentialScheduler, backends ...api.Backend) *Handler {
@@ -86,11 +87,12 @@ func NewHandler(models ModelStore, schedulers map[utils.HandlerType]CredentialSc
 		m[b.HandlerType()] = b
 	}
 	return &Handler{
-		backends:   m,
-		models:     models,
-		schedulers: schedulers,
-		sessions:   newSessionAffinityCache(),
-		plugins:    pluginloader.DefaultRegistry(),
+		backends:        m,
+		models:          models,
+		schedulers:      schedulers,
+		sessions:        newSessionAffinityCache(),
+		contentAffinity: newContentAffinityTable(),
+		plugins:         pluginloader.DefaultRegistry(),
 	}
 }
 

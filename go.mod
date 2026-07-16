@@ -11,6 +11,7 @@ require (
 	github.com/maypok86/otter/v2 v2.3.0
 	github.com/rs/zerolog v1.35.1
 	github.com/tidwall/gjson v1.18.0
+	github.com/zeebo/xxh3 v1.1.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.20.0
 	modernc.org/sqlite v1.49.1
