@@ -88,7 +88,7 @@ func expireContentAffinityBinding(event otter.DeletionEvent[*contentTrieNode, ui
 	trie.mu.Unlock()
 }
 
-func (t *contentAffinityTable) match(modelName string, fingerprint contentFingerprint) string {
+func (t *contentAffinityTable) match(modelName string, fingerprint contentHash) string {
 	if modelName == "" || !fingerprint.valid() {
 		return ""
 	}
@@ -117,7 +117,7 @@ func (t *contentAffinityTable) match(modelName string, fingerprint contentFinger
 	return credential
 }
 
-func (t *contentAffinityTable) bind(modelName string, fingerprint contentFingerprint, credential string) {
+func (t *contentAffinityTable) bind(modelName string, fingerprint contentHash, credential string) {
 	if modelName == "" || !fingerprint.valid() || credential == "" {
 		return
 	}
@@ -187,7 +187,7 @@ func setContentChild(parent, child *contentTrieNode) {
 }
 
 // lookup 从头查找最长公共前缀；发生分叉后，直接使用节点上预计算的最近终点
-func (trie *contentAffinityTrie) lookup(fingerprint contentFingerprint) contentAffinityLookup {
+func (trie *contentAffinityTrie) lookup(fingerprint contentHash) contentAffinityLookup {
 	result := contentAffinityLookup{}
 	current := trie.root
 	position := 0
@@ -223,7 +223,7 @@ func commonElementPrefix(left, right []contentElementFingerprint) int {
 }
 
 // insert 只为新后缀创建节点，已有公共前缀会继续由不同分支共享
-func (trie *contentAffinityTrie) insert(fingerprint contentFingerprint, credential string) *contentTrieNode {
+func (trie *contentAffinityTrie) insert(fingerprint contentHash, credential string) *contentTrieNode {
 	current := trie.root
 	position := 0
 

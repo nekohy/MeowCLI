@@ -114,7 +114,7 @@ func parseRelayRequest(root *ast.Node) (relayRequest, error) {
 
 func requestString(root *ast.Node, key string) (string, error) {
 	node := root.Get(key)
-	switch astNodeType(node) {
+	switch requestNodeType(node) {
 	case ast.V_NONE, ast.V_NULL:
 		return "", nil
 	case ast.V_STRING:
@@ -126,7 +126,7 @@ func requestString(root *ast.Node, key string) (string, error) {
 
 func requestBool(root *ast.Node, key string) (bool, error) {
 	node := root.Get(key)
-	switch astNodeType(node) {
+	switch requestNodeType(node) {
 	case ast.V_NONE, ast.V_NULL:
 		return false, nil
 	case ast.V_TRUE, ast.V_FALSE:
@@ -134,4 +134,14 @@ func requestBool(root *ast.Node, key string) (bool, error) {
 	default:
 		return false, fmt.Errorf("request field %q must be a boolean", key)
 	}
+}
+
+func requestNodeType(node *ast.Node) int {
+	if node == nil || !node.Exists() {
+		return ast.V_NONE
+	}
+	if err := node.Load(); err != nil {
+		return ast.V_ERROR
+	}
+	return node.TypeSafe()
 }
