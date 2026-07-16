@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS models (
     handler TEXT NOT NULL,
     plan_types TEXT NOT NULL DEFAULT '',
     plugin TEXT NOT NULL DEFAULT '',
+    content_affinity BOOLEAN NOT NULL DEFAULT FALSE,
     extra TEXT NOT NULL DEFAULT '{}'
 );
 

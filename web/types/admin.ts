@@ -327,6 +327,7 @@ export interface ModelItem {
   handler: string
   plan_types: string
   plugin: string
+  content_affinity: boolean
   extra: Record<string, unknown>
 }
 

@@ -311,6 +311,7 @@ func (r *modelCacheResolver) ResolveModel(ctx context.Context, alias string) (*b
 			Handler:          ht,
 			AllowedPlanTypes: parseModelPlanTypes(ht, row.PlanTypes),
 			EnabledPlugins:   parseEnabledPlugins(row.Plugin),
+			ContentAffinity:  row.ContentAffinity,
 		}
 		r.storeModelCache(alias, modelCacheEntry{
 			info:      info,

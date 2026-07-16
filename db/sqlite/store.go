@@ -68,7 +68,7 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		d.Close()
 		return nil, fmt.Errorf("sqlite apply schema: %w", err)
 	}
-	if err := ensureModelPluginColumn(ctx, d); err != nil {
+	if err := ensureModelColumns(ctx, d); err != nil {
 		d.Close()
 		return nil, err
 	}
@@ -147,16 +147,25 @@ func sqliteColumnSet(ctx context.Context, d *sql.DB, table string) (map[string]b
 	return columns, nil
 }
 
-func ensureModelPluginColumn(ctx context.Context, d *sql.DB) error {
+func ensureModelColumns(ctx context.Context, d *sql.DB) error {
 	columns, err := sqliteColumnSet(ctx, d, "models")
 	if err != nil {
 		return err
 	}
-	if columns["plugin"] {
-		return nil
+	additions := []struct {
+		name string
+		sql  string
+	}{
+		{name: "plugin", sql: "ALTER TABLE models ADD COLUMN plugin TEXT NOT NULL DEFAULT ''"},
+		{name: "content_affinity", sql: "ALTER TABLE models ADD COLUMN content_affinity BOOLEAN NOT NULL DEFAULT FALSE"},
 	}
-	if _, err := d.ExecContext(ctx, "ALTER TABLE models ADD COLUMN plugin TEXT NOT NULL DEFAULT ''"); err != nil {
-		return fmt.Errorf("sqlite add models.plugin column: %w", err)
+	for _, addition := range additions {
+		if columns[addition.name] {
+			continue
+		}
+		if _, err := d.ExecContext(ctx, addition.sql); err != nil {
+			return fmt.Errorf("sqlite add models.%s column: %w", addition.name, err)
+		}
 	}
 	return nil
 }

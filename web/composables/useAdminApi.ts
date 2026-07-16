@@ -274,17 +274,17 @@ export const adminApi = {
   listModels(token: string) {
     return apiRequest<ModelItem[]>('/models', { token })
   },
-  createModel(token: string, payload: { alias: string; origin: string; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown> }) {
+  createModel(token: string, payload: { alias: string; origin: string; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown>; content_affinity: boolean }) {
     return apiRequest<ModelItem>('/models', { token, method: 'POST', body: payload })
   },
-  updateModel(token: string, alias: string, payload: { origin: string; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown> }) {
+  updateModel(token: string, alias: string, payload: { origin: string; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown>; content_affinity: boolean }) {
     return apiRequest<ModelItem>(`/models/${encodeURIComponent(alias)}`, {
       token,
       method: 'PUT',
       body: payload,
     })
   },
-  batchUpdateModels(token: string, payload: { aliases: string[]; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown> }) {
+  batchUpdateModels(token: string, payload: { aliases: string[]; handler: string; plan_types: string; plugin: string; extra: Record<string, unknown>; content_affinity?: boolean }) {
     return apiRequest<BatchModelUpdateResponse>('/models/batch', {
       token,
       method: 'PUT',

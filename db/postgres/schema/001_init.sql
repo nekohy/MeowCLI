@@ -4,12 +4,14 @@ CREATE TABLE IF NOT EXISTS models (
     handler TEXT NOT NULL,
     plan_types TEXT NOT NULL DEFAULT '',
     plugin TEXT NOT NULL DEFAULT '',
+    content_affinity BOOLEAN NOT NULL DEFAULT FALSE,
     extra JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE INDEX IF NOT EXISTS idx_models_handler ON models(handler);
 
 ALTER TABLE models ADD COLUMN IF NOT EXISTS plugin TEXT NOT NULL DEFAULT '';
+ALTER TABLE models ADD COLUMN IF NOT EXISTS content_affinity BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS codex (
     id TEXT PRIMARY KEY,

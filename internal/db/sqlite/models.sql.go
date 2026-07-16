@@ -32,18 +32,19 @@ func (q *Queries) CountModelsByHandler(ctx context.Context, handler string) (int
 }
 
 const createModel = `-- name: CreateModel :one
-INSERT INTO models (alias, origin, handler, plan_types, plugin, extra)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING alias, origin, handler, plan_types, plugin, extra
+INSERT INTO models (alias, origin, handler, plan_types, plugin, content_affinity, extra)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING alias, origin, handler, plan_types, plugin, content_affinity, extra
 `
 
 type CreateModelParams struct {
-	Alias     string `json:"alias"`
-	Origin    string `json:"origin"`
-	Handler   string `json:"handler"`
-	PlanTypes string `json:"plan_types"`
-	Plugin    string `json:"plugin"`
-	Extra     string `json:"extra"`
+	Alias           string `json:"alias"`
+	Origin          string `json:"origin"`
+	Handler         string `json:"handler"`
+	PlanTypes       string `json:"plan_types"`
+	Plugin          string `json:"plugin"`
+	ContentAffinity bool   `json:"content_affinity"`
+	Extra           string `json:"extra"`
 }
 
 func (q *Queries) CreateModel(ctx context.Context, arg CreateModelParams) (Model, error) {
@@ -53,6 +54,7 @@ func (q *Queries) CreateModel(ctx context.Context, arg CreateModelParams) (Model
 		arg.Handler,
 		arg.PlanTypes,
 		arg.Plugin,
+		arg.ContentAffinity,
 		arg.Extra,
 	)
 	var i Model
@@ -62,6 +64,7 @@ func (q *Queries) CreateModel(ctx context.Context, arg CreateModelParams) (Model
 		&i.Handler,
 		&i.PlanTypes,
 		&i.Plugin,
+		&i.ContentAffinity,
 		&i.Extra,
 	)
 	return i, err
@@ -80,7 +83,9 @@ func (q *Queries) DeleteModel(ctx context.Context, alias string) (int64, error) 
 }
 
 const listModels = `-- name: ListModels :many
-SELECT alias, origin, handler, plan_types, plugin, extra FROM models ORDER BY alias
+SELECT alias, origin, handler, plan_types, plugin, content_affinity, extra
+FROM models
+ORDER BY alias
 `
 
 func (q *Queries) ListModels(ctx context.Context) ([]Model, error) {
@@ -98,6 +103,7 @@ func (q *Queries) ListModels(ctx context.Context) ([]Model, error) {
 			&i.Handler,
 			&i.PlanTypes,
 			&i.Plugin,
+			&i.ContentAffinity,
 			&i.Extra,
 		); err != nil {
 			return nil, err
@@ -114,18 +120,19 @@ func (q *Queries) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 const reverseInfoFromModel = `-- name: ReverseInfoFromModel :one
-SELECT origin, handler, plan_types, plugin, extra
+SELECT origin, handler, plan_types, plugin, content_affinity, extra
 FROM models
 WHERE alias = ?
 LIMIT 1
 `
 
 type ReverseInfoFromModelRow struct {
-	Origin    string `json:"origin"`
-	Handler   string `json:"handler"`
-	PlanTypes string `json:"plan_types"`
-	Plugin    string `json:"plugin"`
-	Extra     string `json:"extra"`
+	Origin          string `json:"origin"`
+	Handler         string `json:"handler"`
+	PlanTypes       string `json:"plan_types"`
+	Plugin          string `json:"plugin"`
+	ContentAffinity bool   `json:"content_affinity"`
+	Extra           string `json:"extra"`
 }
 
 func (q *Queries) ReverseInfoFromModel(ctx context.Context, alias string) (ReverseInfoFromModelRow, error) {
@@ -136,6 +143,7 @@ func (q *Queries) ReverseInfoFromModel(ctx context.Context, alias string) (Rever
 		&i.Handler,
 		&i.PlanTypes,
 		&i.Plugin,
+		&i.ContentAffinity,
 		&i.Extra,
 	)
 	return i, err
@@ -143,18 +151,19 @@ func (q *Queries) ReverseInfoFromModel(ctx context.Context, alias string) (Rever
 
 const updateModel = `-- name: UpdateModel :one
 UPDATE models
-SET origin = ?, handler = ?, plan_types = ?, plugin = ?, extra = ?
+SET origin = ?, handler = ?, plan_types = ?, plugin = ?, content_affinity = ?, extra = ?
 WHERE alias = ?
-RETURNING alias, origin, handler, plan_types, plugin, extra
+RETURNING alias, origin, handler, plan_types, plugin, content_affinity, extra
 `
 
 type UpdateModelParams struct {
-	Origin    string `json:"origin"`
-	Handler   string `json:"handler"`
-	PlanTypes string `json:"plan_types"`
-	Plugin    string `json:"plugin"`
-	Extra     string `json:"extra"`
-	Alias     string `json:"alias"`
+	Origin          string `json:"origin"`
+	Handler         string `json:"handler"`
+	PlanTypes       string `json:"plan_types"`
+	Plugin          string `json:"plugin"`
+	ContentAffinity bool   `json:"content_affinity"`
+	Extra           string `json:"extra"`
+	Alias           string `json:"alias"`
 }
 
 func (q *Queries) UpdateModel(ctx context.Context, arg UpdateModelParams) (Model, error) {
@@ -163,6 +172,7 @@ func (q *Queries) UpdateModel(ctx context.Context, arg UpdateModelParams) (Model
 		arg.Handler,
 		arg.PlanTypes,
 		arg.Plugin,
+		arg.ContentAffinity,
 		arg.Extra,
 		arg.Alias,
 	)
@@ -173,6 +183,7 @@ func (q *Queries) UpdateModel(ctx context.Context, arg UpdateModelParams) (Model
 		&i.Handler,
 		&i.PlanTypes,
 		&i.Plugin,
+		&i.ContentAffinity,
 		&i.Extra,
 	)
 	return i, err

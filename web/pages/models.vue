@@ -37,6 +37,7 @@ const modalOrigin = ref('')
 const modalHandler = ref('gemini')
 const modalPlanTypes = ref('')
 const modalPlugins = ref<string[]>([])
+const modalContentAffinity = ref(false)
 const modalExtra = ref('{}')
 const modalError = ref('')
 const modelCatalogOpen = ref(false)
@@ -49,6 +50,7 @@ const modelCatalogUrlByHandler = ref<Record<string, string>>({})
 const batchModalOpen = ref(false)
 const batchPlanTypes = ref('')
 const batchPlugins = ref<string[]>([])
+const batchContentAffinity = ref<'preserve' | 'enabled' | 'disabled'>('preserve')
 const batchExtra = ref('{}')
 const batchError = ref('')
 const handlerIconByKey: Record<string, string> = {
@@ -350,6 +352,7 @@ function openCreateModal() {
   )
   modalPlanTypes.value = defaultPlanTypesForHandler(modalHandler.value)
   modalPlugins.value = []
+  modalContentAffinity.value = false
   modalExtra.value = '{}'
   modalError.value = ''
   modalOpen.value = true
@@ -362,6 +365,7 @@ function openEditModal(item: ModelItem) {
   modalHandler.value = item.handler
   modalPlanTypes.value = joinPlanTypeInput(modelPlanTypes(item), planTypesForHandler(item.handler)) || defaultPlanTypesForHandler(item.handler)
   modalPlugins.value = modelPlugins(item)
+  modalContentAffinity.value = item.content_affinity
   modalExtra.value = safeStringify(item.extra)
   modalError.value = ''
   modalOpen.value = true
@@ -401,6 +405,7 @@ function openBatchModal() {
   }
   batchPlanTypes.value = defaultPlanTypesForHandler(handlerFilter.value)
   batchPlugins.value = []
+  batchContentAffinity.value = 'preserve'
   batchExtra.value = '{}'
   batchError.value = ''
   batchModalOpen.value = true
@@ -455,6 +460,7 @@ async function saveModel() {
       plugin: modalPlugins.value
         .filter((name) => modalAvailablePlugins.value.some((plugin) => plugin.name === name))
         .join(','),
+      content_affinity: modalContentAffinity.value,
       extra,
     }
 
@@ -502,6 +508,9 @@ async function saveBatchModels() {
       plugin: batchPlugins.value
         .filter((name) => batchAvailablePlugins.value.some((plugin) => plugin.name === name))
         .join(','),
+      ...(batchContentAffinity.value === 'preserve'
+        ? {}
+        : { content_affinity: batchContentAffinity.value === 'enabled' }),
       extra,
     })
 
@@ -719,7 +728,7 @@ watch(
               </AdminBadge>
             </div>
 
-            <div v-if="modelPlugins(item).length" class="d-flex flex-wrap ga-2 align-center">
+            <div v-if="modelPlugins(item).length || item.content_affinity" class="d-flex flex-wrap ga-2 align-center">
               <AdminBadge
                 v-for="pluginName in modelPlugins(item)"
                 :key="pluginName"
@@ -729,6 +738,15 @@ watch(
                 class="model-plugin-badge"
               >
                 {{ pluginLabel(pluginName, pluginsForHandler(item.handler)) }}
+              </AdminBadge>
+              <AdminBadge
+                v-if="item.content_affinity"
+                tone="secondary"
+                subtle
+                icon="mdi-vector-link"
+                class="model-affinity-badge"
+              >
+                内容亲和
               </AdminBadge>
             </div>
 
@@ -834,6 +852,25 @@ watch(
           @click="modalAvailablePlugins.length && modelPluginOrder.openModal()"
           @click:append-inner="modelPluginOrder.openModal()"
         />
+        <div class="model-affinity-setting">
+          <div class="model-affinity-setting-icon">
+            <VIcon icon="mdi-vector-link" size="22" />
+          </div>
+          <label class="model-affinity-setting-copy" for="model-content-affinity">
+            <span class="model-affinity-setting-title">内容亲和调度</span>
+            <span id="model-content-affinity-description" class="model-affinity-setting-description">
+              根据系统指令、工具和消息前缀复用凭据，提高上游缓存命中率<br>
+              指纹至少包含 4 个元素时才会匹配并写入
+            </span>
+          </label>
+          <VSwitch
+            id="model-content-affinity"
+            v-model="modalContentAffinity"
+            class="model-affinity-switch"
+            aria-label="内容亲和调度"
+            aria-describedby="model-content-affinity-description"
+          />
+        </div>
         <VTextarea
           v-model="modalExtra"
           rows="4"
@@ -960,7 +997,7 @@ watch(
     <ModalDialog
       :open="batchModalOpen"
       :title="batchModalTitle"
-      :description="`将统一覆盖 ${selectedBatchItems.length} 个已选模型的套餐、插件和附加参数`"
+      :description="`将统一覆盖 ${selectedBatchItems.length} 个已选模型的套餐、插件和附加参数，并按选择处理内容亲和开关`"
       icon="mdi-pencil-outline"
       max-width="640"
       @close="closeBatchModal"
@@ -987,6 +1024,26 @@ watch(
           @click="batchAvailablePlugins.length && batchPluginOrder.openModal()"
           @click:append-inner="batchPluginOrder.openModal()"
         />
+        <div class="model-affinity-setting model-affinity-setting--batch">
+          <div class="model-affinity-setting-icon">
+            <VIcon icon="mdi-vector-link" size="22" />
+          </div>
+          <div class="model-affinity-setting-copy">
+            <span class="model-affinity-setting-title">内容亲和调度</span>
+            <span class="model-affinity-setting-description">选择“保持不变”不会修改各模型当前状态</span>
+          </div>
+          <VChipGroup
+            v-model="batchContentAffinity"
+            mandatory
+            color="primary"
+            class="model-affinity-options"
+            aria-label="批量内容亲和调度"
+          >
+            <VChip value="preserve" filter size="small">保持不变</VChip>
+            <VChip value="enabled" filter size="small">开启</VChip>
+            <VChip value="disabled" filter size="small">关闭</VChip>
+          </VChipGroup>
+        </div>
         <VTextarea
           v-model="batchExtra"
           rows="4"
@@ -1309,6 +1366,88 @@ watch(
   font-weight: 400;
 }
 
+.model-affinity-setting {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  column-gap: 10px;
+  row-gap: 10px;
+  align-items: center;
+  min-height: 76px;
+  padding-block: 12px;
+  padding-inline: 12px 16px;
+  border: 1px solid rgba(var(--v-theme-outline-variant), 0.82);
+  border-radius: var(--admin-radius-control);
+  background: transparent;
+}
+
+.model-affinity-setting-icon {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  color: rgba(var(--v-theme-on-surface), 0.82);
+}
+
+.model-affinity-setting-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.model-affinity-setting-title {
+  color: rgb(var(--v-theme-on-surface));
+  font-size: 0.9rem;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.model-affinity-setting-description {
+  color: rgba(var(--v-theme-on-surface), 0.68);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.model-affinity-switch {
+  justify-self: end;
+}
+
+.model-affinity-setting--batch {
+  align-items: start;
+}
+
+.model-affinity-setting--batch .model-affinity-setting-copy {
+  cursor: default;
+}
+
+.model-affinity-setting--batch .model-affinity-setting-icon {
+  grid-row: 1 / span 2;
+}
+
+.model-affinity-options {
+  grid-column: 2 / -1;
+  min-width: 0;
+  margin-top: -4px;
+}
+
+.model-affinity-options :deep(.v-slide-group__content) {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.model-affinity-options :deep(.v-chip),
+.model-affinity-options :deep(.v-chip--selected) {
+  border: 1px solid rgba(var(--v-theme-outline-variant), 0.72) !important;
+  background: transparent !important;
+  color: rgba(var(--v-theme-on-surface), 0.78) !important;
+}
+
+.model-affinity-options :deep(.v-chip__underlay),
+.model-affinity-options :deep(.v-chip__overlay) {
+  display: none !important;
+}
+
 .model-plugin-badge {
   max-width: 100%;
   height: auto !important;
@@ -1316,6 +1455,15 @@ watch(
   align-items: center;
   border: 1px solid rgba(var(--v-theme-tertiary), 0.34);
   background: rgba(var(--v-theme-tertiary), 0.07);
+}
+
+.model-affinity-badge {
+  max-width: 100%;
+  height: auto !important;
+  min-height: 32px;
+  align-items: center;
+  border: 1px solid rgba(var(--v-theme-secondary), 0.32);
+  background: rgba(var(--v-theme-secondary), 0.06);
 }
 
 .model-plan-badge {
@@ -1328,6 +1476,7 @@ watch(
 }
 
 .model-plugin-badge :deep(.v-chip__content),
+.model-affinity-badge :deep(.v-chip__content),
 .model-plan-badge :deep(.v-chip__content) {
   display: block;
   min-width: 0;
@@ -1340,6 +1489,7 @@ watch(
 }
 
 .model-plugin-badge :deep(.v-chip__prepend),
+.model-affinity-badge :deep(.v-chip__prepend),
 .model-plan-badge :deep(.v-chip__prepend) {
   align-self: center;
   margin-top: 0;
@@ -1386,6 +1536,11 @@ watch(
 }
 
 @media (max-width: 720px) {
+  .model-affinity-setting--batch .model-affinity-options {
+    grid-column: 1 / -1;
+    margin-top: 0;
+  }
+
   .model-origin-row {
     grid-template-columns: 1fr;
   }

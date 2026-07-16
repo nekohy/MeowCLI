@@ -2,36 +2,40 @@ package handler
 
 import (
 	"encoding/json"
-	db "github.com/nekohy/MeowCLI/internal/store"
 	"net/http"
 	"strings"
+
+	db "github.com/nekohy/MeowCLI/internal/store"
 
 	"github.com/gin-gonic/gin"
 )
 
 type createModelReq struct {
-	Alias     string          `json:"alias" binding:"required"`
-	Origin    string          `json:"origin" binding:"required"`
-	Handler   string          `json:"handler" binding:"required"`
-	PlanTypes string          `json:"plan_types"`
-	Plugin    string          `json:"plugin"`
-	Extra     json.RawMessage `json:"extra"`
+	Alias           string          `json:"alias" binding:"required"`
+	Origin          string          `json:"origin" binding:"required"`
+	Handler         string          `json:"handler" binding:"required"`
+	PlanTypes       string          `json:"plan_types"`
+	Plugin          string          `json:"plugin"`
+	Extra           json.RawMessage `json:"extra"`
+	ContentAffinity bool            `json:"content_affinity"`
 }
 
 type updateModelReq struct {
-	Origin    string          `json:"origin" binding:"required"`
-	Handler   string          `json:"handler" binding:"required"`
-	PlanTypes string          `json:"plan_types"`
-	Plugin    string          `json:"plugin"`
-	Extra     json.RawMessage `json:"extra"`
+	Origin          string          `json:"origin" binding:"required"`
+	Handler         string          `json:"handler" binding:"required"`
+	PlanTypes       string          `json:"plan_types"`
+	Plugin          string          `json:"plugin"`
+	Extra           json.RawMessage `json:"extra"`
+	ContentAffinity bool            `json:"content_affinity"`
 }
 
 type batchUpdateModelsReq struct {
-	Aliases   []string        `json:"aliases" binding:"required"`
-	Handler   string          `json:"handler" binding:"required"`
-	PlanTypes string          `json:"plan_types"`
-	Plugin    string          `json:"plugin"`
-	Extra     json.RawMessage `json:"extra"`
+	Aliases         []string        `json:"aliases" binding:"required"`
+	Handler         string          `json:"handler" binding:"required"`
+	PlanTypes       string          `json:"plan_types"`
+	Plugin          string          `json:"plugin"`
+	Extra           json.RawMessage `json:"extra"`
+	ContentAffinity *bool           `json:"content_affinity"`
 }
 
 func (a *AdminHandler) ListModels(c *gin.Context) {
@@ -54,14 +58,14 @@ func (a *AdminHandler) CreateModel(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	row, err := a.store.CreateModel(c.Request.Context(), db.CreateModelParams{
-		Alias:     alias,
-		Origin:    origin,
-		Handler:   handler,
-		PlanTypes: planTypes,
-		Plugin:    plugins,
-		Extra:     extra,
+		Alias:           alias,
+		Origin:          origin,
+		Handler:         handler,
+		PlanTypes:       planTypes,
+		Plugin:          plugins,
+		ContentAffinity: req.ContentAffinity,
+		Extra:           extra,
 	})
 	if writeStoreError(c, err, "", "model alias already exists") {
 		return
@@ -82,14 +86,14 @@ func (a *AdminHandler) UpdateModel(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	row, err := a.store.UpdateModel(c.Request.Context(), db.UpdateModelParams{
-		Alias:     alias,
-		Origin:    origin,
-		Handler:   handler,
-		PlanTypes: planTypes,
-		Plugin:    plugins,
-		Extra:     extra,
+		Alias:           alias,
+		Origin:          origin,
+		Handler:         handler,
+		PlanTypes:       planTypes,
+		Plugin:          plugins,
+		ContentAffinity: req.ContentAffinity,
+		Extra:           extra,
 	})
 	if writeStoreError(c, err, "model not found", "") {
 		return
@@ -116,7 +120,6 @@ func (a *AdminHandler) BatchUpdateModels(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	ctx := c.Request.Context()
 	updated := make([]string, 0, len(aliases))
 	errs := make([]batchError, 0)
@@ -136,13 +139,18 @@ func (a *AdminHandler) BatchUpdateModels(c *gin.Context) {
 			})
 			continue
 		}
+		contentAffinity := row.ContentAffinity
+		if req.ContentAffinity != nil {
+			contentAffinity = *req.ContentAffinity
+		}
 		if _, err := a.store.UpdateModel(ctx, db.UpdateModelParams{
-			Alias:     alias,
-			Origin:    row.Origin,
-			Handler:   row.Handler,
-			PlanTypes: planTypes,
-			Plugin:    plugins,
-			Extra:     extra,
+			Alias:           alias,
+			Origin:          row.Origin,
+			Handler:         row.Handler,
+			PlanTypes:       planTypes,
+			Plugin:          plugins,
+			ContentAffinity: contentAffinity,
+			Extra:           extra,
 		}); err != nil {
 			errs = append(errs, batchError{
 				Input: alias,

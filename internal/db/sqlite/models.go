@@ -116,12 +116,13 @@ type GeminiQuotum struct {
 }
 
 type Model struct {
-	Alias     string `json:"alias"`
-	Origin    string `json:"origin"`
-	Handler   string `json:"handler"`
-	PlanTypes string `json:"plan_types"`
-	Plugin    string `json:"plugin"`
-	Extra     string `json:"extra"`
+	Alias           string `json:"alias"`
+	Origin          string `json:"origin"`
+	Handler         string `json:"handler"`
+	PlanTypes       string `json:"plan_types"`
+	Plugin          string `json:"plugin"`
+	ContentAffinity bool   `json:"content_affinity"`
+	Extra           string `json:"extra"`
 }
 
 type OpencodeGo struct {
