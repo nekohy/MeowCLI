@@ -23,7 +23,7 @@ export const MODEL_SCHEDULING_STRATEGIES = [
   {
     value: 'fill_first',
     label: '凭据续用',
-    description: '同一模型持续复用当前凭据，发生需换号的错误后再切换',
+    description: '同一模型持续复用同一凭据，发生需换号的错误后再切换',
     icon: 'mdi-account-sync-outline',
   },
 ] as const satisfies readonly ModelSchedulingOption[]
