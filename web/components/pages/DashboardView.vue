@@ -3,9 +3,42 @@ import { hasLogError, logItemKey, logMetaItems } from '~/lib/logs'
 
 const admin = useAdminApp()
 const router = useRouter()
+const refreshing = ref(false)
+const autoRefreshIntervalMs = 5000
+let refreshTimer: number | undefined
 
 const summary = computed(() => admin.overview.value.summary)
 const recentLogs = computed(() => admin.overview.value.recent_logs)
+
+async function refreshOverview() {
+  if (!admin.authReady.value || refreshing.value) {
+    return
+  }
+  refreshing.value = true
+  try {
+    await admin.loadOverview(admin.token.value, true)
+  } finally {
+    refreshing.value = false
+  }
+}
+
+onMounted(() => {
+  if (!import.meta.client) {
+    return
+  }
+  void refreshOverview()
+  refreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      void refreshOverview()
+    }
+  }, autoRefreshIntervalMs)
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimer) {
+    window.clearInterval(refreshTimer)
+  }
+})
 
 async function openHandler(key: string, supportsCredentials: boolean) {
   admin.selectedHandler.value = key
@@ -22,7 +55,18 @@ async function openPage(path: string) {
     <PageHeader
       title="运行概览"
       icon="mdi-view-dashboard"
-    />
+    >
+      <template #actions>
+        <AdminButton
+          variant="secondary"
+          prepend-icon="mdi-refresh"
+          :loading="refreshing"
+          @click="refreshOverview"
+        >
+          刷新
+        </AdminButton>
+      </template>
+    </PageHeader>
 
     <div class="dashboard-action-grid">
       <VCard

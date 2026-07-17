@@ -390,6 +390,13 @@ func (s *Scheduler) refreshCredentialQuota(ctx context.Context, row db.OpenCodeG
 	if _, err := s.RefreshAvailable(ctx); err != nil {
 		return fmt.Errorf("refresh opencode go scheduler cache: %w", err)
 	}
+	log.Info().
+		Str("credential", row.ID).
+		Float64("quota_5h", quota.Quota5h).
+		Float64("quota_7d", quota.Quota7d).
+		Float64("quota_1mo", quota.Quota1mo).
+		Int("rewards", len(quota.AvailableRewards)).
+		Msg("opencode go quota-sync: fetched")
 	return nil
 }
 

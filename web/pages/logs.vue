@@ -20,6 +20,16 @@ const searchInput = ref('')
 const searchQuery = ref('')
 const handlerFilter = ref('all')
 const statusCodeFilter = ref('all')
+const autoRefreshStorageKey = 'meowcli-logs-auto-refresh-ms'
+const defaultAutoRefreshIntervalMs = 0
+const autoRefreshIntervalMs = ref(defaultAutoRefreshIntervalMs)
+const autoRefreshOptions = [
+  { label: '关闭', value: 0 },
+  { label: '5s', value: 5000 },
+  { label: '30s', value: 30000 },
+  { label: '1m', value: 60000 },
+  { label: '5m', value: 300000 },
+]
 
 const errorLogsTotal = computed(() =>
   summary.value.status_codes
@@ -50,6 +60,9 @@ const summaryTiles = computed(() => [
 
 const maxPage = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const pageSizeOptions = PAGE_SIZE_OPTIONS
+const autoRefreshLabel = computed(() => (
+  autoRefreshOptions.find((option) => option.value === autoRefreshIntervalMs.value)?.label || '关闭'
+))
 const statusCodeOptions = computed(() => [
   { value: 'all', label: '全部状态码' },
   ...summary.value.status_codes.map((item) => ({
@@ -58,6 +71,7 @@ const statusCodeOptions = computed(() => [
   })),
 ])
 let searchTimer: ReturnType<typeof setTimeout> | undefined
+let refreshTimer: number | undefined
 let latestLoadToken = 0
 
 function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.value) {
@@ -72,7 +86,7 @@ function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.valu
   }
 }
 
-async function loadLogs(nextPage = page.value, nextPageSize = pageSize.value) {
+async function loadLogs(nextPage = page.value, nextPageSize = pageSize.value, quiet = false) {
   const requestToken = ++latestLoadToken
   loading.value = true
   try {
@@ -87,15 +101,66 @@ async function loadLogs(nextPage = page.value, nextPageSize = pageSize.value) {
     pageSize.value = data.page_size
   } catch (error) {
     if (requestToken === latestLoadToken) {
-      items.value = []
-      total.value = 0
-      admin.notify(error instanceof Error ? error.message : '加载日志失败', 'danger')
+      if (!quiet) {
+        items.value = []
+        total.value = 0
+        admin.notify(error instanceof Error ? error.message : '加载日志失败', 'danger')
+      }
     }
   } finally {
     if (requestToken === latestLoadToken) {
       loading.value = false
     }
   }
+}
+
+function stopAutoRefresh() {
+  if (refreshTimer !== undefined) {
+    window.clearInterval(refreshTimer)
+    refreshTimer = undefined
+  }
+}
+
+function startAutoRefresh() {
+  if (!import.meta.client) {
+    return
+  }
+  stopAutoRefresh()
+  if (autoRefreshIntervalMs.value <= 0) {
+    return
+  }
+  refreshTimer = window.setInterval(() => {
+    if (admin.authReady.value && document.visibilityState === 'visible' && !loading.value) {
+      void loadLogs(page.value, pageSize.value, true)
+    }
+  }, autoRefreshIntervalMs.value)
+}
+
+function restoreAutoRefreshInterval() {
+  try {
+    const raw = window.localStorage.getItem(autoRefreshStorageKey)
+    const stored = Number(raw)
+    if (raw !== null && autoRefreshOptions.some((option) => option.value === stored)) {
+      autoRefreshIntervalMs.value = stored
+    }
+  } catch {
+    // localStorage 不可用时继续使用当前会话的默认值。
+  }
+}
+
+function persistAutoRefreshInterval(value: number) {
+  try {
+    window.localStorage.setItem(autoRefreshStorageKey, String(value))
+  } catch {
+    // localStorage 不可用时仍保留当前会话设置。
+  }
+}
+
+function cycleAutoRefreshInterval() {
+  const currentIndex = autoRefreshOptions.findIndex((option) => option.value === autoRefreshIntervalMs.value)
+  const safeIndex = currentIndex >= 0 ? currentIndex : 0
+  const next = autoRefreshOptions[(safeIndex + 1) % autoRefreshOptions.length]!
+  autoRefreshIntervalMs.value = next.value
 }
 
 watch(searchInput, (value) => {
@@ -126,10 +191,27 @@ watch(
   },
 )
 
+watch(autoRefreshIntervalMs, (value) => {
+  if (!import.meta.client) {
+    return
+  }
+  persistAutoRefreshInterval(value)
+  startAutoRefresh()
+})
+
+onMounted(() => {
+  if (!import.meta.client) {
+    return
+  }
+  restoreAutoRefreshInterval()
+  startAutoRefresh()
+})
+
 onBeforeUnmount(() => {
   if (searchTimer) {
     clearTimeout(searchTimer)
   }
+  stopAutoRefresh()
 })
 </script>
 
@@ -216,6 +298,47 @@ onBeforeUnmount(() => {
       title="日志列表"
       icon="mdi-format-list-bulleted"
     >
+      <template #actions>
+        <div class="log-refresh-controls">
+          <VBtn
+            icon="mdi-refresh"
+            color="secondary"
+            variant="tonal"
+            size="small"
+            width="36"
+            height="36"
+            :loading="loading"
+            aria-label="刷新日志"
+            @click="loadLogs(page, pageSize)"
+          />
+          <VBtn
+            class="log-auto-refresh-trigger text-none"
+            :class="{ 'log-auto-refresh-trigger--off': autoRefreshIntervalMs === 0 }"
+            color="secondary"
+            variant="tonal"
+            size="small"
+            height="36"
+            aria-label="设置自动刷新间隔"
+            @click="cycleAutoRefreshInterval"
+          >
+            <template #prepend>
+              <span class="log-auto-refresh-icon" aria-hidden="true">
+                <VIcon
+                  class="log-auto-refresh-icon__timer"
+                  icon="mdi-timer-sand"
+                  size="18"
+                />
+                <VIcon
+                  class="log-auto-refresh-icon__off"
+                  icon="mdi-timer-off-outline"
+                  size="18"
+                />
+              </span>
+            </template>
+            {{ autoRefreshLabel }}
+          </VBtn>
+        </div>
+      </template>
       <div class="d-grid ga-5">
         <div class="pagination-bar">
           <div class="text-body-2 text-medium-emphasis">

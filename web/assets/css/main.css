@@ -627,6 +627,52 @@ pre {
   line-height: 1.6;
 }
 
+.log-refresh-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-auto-refresh-trigger {
+  min-width: 80px;
+  padding-inline: 10px;
+  letter-spacing: 0;
+}
+
+.log-auto-refresh-icon {
+  position: relative;
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+}
+
+.log-auto-refresh-icon .v-icon {
+  position: absolute;
+  inset: 0;
+  transition: opacity 180ms ease, transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.log-auto-refresh-icon__timer {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+.log-auto-refresh-icon__off {
+  opacity: 0;
+  transform: rotate(-80deg) scale(0.62);
+}
+
+.log-auto-refresh-trigger--off .log-auto-refresh-icon__timer {
+  opacity: 0;
+  transform: rotate(80deg) scale(0.62);
+}
+
+.log-auto-refresh-trigger--off .log-auto-refresh-icon__off {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
 .section-card-body {
   padding: 18px !important;
 }

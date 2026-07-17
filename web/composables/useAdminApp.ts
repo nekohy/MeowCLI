@@ -123,8 +123,10 @@ export function useAdminApp() {
         return false
       }
 
-      authReady.value = false
-      loginError.value = error instanceof Error ? error.message : '管理台初始化失败'
+      if (!quiet) {
+        authReady.value = false
+        loginError.value = error instanceof Error ? error.message : '管理台初始化失败'
+      }
       return false
     } finally {
       booting.value = false
