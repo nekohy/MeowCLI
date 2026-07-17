@@ -39,6 +39,7 @@ type handlerOverview struct {
 	CredentialFields                []credentialField                `json:"credential_fields,omitempty"`
 	CredentialStatusOptions         []string                         `json:"credential_status_options,omitempty"`
 	CredentialThrottleStatusOptions []credentialThrottleStatusOption `json:"credential_throttle_status_options,omitempty"`
+	CredentialSort                  credentialSortCapabilities       `json:"credential_sort"`
 	Plugins                         []requestplugin.Manifest         `json:"plugins,omitempty"`
 	ModelsTotal                     int                              `json:"models_total"`
 	CredentialsTotal                int                              `json:"credentials_total"`
@@ -192,6 +193,7 @@ func defaultHandlerOverview() []handlerOverview {
 			PlanList:            corecodex.PlanList(),
 			SupportsCredentials: true,
 			CredentialEndpoint:  credentialsEndpointForHandler(utils.HandlerCodex),
+			CredentialSort:      codexCredentialSortCapabilities,
 			CredentialFields: []credentialField{
 				{
 					Key:         "tokens",
@@ -215,6 +217,7 @@ func defaultHandlerOverview() []handlerOverview {
 			PlanList:            utils.CodeAssistPlanList(),
 			SupportsCredentials: true,
 			CredentialEndpoint:  credentialsEndpointForHandler(utils.HandlerGemini),
+			CredentialSort:      geminiCredentialSortCapabilities,
 			CredentialFields: []credentialField{
 				{
 					Key:         "tokens",
@@ -239,6 +242,7 @@ func defaultHandlerOverview() []handlerOverview {
 			PlanList:            utils.CodeAssistPlanList(),
 			SupportsCredentials: true,
 			CredentialEndpoint:  credentialsEndpointForHandler(utils.HandlerAntigravity),
+			CredentialSort:      antigravityCredentialSortCapabilities,
 			CredentialFields: []credentialField{
 				{
 					Key:         "tokens",
@@ -265,6 +269,7 @@ func defaultHandlerOverview() []handlerOverview {
 			SupportedAPI:        []utils.APIType{utils.APICompletion},
 			SupportsCredentials: true,
 			CredentialEndpoint:  credentialsEndpointForHandler(utils.HandlerOpenCodeGo),
+			CredentialSort:      openCodeGoCredentialSortCapabilities,
 			CredentialFields: []credentialField{
 				{
 					Key:         "tokens",

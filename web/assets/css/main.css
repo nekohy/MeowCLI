@@ -945,6 +945,10 @@ pre {
   align-self: start;
 }
 
+.filter-toolbar .filter-select .v-field--variant-outlined .v-field__outline__start {
+  flex-basis: 20px;
+}
+
 .status-filter-groups {
   display: flex;
   flex-wrap: wrap;

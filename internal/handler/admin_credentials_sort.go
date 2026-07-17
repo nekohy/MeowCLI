@@ -5,248 +5,254 @@ import (
 	"strings"
 	"time"
 
+	coreantigravity "github.com/nekohy/MeowCLI/core/antigravity"
+	corecodex "github.com/nekohy/MeowCLI/core/codex"
+	coregemini "github.com/nekohy/MeowCLI/core/gemini"
+	coreopencodego "github.com/nekohy/MeowCLI/core/opencodego"
 	"github.com/nekohy/MeowCLI/core/scheduling"
 )
 
 type credentialSortOptions struct {
-	By    string
-	Order string
+	Model  string
+	Metric string
+	Order  string
 }
 
-var codexCredentialSortKeys = stringSet(
-	"default_score",
-	"spark_score",
-	"default_error_rate",
-	"spark_error_rate",
-	"default_quota_5h",
-	"default_quota_7d",
-	"default_quota_1mo",
-	"spark_quota_5h",
-	"spark_quota_7d",
-	"spark_quota_1mo",
-	"default_throttled_until",
-	"spark_throttled_until",
+type credentialSortOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+type credentialSortCapabilities struct {
+	Models  []credentialSortOption `json:"models"`
+	Metrics []credentialSortOption `json:"metrics"`
+}
+
+const (
+	credentialSortMetricScore     = "score"
+	credentialSortMetricErrorRate = "error_rate"
+	credentialSortMetricQuota     = "quota"
+	credentialSortMetricQuota5h   = "quota_5h"
+	credentialSortMetricQuota7d   = "quota_7d"
+	credentialSortMetricQuota1mo  = "quota_1mo"
 )
 
-var openCodeGoCredentialSortKeys = stringSet(
-	"score",
-	"quota_5h",
-	"quota_7d",
-	"quota_1mo",
-)
+var modelQuotaCredentialSortMetrics = []credentialSortOption{
+	{Value: credentialSortMetricScore, Label: "Score"},
+	{Value: credentialSortMetricErrorRate, Label: "错误率"},
+	{Value: credentialSortMetricQuota, Label: "额度"},
+}
 
-var geminiCredentialSortKeys = stringSet(
-	"pro_score",
-	"flash_score",
-	"flashlite_score",
-	"pro_error_rate",
-	"flash_error_rate",
-	"flashlite_error_rate",
-	"pro_quota",
-	"flash_quota",
-	"flashlite_quota",
-	"pro_throttled_until",
-	"flash_throttled_until",
-	"flashlite_throttled_until",
-)
+var codexCredentialSortCapabilities = credentialSortCapabilities{
+	Models: []credentialSortOption{
+		{Value: corecodex.ModelTierDefault, Label: "Default"},
+		{Value: corecodex.ModelTierSpark, Label: "Spark"},
+	},
+	Metrics: []credentialSortOption{
+		{Value: credentialSortMetricScore, Label: "Score"},
+		{Value: credentialSortMetricErrorRate, Label: "错误率"},
+		{Value: credentialSortMetricQuota5h, Label: "5 小时额度"},
+		{Value: credentialSortMetricQuota7d, Label: "7 天额度"},
+		{Value: credentialSortMetricQuota1mo, Label: "月额度"},
+	},
+}
 
-var antigravityCredentialSortKeys = stringSet(
-	"claude_score",
-	"pro_score",
-	"flash_score",
-	"flashlite_score",
-	"tab_score",
-	"image_score",
-	"claude_error_rate",
-	"pro_error_rate",
-	"flash_error_rate",
-	"flashlite_error_rate",
-	"tab_error_rate",
-	"image_error_rate",
-	"claude_quota",
-	"pro_quota",
-	"flash_quota",
-	"flashlite_quota",
-	"tab_quota",
-	"image_quota",
-	"claude_throttled_until",
-	"pro_throttled_until",
-	"flash_throttled_until",
-	"flashlite_throttled_until",
-	"tab_throttled_until",
-	"image_throttled_until",
-)
+var openCodeGoCredentialSortCapabilities = credentialSortCapabilities{
+	Models: []credentialSortOption{
+		{Value: coreopencodego.ModelTierDefault, Label: "Default"},
+	},
+	Metrics: []credentialSortOption{
+		{Value: credentialSortMetricScore, Label: "Score"},
+		{Value: credentialSortMetricErrorRate, Label: "错误率"},
+		{Value: credentialSortMetricQuota5h, Label: "5 小时额度"},
+		{Value: credentialSortMetricQuota7d, Label: "7 天额度"},
+		{Value: credentialSortMetricQuota1mo, Label: "月额度"},
+	},
+}
 
-func credentialSortOptionsFromRequest(query func(string) string, supported map[string]struct{}) credentialSortOptions {
-	by := strings.ToLower(strings.TrimSpace(query("sort_by")))
-	if by != "" {
-		if _, ok := supported[by]; !ok {
-			by = ""
-		}
+var geminiCredentialSortCapabilities = credentialSortCapabilities{
+	Models: []credentialSortOption{
+		{Value: coregemini.ModelTierPro, Label: "Pro"},
+		{Value: coregemini.ModelTierFlash, Label: "Flash"},
+		{Value: coregemini.ModelTierFlashLite, Label: "Lite"},
+	},
+	Metrics: modelQuotaCredentialSortMetrics,
+}
+
+var antigravityCredentialSortCapabilities = credentialSortCapabilities{
+	Models: []credentialSortOption{
+		{Value: coreantigravity.ModelTierClaude, Label: "Claude"},
+		{Value: coreantigravity.ModelTierPro, Label: "Pro"},
+		{Value: coreantigravity.ModelTierFlash, Label: "Flash"},
+		{Value: coreantigravity.ModelTierFlashLite, Label: "Lite"},
+		{Value: coreantigravity.ModelTierTab, Label: "Tab"},
+		{Value: coreantigravity.ModelTierImage, Label: "Image"},
+	},
+	Metrics: modelQuotaCredentialSortMetrics,
+}
+
+func credentialSortOptionsFromRequest(query func(string) string, capabilities credentialSortCapabilities) credentialSortOptions {
+	model := strings.ToLower(strings.TrimSpace(query("sort_model")))
+	metric := strings.ToLower(strings.TrimSpace(query("sort_metric")))
+	if !capabilities.supports(model, metric) {
+		model = ""
+		metric = ""
 	}
 	order := strings.ToLower(strings.TrimSpace(query("sort_order")))
 	if order != "asc" && order != "desc" {
 		order = "desc"
 	}
 	return credentialSortOptions{
-		By:    by,
-		Order: order,
+		Model:  model,
+		Metric: metric,
+		Order:  order,
 	}
 }
 
+func (c credentialSortCapabilities) supports(model, metric string) bool {
+	if model == "" || metric == "" {
+		return false
+	}
+	return credentialSortOptionExists(c.Models, model) && credentialSortOptionExists(c.Metrics, metric)
+}
+
+func credentialSortOptionExists(options []credentialSortOption, value string) bool {
+	for _, option := range options {
+		if option.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
 func (o credentialSortOptions) enabled() bool {
-	return o.By != ""
+	return o.Model != "" && o.Metric != ""
 }
 
 func sortCodexListItems(items []codexListItem, options credentialSortOptions) {
 	value := func(item codexListItem) (float64, bool) {
-		switch options.By {
-		case "default_score":
-			return adjustedMetricScore(item.Default.Score, item.Default.Weight), true
-		case "spark_score":
-			return adjustedMetricScore(item.Spark.Score, item.Spark.Weight), true
-		case "default_error_rate":
-			return errorRateFromMetricWeight(item.Default.Weight), true
-		case "spark_error_rate":
-			return errorRateFromMetricWeight(item.Spark.Weight), true
-		case "default_quota_5h":
-			return item.Default.Quota5h, true
-		case "default_quota_7d":
-			return item.Default.Quota7d, true
-		case "default_quota_1mo":
-			return item.Default.Quota1mo, true
-		case "spark_quota_5h":
-			return item.Spark.Quota5h, true
-		case "spark_quota_7d":
-			return item.Spark.Quota7d, true
-		case "spark_quota_1mo":
-			return item.Spark.Quota1mo, true
-		case "default_throttled_until":
-			return timeSortValue(item.Default.ThrottledUntil), true
-		case "spark_throttled_until":
-			return timeSortValue(item.Spark.ThrottledUntil), true
-		default:
+		metric, ok := codexSortMetricForModel(item, options.Model)
+		if !ok {
 			return 0, false
 		}
+		return codexSchedulingMetricSortValue(metric, options.Metric)
 	}
 	sortCredentialItems(items, func(item codexListItem) string { return item.ID }, value, options.Order)
 }
 
 func sortOpenCodeGoListItems(items []openCodeGoListItem, options credentialSortOptions) {
 	value := func(item openCodeGoListItem) (float64, bool) {
-		switch options.By {
-		case "score":
-			return adjustedMetricScore(item.Quota.Score, item.Quota.Weight), true
-		case "quota_5h":
-			return item.Quota.Quota5h, true
-		case "quota_7d":
-			return item.Quota.Quota7d, true
-		case "quota_1mo":
-			return item.Quota.Quota1mo, true
-		default:
+		if options.Model != coreopencodego.ModelTierDefault {
 			return 0, false
 		}
+		return codexSchedulingMetricSortValue(item.Quota, options.Metric)
 	}
 	sortCredentialItems(items, func(item openCodeGoListItem) string { return item.ID }, value, options.Order)
 }
 
 func sortGeminiListItems(items []geminiListItem, options credentialSortOptions) {
 	value := func(item geminiListItem) (float64, bool) {
-		switch options.By {
-		case "pro_score":
-			return adjustedMetricScore(item.Pro.Score, item.Pro.Weight), true
-		case "flash_score":
-			return adjustedMetricScore(item.Flash.Score, item.Flash.Weight), true
-		case "flashlite_score":
-			return adjustedMetricScore(item.Flashlite.Score, item.Flashlite.Weight), true
-		case "pro_error_rate":
-			return errorRateFromMetricWeight(item.Pro.Weight), true
-		case "flash_error_rate":
-			return errorRateFromMetricWeight(item.Flash.Weight), true
-		case "flashlite_error_rate":
-			return errorRateFromMetricWeight(item.Flashlite.Weight), true
-		case "pro_quota":
-			return item.Pro.Quota, true
-		case "flash_quota":
-			return item.Flash.Quota, true
-		case "flashlite_quota":
-			return item.Flashlite.Quota, true
-		case "pro_throttled_until":
-			return timeSortValue(item.Pro.ThrottledUntil), true
-		case "flash_throttled_until":
-			return timeSortValue(item.Flash.ThrottledUntil), true
-		case "flashlite_throttled_until":
-			return timeSortValue(item.Flashlite.ThrottledUntil), true
-		default:
+		metric, ok := geminiSortMetricForModel(item, options.Model)
+		if !ok {
 			return 0, false
 		}
+		return quotaSchedulingMetricSortValue(metric, options.Metric)
 	}
 	sortCredentialItems(items, func(item geminiListItem) string { return item.ID }, value, options.Order)
 }
 
 func sortAntigravityListItems(items []antigravityListItem, options credentialSortOptions) {
 	value := func(item antigravityListItem) (float64, bool) {
-		switch options.By {
-		case "claude_score":
-			return adjustedMetricScore(item.Claude.Score, item.Claude.Weight), true
-		case "pro_score":
-			return adjustedMetricScore(item.Pro.Score, item.Pro.Weight), true
-		case "flash_score":
-			return adjustedMetricScore(item.Flash.Score, item.Flash.Weight), true
-		case "flashlite_score":
-			return adjustedMetricScore(item.Flashlite.Score, item.Flashlite.Weight), true
-		case "tab_score":
-			return adjustedMetricScore(item.Tab.Score, item.Tab.Weight), true
-		case "image_score":
-			return adjustedMetricScore(item.Image.Score, item.Image.Weight), true
-		case "claude_error_rate":
-			return errorRateFromMetricWeight(item.Claude.Weight), true
-		case "pro_error_rate":
-			return errorRateFromMetricWeight(item.Pro.Weight), true
-		case "flash_error_rate":
-			return errorRateFromMetricWeight(item.Flash.Weight), true
-		case "flashlite_error_rate":
-			return errorRateFromMetricWeight(item.Flashlite.Weight), true
-		case "tab_error_rate":
-			return errorRateFromMetricWeight(item.Tab.Weight), true
-		case "image_error_rate":
-			return errorRateFromMetricWeight(item.Image.Weight), true
-		case "claude_quota":
-			return item.Claude.Quota, true
-		case "pro_quota":
-			return item.Pro.Quota, true
-		case "flash_quota":
-			return item.Flash.Quota, true
-		case "flashlite_quota":
-			return item.Flashlite.Quota, true
-		case "tab_quota":
-			return item.Tab.Quota, true
-		case "image_quota":
-			return item.Image.Quota, true
-		case "claude_throttled_until":
-			return timeSortValue(item.Claude.ThrottledUntil), true
-		case "pro_throttled_until":
-			return timeSortValue(item.Pro.ThrottledUntil), true
-		case "flash_throttled_until":
-			return timeSortValue(item.Flash.ThrottledUntil), true
-		case "flashlite_throttled_until":
-			return timeSortValue(item.Flashlite.ThrottledUntil), true
-		case "tab_throttled_until":
-			return timeSortValue(item.Tab.ThrottledUntil), true
-		case "image_throttled_until":
-			return timeSortValue(item.Image.ThrottledUntil), true
-		default:
+		metric, ok := antigravitySortMetricForModel(item, options.Model)
+		if !ok {
 			return 0, false
 		}
+		return quotaSchedulingMetricSortValue(metric, options.Metric)
 	}
 	sortCredentialItems(items, func(item antigravityListItem) string { return item.ID }, value, options.Order)
 }
 
+func codexSortMetricForModel(item codexListItem, model string) (codexSchedulingMetric, bool) {
+	switch model {
+	case corecodex.ModelTierDefault:
+		return item.Default, true
+	case corecodex.ModelTierSpark:
+		return item.Spark, true
+	default:
+		return codexSchedulingMetric{}, false
+	}
+}
+
+func geminiSortMetricForModel(item geminiListItem, model string) (quotaSchedulingMetric, bool) {
+	switch model {
+	case coregemini.ModelTierPro:
+		return item.Pro, true
+	case coregemini.ModelTierFlash:
+		return item.Flash, true
+	case coregemini.ModelTierFlashLite:
+		return item.Flashlite, true
+	default:
+		return quotaSchedulingMetric{}, false
+	}
+}
+
+func antigravitySortMetricForModel(item antigravityListItem, model string) (quotaSchedulingMetric, bool) {
+	switch model {
+	case coreantigravity.ModelTierClaude:
+		return item.Claude, true
+	case coreantigravity.ModelTierPro:
+		return item.Pro, true
+	case coreantigravity.ModelTierFlash:
+		return item.Flash, true
+	case coreantigravity.ModelTierFlashLite:
+		return item.Flashlite, true
+	case coreantigravity.ModelTierTab:
+		return item.Tab, true
+	case coreantigravity.ModelTierImage:
+		return item.Image, true
+	default:
+		return quotaSchedulingMetric{}, false
+	}
+}
+
+func codexSchedulingMetricSortValue(metric codexSchedulingMetric, sortMetric string) (float64, bool) {
+	switch sortMetric {
+	case credentialSortMetricScore:
+		return adjustedMetricScore(metric.Score, metric.Weight), true
+	case credentialSortMetricErrorRate:
+		return errorRateFromMetricWeight(metric.Weight), true
+	case credentialSortMetricQuota5h:
+		return windowedQuotaSortValue(metric.Quota5h, metric.Reset5h)
+	case credentialSortMetricQuota7d:
+		return windowedQuotaSortValue(metric.Quota7d, metric.Reset7d)
+	case credentialSortMetricQuota1mo:
+		return windowedQuotaSortValue(metric.Quota1mo, metric.Reset1mo)
+	default:
+		return 0, false
+	}
+}
+
+func quotaSchedulingMetricSortValue(metric quotaSchedulingMetric, sortMetric string) (float64, bool) {
+	switch sortMetric {
+	case credentialSortMetricScore:
+		return adjustedMetricScore(metric.Score, metric.Weight), true
+	case credentialSortMetricErrorRate:
+		return errorRateFromMetricWeight(metric.Weight), true
+	case credentialSortMetricQuota:
+		return windowedQuotaSortValue(metric.Quota, metric.Reset)
+	default:
+		return 0, false
+	}
+}
+
 func sortCredentialItems[T any](items []T, id func(T) string, value func(T) (float64, bool), order string) {
 	sort.SliceStable(items, func(i, j int) bool {
-		left, ok := value(items[i])
-		right, _ := value(items[j])
-		if !ok {
+		left, leftOK := value(items[i])
+		right, rightOK := value(items[j])
+		if leftOK != rightOK {
+			return leftOK
+		}
+		if !leftOK {
 			return id(items[i]) < id(items[j])
 		}
 		if left == right {
@@ -257,6 +263,10 @@ func sortCredentialItems[T any](items []T, id func(T) string, value func(T) (flo
 		}
 		return left > right
 	})
+}
+
+func windowedQuotaSortValue(quota float64, reset time.Time) (float64, bool) {
+	return quota, !reset.IsZero()
 }
 
 func adjustedMetricScore(score, weight float64) float64 {
@@ -272,13 +282,6 @@ func errorRateFromMetricWeight(weight float64) float64 {
 		return 1
 	}
 	return rate
-}
-
-func timeSortValue(value *time.Time) float64 {
-	if value == nil || value.IsZero() {
-		return 0
-	}
-	return float64(value.UnixNano())
 }
 
 func paginateCodexListItems(items []codexListItem, page, pageSize int) []codexListItem {

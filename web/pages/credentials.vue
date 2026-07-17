@@ -29,6 +29,7 @@ import type {
   CodexItem,
   CodexRateLimitResetCredits,
   CredentialItem,
+  CredentialSortOption,
   CredentialThrottleStatusOption,
   GeminiCredentialItem,
   OpenCodeGoCredentialItem,
@@ -57,7 +58,8 @@ const searchQuery = ref('')
 const statusFilter = ref<CredentialStatusFilter[]>([])
 const throttleFiltersExpanded = ref(false)
 const planFilter = ref('all')
-const sortBy = ref('')
+const sortMetric = ref('')
+const sortModel = ref('')
 const sortOrder = ref<'desc' | 'asc'>('desc')
 const selectedIds = ref<string[]>([])
 const actionBusy = ref(false)
@@ -197,89 +199,35 @@ function throttleTierDetailFromOption(option: CredentialThrottleStatusOption): T
   }
 }
 
-const defaultSortOption = { title: '默认', value: '' }
+const defaultSortMetricOption = { title: '默认', value: '' }
 
-const codexSortOptions = [
-  { title: 'Score', value: 'default_score' },
-  { title: 'Spark Score', value: 'spark_score' },
-  { title: '5h额度', value: 'default_quota_5h' },
-  { title: '7d额度', value: 'default_quota_7d' },
-  { title: '1mo额度', value: 'default_quota_1mo' },
-  { title: '错误率', value: 'default_error_rate' },
-  { title: 'Spark错误率', value: 'spark_error_rate' },
-  { title: 'Spark 5h额度', value: 'spark_quota_5h' },
-  { title: 'Spark 7d额度', value: 'spark_quota_7d' },
-  { title: 'Spark 1mo额度', value: 'spark_quota_1mo' },
-  { title: 'Default退避', value: 'default_throttled_until' },
-  { title: 'Spark退避', value: 'spark_throttled_until' },
-]
-
-const openCodeGoSortOptions = [
-  { title: 'Score', value: 'score' },
-  { title: '5h额度', value: 'quota_5h' },
-  { title: '周限额', value: 'quota_7d' },
-  { title: '月限额', value: 'quota_1mo' },
-]
-
-const geminiSortOptions = [
-  { title: 'Pro Score', value: 'pro_score' },
-  { title: 'Pro错误率', value: 'pro_error_rate' },
-  { title: 'Pro额度', value: 'pro_quota' },
-  { title: 'Flash Score', value: 'flash_score' },
-  { title: 'Flash错误率', value: 'flash_error_rate' },
-  { title: 'Flash额度', value: 'flash_quota' },
-  { title: 'Lite Score', value: 'flashlite_score' },
-  { title: 'Lite错误率', value: 'flashlite_error_rate' },
-  { title: 'Lite额度', value: 'flashlite_quota' },
-  { title: 'Pro退避', value: 'pro_throttled_until' },
-  { title: 'Flash退避', value: 'flash_throttled_until' },
-  { title: 'Lite退避', value: 'flashlite_throttled_until' },
-]
-
-const antigravitySortOptions = [
-  { title: 'Claude Score', value: 'claude_score' },
-  { title: 'Claude错误率', value: 'claude_error_rate' },
-  { title: 'Claude额度', value: 'claude_quota' },
-  { title: 'Pro Score', value: 'pro_score' },
-  { title: 'Pro错误率', value: 'pro_error_rate' },
-  { title: 'Pro额度', value: 'pro_quota' },
-  { title: 'Flash Score', value: 'flash_score' },
-  { title: 'Flash错误率', value: 'flash_error_rate' },
-  { title: 'Flash额度', value: 'flash_quota' },
-  { title: 'Lite Score', value: 'flashlite_score' },
-  { title: 'Lite错误率', value: 'flashlite_error_rate' },
-  { title: 'Lite额度', value: 'flashlite_quota' },
-  { title: 'Tab Score', value: 'tab_score' },
-  { title: 'Tab错误率', value: 'tab_error_rate' },
-  { title: 'Tab额度', value: 'tab_quota' },
-  { title: 'Image Score', value: 'image_score' },
-  { title: 'Image错误率', value: 'image_error_rate' },
-  { title: 'Image额度', value: 'image_quota' },
-  { title: 'Claude退避', value: 'claude_throttled_until' },
-  { title: 'Pro退避', value: 'pro_throttled_until' },
-  { title: 'Flash退避', value: 'flash_throttled_until' },
-  { title: 'Lite退避', value: 'flashlite_throttled_until' },
-  { title: 'Tab退避', value: 'tab_throttled_until' },
-  { title: 'Image退避', value: 'image_throttled_until' },
-]
+function credentialSortSelectOptions(options?: CredentialSortOption[]) {
+  return (options || []).map((option) => ({ title: option.label, value: option.value }))
+}
 
 const sortOrderOptions = [
   { title: '降序', value: 'desc' },
   { title: '升序', value: 'asc' },
 ]
 
-const credentialSortOptions = computed(() => [
-  defaultSortOption,
-  ...(isAntigravityHandler.value
-    ? antigravitySortOptions
-    : isGeminiHandler.value
-      ? geminiSortOptions
-      : isCodexHandler.value
-        ? codexSortOptions
-        : isOpenCodeGoHandler.value
-          ? openCodeGoSortOptions
-          : []),
+const credentialSortMetricOptions = computed(() => [
+  defaultSortMetricOption,
+  ...credentialSortSelectOptions(admin.activeHandler.value?.credential_sort?.metrics),
 ])
+
+const credentialSortModelOptions = computed(() => (
+  credentialSortSelectOptions(admin.activeHandler.value?.credential_sort?.models)
+))
+
+watch(
+  credentialSortModelOptions,
+  (options) => {
+    if (!options.some((option) => option.value === sortModel.value)) {
+      sortModel.value = options[0]?.value || ''
+    }
+  },
+  { immediate: true },
+)
 
 const hasActiveFilters = computed(() => (
   Boolean(searchInput.value.trim())
@@ -832,7 +780,8 @@ function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.valu
     search: search || undefined,
     status: credentialStatusQueryValue(statusFilter.value),
     planType: planFilter.value !== 'all' ? planFilter.value : undefined,
-    sortBy: sortBy.value || undefined,
+    sortMetric: sortMetric.value || undefined,
+    sortModel: sortMetric.value ? sortModel.value || undefined : undefined,
     sortOrder: sortOrder.value,
   }
 }
@@ -1004,7 +953,7 @@ watch(
     statusFilter.value = []
     planFilter.value = 'all'
     planTypes.value = []
-    sortBy.value = ''
+    sortMetric.value = ''
     sortOrder.value = 'desc'
     throttleFiltersExpanded.value = false
     searchInput.value = ''
@@ -1016,7 +965,7 @@ watch(
 )
 
 watch(
-  () => [searchQuery.value, statusFilter.value.join(','), planFilter.value, sortBy.value, sortOrder.value, credentialHandlerKey.value],
+  () => [searchQuery.value, statusFilter.value.join(','), planFilter.value, sortMetric.value, sortModel.value, sortOrder.value, credentialHandlerKey.value],
   () => {
     if (admin.authReady.value && admin.activeHandler.value?.supports_credentials) {
       void loadCredentials(1, pageSize.value)
@@ -1129,10 +1078,17 @@ onBeforeUnmount(() => {
                 @update:model-value="(value) => loadCredentials(1, Number(value))"
               />
               <VSelect
-                v-model="sortBy"
+                v-model="sortMetric"
                 class="filter-select"
-                label="排序"
-                :items="credentialSortOptions"
+                label="排序指标"
+                :items="credentialSortMetricOptions"
+              />
+              <VSelect
+                v-model="sortModel"
+                class="filter-select"
+                label="模型"
+                :items="credentialSortModelOptions"
+                :disabled="!credentialSortModelOptions.length"
               />
               <VSelect
                 v-model="sortOrder"

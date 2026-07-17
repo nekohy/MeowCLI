@@ -54,7 +54,7 @@ func (a *AdminHandler) ListGemini(c *gin.Context) {
 	}
 
 	filters := geminiCredentialFiltersFromRequest(c)
-	sortOptions := credentialSortOptionsFromRequest(c.Query, geminiCredentialSortKeys)
+	sortOptions := credentialSortOptionsFromRequest(c.Query, geminiCredentialSortCapabilities)
 	planTypes, err := a.store.ListGeminiCLIPlanTypes(c.Request.Context(), credentialPlanTypeFilter(filters))
 	if err != nil {
 		writeInternalError(c, err)

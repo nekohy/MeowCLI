@@ -134,7 +134,8 @@ type CredentialQuery = {
   search?: string
   status?: string[]
   planType?: string
-  sortBy?: string
+  sortMetric?: string
+  sortModel?: string
   sortOrder?: 'asc' | 'desc'
 }
 
@@ -200,7 +201,8 @@ export const adminApi = {
         search: filters.search,
         status: filters.status,
         plan_type: filters.planType,
-        sort_by: filters.sortBy,
+        sort_metric: filters.sortMetric,
+        sort_model: filters.sortModel,
         sort_order: filters.sortOrder,
       },
     })

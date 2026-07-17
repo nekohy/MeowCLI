@@ -54,7 +54,7 @@ func (a *AdminHandler) ListAntigravity(c *gin.Context) {
 	}
 
 	filters := antigravityCredentialFiltersFromRequest(c)
-	sortOptions := credentialSortOptionsFromRequest(c.Query, antigravityCredentialSortKeys)
+	sortOptions := credentialSortOptionsFromRequest(c.Query, antigravityCredentialSortCapabilities)
 	planTypes, err := a.store.ListAntigravityPlanTypes(c.Request.Context(), credentialPlanTypeFilter(filters))
 	if err != nil {
 		writeInternalError(c, err)

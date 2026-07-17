@@ -43,6 +43,16 @@ export interface CredentialThrottleStatusOption {
   metric: string
 }
 
+export interface CredentialSortOption {
+  value: string
+  label: string
+}
+
+export interface CredentialSortCapabilities {
+  models: CredentialSortOption[]
+  metrics: CredentialSortOption[]
+}
+
 export interface PluginInfo {
   name: string
   label: string
@@ -62,6 +72,7 @@ export interface HandlerOverview {
   credential_fields?: CredentialField[]
   credential_status_options?: string[]
   credential_throttle_status_options?: CredentialThrottleStatusOption[]
+  credential_sort?: CredentialSortCapabilities
   plugins?: PluginInfo[]
   models_total: number
   credentials_total: number

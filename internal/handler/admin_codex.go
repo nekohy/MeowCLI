@@ -50,7 +50,7 @@ func (a *AdminHandler) ListCodex(c *gin.Context) {
 	}
 
 	filters := codexFiltersFromRequest(c)
-	sortOptions := credentialSortOptionsFromRequest(c.Query, codexCredentialSortKeys)
+	sortOptions := credentialSortOptionsFromRequest(c.Query, codexCredentialSortCapabilities)
 
 	planTypes, err := a.store.ListCodexPlanTypes(c.Request.Context(), credentialPlanTypeFilter(filters))
 	if err != nil {

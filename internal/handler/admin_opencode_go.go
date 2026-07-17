@@ -48,7 +48,7 @@ func (a *AdminHandler) ListOpenCodeGo(c *gin.Context) {
 		Statuses:     credentialStatusesFromRequest(c, openCodeGoThrottleStatusTiers),
 		UnsyncedOnly: c.Query("unsynced") == "true",
 	}
-	sortOptions := credentialSortOptionsFromRequest(c.Query, openCodeGoCredentialSortKeys)
+	sortOptions := credentialSortOptionsFromRequest(c.Query, openCodeGoCredentialSortCapabilities)
 	total, err := a.store.CountOpenCodeGoFiltered(c.Request.Context(), filters)
 	if err != nil {
 		writeInternalError(c, err)
