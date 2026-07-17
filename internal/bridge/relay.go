@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -59,6 +60,10 @@ func (h *Handler) relayUpstream(c *gin.Context, cfg upstreamRelay) {
 		writeRelayError(c, errReadRequestBody)
 		return
 	}
+	// 防止长时间的SSE让AST对象持续占用内存
+	requestBody = bytes.Clone(requestBody)
+	cfg.requestJSON = nil
+
 	state := retryTracker{}
 	for attempt := 1; attempt <= h.maxAttempts(); attempt++ {
 		credID, err := h.selectRelayCredential(cfg, state)
