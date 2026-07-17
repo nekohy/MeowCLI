@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@mdi/js": "^7.4.47",
+    "copy-to-clipboard": "^4.0.2",
     "nuxt": "^4.4.2",
     "vuetify": "^4.0.2",
     "vuetify-nuxt-module": "^0.19.5"

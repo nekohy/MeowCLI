@@ -1,3 +1,4 @@
+import copyToClipboard from 'copy-to-clipboard'
 import type {
   NavItem,
   SettingsForm,
@@ -184,12 +185,7 @@ export async function copyText(value: string) {
   }
 
   try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value)
-      return true
-    }
-
-    return false
+    return await copyToClipboard(value)
   } catch {
     return false
   }
