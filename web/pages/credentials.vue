@@ -1534,9 +1534,6 @@ onBeforeUnmount(() => {
                             {{ item.email }}
                           </div>
                           <div class="stack-card-meta">
-                            <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
-                              OpenCode Go
-                            </AdminBadge>
                             <AdminBadge
                               v-for="status in credentialStatusBadges(item.status)"
                               :key="status"
