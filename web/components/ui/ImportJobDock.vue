@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { newlyCompletedImportJobs } from '~/composables/useImportJobs'
 import type { ImportJobSnapshot } from '~/types/admin'
 
 const admin = useAdminApp()
@@ -67,6 +68,16 @@ watch(
     }
   },
   { immediate: true },
+)
+
+watch(
+  () => importJobs.jobs.value,
+  (jobs, previousJobs) => {
+    if (!admin.token.value || newlyCompletedImportJobs(jobs, previousJobs).length === 0) {
+      return
+    }
+    void admin.loadOverview(admin.token.value, true)
+  },
 )
 
 onBeforeUnmount(() => {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
+import { newlyCompletedImportJobs } from '~/composables/useImportJobs'
 import {
   CREDENTIAL_THROTTLE_STATUS_ALL,
   credentialBaseStatus,
@@ -970,6 +971,21 @@ watch(
     if (admin.authReady.value && admin.activeHandler.value?.supports_credentials) {
       void loadCredentials(1, pageSize.value)
     }
+  },
+)
+
+watch(
+  () => importJobs.jobs.value,
+  (jobs, previousJobs) => {
+    const activeHandler = credentialHandlerKey.value
+    if (
+      !admin.authReady.value
+      || !admin.activeHandler.value?.supports_credentials
+      || !newlyCompletedImportJobs(jobs, previousJobs).some((job) => job.handler === activeHandler)
+    ) {
+      return
+    }
+    void loadCredentials(page.value, pageSize.value)
   },
 )
 

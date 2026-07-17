@@ -4,6 +4,16 @@ import type { ImportJobSnapshot, ImportJobStartResponse } from '~/types/admin'
 const IMPORT_JOB_POLL_MS = 1000
 let importJobPollTimer: number | undefined
 
+export function newlyCompletedImportJobs(
+  jobs: ImportJobSnapshot[],
+  previousJobs: ImportJobSnapshot[] = [],
+) {
+  const previousStatuses = new Map(previousJobs.map((job) => [job.id, job.status]))
+  return jobs.filter((job) => (
+    job.status === 'completed' && previousStatuses.get(job.id) !== 'completed'
+  ))
+}
+
 export function useImportJobs() {
   const jobs = useState<ImportJobSnapshot[]>('admin-jobs', () => [])
   const dismissed = useState<string[]>('admin-job-dismissed', () => [])
