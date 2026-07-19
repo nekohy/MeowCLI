@@ -28,10 +28,6 @@ const currentNav = computed(() => {
   return NAV_ITEMS.find((item) => item.key === routeKey) || defaultNav
 })
 
-const onlineHandlerCount = computed(() => (
-  admin.handlers.value.filter((item) => item.status === 'enabled' || item.status === 'available').length
-))
-
 const authCardMeta = computed(() => {
   if (admin.setupDone.value && admin.setupResult.value) {
     return {
@@ -108,7 +104,6 @@ async function copySetupKey() {
   }
 }
 
-let toastTimer: number | undefined
 let systemThemeMedia: MediaQueryList | undefined
 
 function handleSystemThemeChange(event: MediaQueryListEvent) {
@@ -144,23 +139,11 @@ watch(
       return
     }
 
-    window.localStorage.setItem(THEME_STORAGE_KEY, preference)
-  },
-)
-
-watch(
-  () => admin.toast.value,
-  (toast) => {
-    if (!import.meta.client) {
-      return
-    }
-
-    if (toastTimer) {
-      window.clearTimeout(toastTimer)
-    }
-
-    if (toast) {
-      toastTimer = window.setTimeout(() => admin.dismissToast(), 2400)
+    // 存储不可用时仅丢失主题持久化
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, preference)
+    } catch {
+      // ignore
     }
   },
 )
@@ -188,7 +171,12 @@ onMounted(() => {
   clientReady.value = true
   vuetifyTheme.change(admin.theme.value)
   applyTheme(admin.theme.value)
-  window.localStorage.setItem(THEME_STORAGE_KEY, admin.themePreference.value)
+  // 存储不可用时仅丢失主题持久化,不得中断后续 boot
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, admin.themePreference.value)
+  } catch {
+    // ignore
+  }
   window.addEventListener(AUTH_INVALID_EVENT, handleAuthInvalid)
 
   void (async () => {
@@ -207,18 +195,16 @@ onBeforeUnmount(() => {
 
   window.removeEventListener(AUTH_INVALID_EVENT, handleAuthInvalid)
   systemThemeMedia?.removeEventListener('change', handleSystemThemeChange)
-  if (toastTimer) {
-    window.clearTimeout(toastTimer)
-  }
 })
 </script>
 
 <template>
   <VApp class="admin-app">
     <VSnackbar
+      :key="admin.toast.value?.id"
       v-model="snackbarOpen"
       :color="snackbarColor"
-      location="top end"
+      location="bottom"
       timeout="2400"
       class="app-snackbar"
     >
@@ -316,13 +302,7 @@ onBeforeUnmount(() => {
                         </AdminButton>
                       </div>
 
-                      <VAlert
-                        v-if="admin.loginError.value"
-                        type="error"
-                        variant="tonal"
-                        density="comfortable"
-                        :text="admin.loginError.value"
-                      />
+                      <FormErrorAlert :message="admin.loginError.value" />
                     </div>
                   </template>
 
@@ -340,13 +320,7 @@ onBeforeUnmount(() => {
                         placeholder="例如：本地管理员"
                         prepend-inner-icon="mdi-note-outline"
                       />
-                      <VAlert
-                        v-if="admin.loginError.value"
-                        type="error"
-                        variant="tonal"
-                        density="comfortable"
-                        :text="admin.loginError.value"
-                      />
+                      <FormErrorAlert :message="admin.loginError.value" />
                       <AdminButton
                         type="submit"
                         block
@@ -368,13 +342,7 @@ onBeforeUnmount(() => {
                         placeholder="sk-..."
                         prepend-inner-icon="mdi-lock-outline"
                       />
-                      <VAlert
-                        v-if="admin.loginError.value"
-                        type="error"
-                        variant="tonal"
-                        density="comfortable"
-                        :text="admin.loginError.value"
-                      />
+                      <FormErrorAlert :message="admin.loginError.value" />
                       <AdminButton
                         type="submit"
                         block
@@ -421,12 +389,11 @@ onBeforeUnmount(() => {
                 v-for="item in NAV_ITEMS"
                 :key="item.key"
                 :to="item.to"
-                color="primary"
                 class="nav-item"
                 :active="currentNav.key === item.key"
               >
                 <template #prepend>
-                  <VIcon :icon="item.icon" :color="currentNav.key === item.key ? 'primary' : 'on-surface-variant'" size="20" />
+                  <VIcon :icon="item.icon" :color="currentNav.key === item.key ? 'on-secondary-container' : 'on-surface-variant'" size="20" />
                 </template>
                 <VListItemTitle class="nav-item-title">{{ item.label }}</VListItemTitle>
               </VListItem>
@@ -447,8 +414,8 @@ onBeforeUnmount(() => {
           </VSheet>
         </VNavigationDrawer>
 
-        <VAppBar height="68" class="app-bar" rounded="xl" style="margin: 12px 12px 0">
-          <VAppBarNavIcon v-if="display.smAndDown.value" @click="drawer = !drawer" />
+        <VAppBar height="64" class="app-bar">
+          <VAppBarNavIcon v-if="display.smAndDown.value" aria-label="打开导航菜单" @click="drawer = !drawer" />
 
           <div class="app-bar-copy">
             <div class="app-bar-title">{{ currentNav.label }}</div>
@@ -464,6 +431,7 @@ onBeforeUnmount(() => {
               variant="text"
               color="primary"
               icon="mdi-logout"
+              aria-label="退出登录"
               @click="admin.logout()"
             />
           </template>

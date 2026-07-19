@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { adminApi } from '~/composables/useAdminApi'
-import { joinPlanTypeInput, planTypeText, safeStringify, splitPlanTypeInput } from '~/lib/admin'
+import { adminApi, REQUEST_TIMEOUT_MS } from '~/composables/useAdminApi'
+import { handlerIcon, joinPlanTypeInput, planTypeText, safeStringify, splitPlanTypeInput } from '~/lib/admin'
 import {
   DEFAULT_MODEL_CATALOG_URLS,
   modelCatalogStorageKey,
@@ -31,7 +31,7 @@ const confirm = useConfirmDialog()
 
 const items = ref<ModelItem[]>([])
 const loading = ref(false)
-const search = ref('')
+const { input: searchInput, query: searchQuery } = useDebouncedRef()
 const handlerFilter = ref('all')
 const actionBusy = ref(false)
 const selectedAliases = ref<string[]>([])
@@ -59,12 +59,6 @@ const batchPlugins = ref<string[]>([])
 const batchSchedulingStrategy = ref<ModelSchedulingSelection>('preserve')
 const batchExtra = ref('{}')
 const batchError = ref('')
-const handlerIconByKey: Record<string, string> = {
-  codex: 'mdi-console',
-  gemini: 'mdi-google-circles-communities',
-  antigravity: 'mdi-compass-outline',
-  'opencode-go': 'mdi-code-braces-box',
-}
 
 const modalHandlerConfig = computed(() => (
   admin.handlers.value.find((handler) => handler.key === modalHandler.value) || null
@@ -79,20 +73,12 @@ const batchHandlerConfig = computed(() => (
 const batchAvailablePlanTypes = computed(() => batchHandlerConfig.value?.plan_list || [])
 const batchAvailablePlugins = computed(() => batchHandlerConfig.value?.plugins || [])
 
-function defaultPlanTypesForHandler(_handlerKey: string) {
-  return ''
-}
-
 function planTypesForHandler(handlerKey: string) {
   return admin.handlers.value.find((handler) => handler.key === handlerKey)?.plan_list || []
 }
 
 function modelPlanTypes(item: ModelItem) {
   return splitPlanTypeInput(item.plan_types, planTypesForHandler(item.handler))
-}
-
-function modelPlanSummary(item: ModelItem) {
-  return modelPlanTypes(item).map((planType) => planTypeText(planType)).join(' -> ')
 }
 
 function splitPluginInput(value: string) {
@@ -114,6 +100,32 @@ function modelPlugins(item: ModelItem) {
 
 function pluginLabel(name: string, plugins: PluginInfo[]) {
   return plugins.find((plugin) => plugin.name === name)?.label || name
+}
+
+interface ModelCardView {
+  planTypes: string[]
+  plugins: string[]
+  handlerPlugins: PluginInfo[]
+}
+
+// 预计算每张卡片的派生数据:模板中同卡多次引用若直接调函数,
+// 每次渲染都会重复 split/find;这里仅随 items/handlers 变化整体重算一次
+const modelCardViews = computed(() => {
+  const views = new Map<string, ModelCardView>()
+  items.value.forEach((item) => {
+    views.set(item.alias, {
+      planTypes: modelPlanTypes(item),
+      plugins: modelPlugins(item),
+      handlerPlugins: pluginsForHandler(item.handler),
+    })
+  })
+  return views
+})
+
+const EMPTY_CARD_VIEW: ModelCardView = { planTypes: [], plugins: [], handlerPlugins: [] }
+
+function modelCardView(item: ModelItem): ModelCardView {
+  return modelCardViews.value.get(item.alias) || EMPTY_CARD_VIEW
 }
 
 const modelPlanOrder = usePlanOrderModal(
@@ -192,12 +204,12 @@ function formatExtra(extra: unknown): string {
   try {
     return JSON.stringify(extra, null, 2)
   } catch {
-    return safeStringify(extra)
+    return '{}'
   }
 }
 
 const filteredItems = computed(() => {
-  const query = search.value.trim().toLowerCase()
+  const query = searchQuery.value.trim().toLowerCase()
   return items.value.filter((item) => {
     if (handlerFilter.value !== 'all' && item.handler !== handlerFilter.value) {
       return false
@@ -224,13 +236,13 @@ const batchModalTitle = computed(() => (
     : '批量编辑模型'
 ))
 
-function modelsForHandler(handlerKey: string) {
-  return items.value.filter((item) => item.handler === handlerKey).length
-}
-
-function handlerIcon(handlerKey: string) {
-  return handlerIconByKey[handlerKey] || 'mdi-cpu-64-bit'
-}
+const handlerModelCounts = computed(() => {
+  const counts = new Map<string, number>()
+  for (const item of items.value) {
+    counts.set(item.handler, (counts.get(item.handler) || 0) + 1)
+  }
+  return counts
+})
 
 function defaultModelCatalogUrl(handlerKey: string) {
   return DEFAULT_MODEL_CATALOG_URLS[handlerKey] || ''
@@ -278,9 +290,12 @@ function resetModelCatalogUrl() {
   saveModelCatalogUrl(handlerKey, defaultUrl)
 }
 
+let catalogFetchSeq = 0
+
 async function fetchModelCatalog() {
   const handlerKey = modalHandler.value
   const url = modelCatalogUrl.value.trim()
+  const seq = ++catalogFetchSeq
   modelCatalogLoading.value = true
   modelCatalogError.value = ''
 
@@ -291,20 +306,34 @@ async function fetchModelCatalog() {
     const response = await fetch(url, {
       headers: { Accept: 'application/json' },
       cache: 'no-store',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
     if (!response.ok) {
       throw new Error(`模型列表获取失败 (${response.status})`)
     }
-    modelCatalogItems.value = normalizeModelCatalog(await response.json())
+    const catalog = normalizeModelCatalog(await response.json())
+    // 晚到的旧响应(连点刷新/已切换 handler/弹窗已关闭)直接丢弃,
+    // 避免旧 URL 的结果与回写覆盖新状态
+    if (seq !== catalogFetchSeq) {
+      return
+    }
+    modelCatalogItems.value = catalog
     saveModelCatalogUrl(handlerKey, url)
-    if (!modelCatalogItems.value.length) {
+    if (!catalog.length) {
       modelCatalogError.value = '远程列表为空'
     }
   } catch (error) {
+    if (seq !== catalogFetchSeq) {
+      return
+    }
     modelCatalogItems.value = []
-    modelCatalogError.value = error instanceof Error ? error.message : '模型列表获取失败'
+    modelCatalogError.value = error instanceof DOMException && error.name === 'TimeoutError'
+      ? '模型列表获取超时，请检查链接'
+      : error instanceof Error ? error.message : '模型列表获取失败'
   } finally {
-    modelCatalogLoading.value = false
+    if (seq === catalogFetchSeq) {
+      modelCatalogLoading.value = false
+    }
   }
 }
 
@@ -327,6 +356,8 @@ function openModelCatalog() {
 }
 
 function closeModelCatalog() {
+  // 使 in-flight 响应立即失效,晚到的结果不会写回已关闭的弹窗
+  catalogFetchSeq += 1
   modelCatalogOpen.value = false
   modelCatalogError.value = ''
 }
@@ -356,7 +387,7 @@ function openCreateModal() {
     admin.activeHandler.value?.key,
     admin.handlers.value.map((handler) => handler.key),
   )
-  modalPlanTypes.value = defaultPlanTypesForHandler(modalHandler.value)
+  modalPlanTypes.value = ''
   modalPlugins.value = []
   modalSchedulingStrategy.value = 'default'
   modalExtra.value = '{}'
@@ -369,7 +400,7 @@ function openEditModal(item: ModelItem) {
   modalAlias.value = item.alias
   modalOrigin.value = item.origin
   modalHandler.value = item.handler
-  modalPlanTypes.value = joinPlanTypeInput(modelPlanTypes(item), planTypesForHandler(item.handler)) || defaultPlanTypesForHandler(item.handler)
+  modalPlanTypes.value = joinPlanTypeInput(modelPlanTypes(item), planTypesForHandler(item.handler))
   modalPlugins.value = modelPlugins(item)
   modalSchedulingStrategy.value = resolveModelSchedulingStrategy(item)
   modalExtra.value = safeStringify(item.extra)
@@ -409,7 +440,7 @@ function openBatchModal() {
   if (!batchSelectionEnabled.value || !selectedBatchItems.value.length) {
     return
   }
-  batchPlanTypes.value = defaultPlanTypesForHandler(handlerFilter.value)
+  batchPlanTypes.value = ''
   batchPlugins.value = []
   batchSchedulingStrategy.value = 'preserve'
   batchExtra.value = '{}'
@@ -491,10 +522,7 @@ async function saveModel() {
 
     closeModal()
     admin.notify(modalMode.value === 'edit' ? '模型映射已更新' : '模型映射已创建')
-    await Promise.all([
-      admin.loadOverview(admin.token.value, true),
-      loadModels(),
-    ])
+    await admin.refreshAfterMutation(loadModels)
   } catch (error) {
     modalError.value = error instanceof Error ? error.message : '保存模型映射失败'
   } finally {
@@ -539,10 +567,7 @@ async function saveBatchModels() {
         : `已批量更新 ${response.updated.length} 个模型`,
       failed ? 'warning' : 'success',
     )
-    await Promise.all([
-      admin.loadOverview(admin.token.value, true),
-      loadModels(),
-    ])
+    await admin.refreshAfterMutation(loadModels)
   } catch (error) {
     batchError.value = error instanceof Error ? error.message : '批量更新模型失败'
   } finally {
@@ -560,10 +585,7 @@ function openDeleteConfirm(item: ModelItem) {
       try {
         await adminApi.deleteModel(admin.token.value, item.alias)
         admin.notify('模型映射已删除')
-        await Promise.all([
-          admin.loadOverview(admin.token.value, true),
-          loadModels(),
-        ])
+        await admin.refreshAfterMutation(loadModels)
       } catch (error) {
         admin.notify(error instanceof Error ? error.message : '删除模型映射失败', 'danger')
       } finally {
@@ -573,20 +595,7 @@ function openDeleteConfirm(item: ModelItem) {
   })
 }
 
-onMounted(() => {
-  if (admin.authReady.value) {
-    void loadModels()
-  }
-})
-
-watch(
-  () => admin.authReady.value,
-  (ready) => {
-    if (ready) {
-      void loadModels()
-    }
-  },
-)
+useAuthReadyLoader(loadModels)
 
 watch(
   () => handlerFilter.value,
@@ -612,17 +621,16 @@ watch(
 
 watch(
   () => modalHandler.value,
-  (handler, previous) => {
-    if (handler === previous) {
-      return
-    }
-    if (modalMode.value === 'create' || modalPlanTypes.value === defaultPlanTypesForHandler(previous || '')) {
-      modalPlanTypes.value = defaultPlanTypesForHandler(handler)
-    } else {
+  () => {
+    // 无按 handler 的默认套餐:新建或尚未选择时置空(不指定套餐),
+    // 否则把已选套餐按新 handler 的可用列表重新归一化
+    if (modalMode.value !== 'create' && modalPlanTypes.value !== '') {
       modalPlanTypes.value = joinPlanTypeInput(
         modalSelectedPlanTypes.value.filter((planType) => modalAvailablePlanTypes.value.includes(planType)),
         modalAvailablePlanTypes.value,
       )
+    } else {
+      modalPlanTypes.value = ''
     }
     const availablePlugins = new Set(modalAvailablePlugins.value.map((plugin) => plugin.name))
     modalPlugins.value = modalPlugins.value.filter((name) => availablePlugins.has(name))
@@ -653,7 +661,7 @@ watch(
     >
       <div class="toolbar-panel mb-4">
         <VTextField
-          v-model="search"
+          v-model="searchInput"
           label="搜索"
           placeholder="别名 / 上游模型"
           prepend-inner-icon="mdi-magnify"
@@ -670,7 +678,7 @@ watch(
               filter
               size="small"
             >
-              {{ handler.label }} ({{ modelsForHandler(handler.key) }})
+              {{ handler.label }} ({{ handlerModelCounts.get(handler.key) || 0 }})
             </VChip>
           </VChipGroup>
         </div>
@@ -725,7 +733,7 @@ watch(
               </AdminBadge>
             </div>
 
-            <div v-if="modelPlanTypes(item).length" class="d-flex flex-wrap ga-2 align-center">
+            <div v-if="modelCardView(item).planTypes.length" class="d-flex flex-wrap ga-2 align-center">
               <AdminBadge
                 tone="secondary"
                 subtle
@@ -734,26 +742,26 @@ watch(
               >
                 <span class="model-plan-summary-inline">
                   <span
-                    v-for="(planType, idx) in modelPlanTypes(item)"
+                    v-for="(planType, idx) in modelCardView(item).planTypes"
                     :key="planType"
                     class="model-plan-summary-token"
                   >
-                    {{ planTypeText(planType) }}<span v-if="idx < modelPlanTypes(item).length - 1" class="model-plan-arrow"> -&gt; </span>
+                    {{ planTypeText(planType) }}<span v-if="idx < modelCardView(item).planTypes.length - 1" class="model-plan-arrow"> -&gt; </span>
                   </span>
                 </span>
               </AdminBadge>
             </div>
 
-            <div v-if="modelPlugins(item).length || item.content_affinity || item.fill_first" class="d-flex flex-wrap ga-2 align-center">
+            <div v-if="modelCardView(item).plugins.length || item.content_affinity || item.fill_first" class="d-flex flex-wrap ga-2 align-center">
               <AdminBadge
-                v-for="pluginName in modelPlugins(item)"
+                v-for="pluginName in modelCardView(item).plugins"
                 :key="pluginName"
                 tone="accent"
                 subtle
                 icon="mdi-puzzle-outline"
                 class="model-plugin-badge"
               >
-                {{ pluginLabel(pluginName, pluginsForHandler(item.handler)) }}
+                {{ pluginLabel(pluginName, modelCardView(item).handlerPlugins) }}
               </AdminBadge>
               <AdminBadge
                 v-if="item.content_affinity"
@@ -890,13 +898,7 @@ watch(
           prepend-inner-icon="mdi-code-json"
           persistent-placeholder
         />
-        <VAlert
-          v-if="modalError"
-          type="error"
-          variant="tonal"
-          density="comfortable"
-          :text="modalError"
-        />
+        <FormErrorAlert :message="modalError" />
       </div>
       <template #footer>
         <AdminButton variant="ghost" @click="closeModal">取消</AdminButton>
@@ -947,13 +949,7 @@ watch(
           </div>
         </div>
 
-        <VAlert
-          v-if="modelCatalogError"
-          type="error"
-          variant="tonal"
-          density="comfortable"
-          :text="modelCatalogError"
-        />
+        <FormErrorAlert :message="modelCatalogError" />
 
         <div v-if="filteredModelCatalogItems.length" class="model-catalog-list">
           <button
@@ -1049,13 +1045,7 @@ watch(
           prepend-inner-icon="mdi-code-json"
           persistent-placeholder
         />
-        <VAlert
-          v-if="batchError"
-          type="error"
-          variant="tonal"
-          density="comfortable"
-          :text="batchError"
-        />
+        <FormErrorAlert :message="batchError" />
       </div>
       <template #footer>
         <AdminButton variant="ghost" @click="closeBatchModal">取消</AdminButton>
@@ -1069,88 +1059,45 @@ watch(
       </template>
     </ModalDialog>
 
-    <PlanOrderModal
-      :open="modelPlanOrder.open.value"
+    <OrderedSelectionHost
+      :modal="modelPlanOrder"
       title="调用套餐排序"
       :max-width="520"
-      :draft="modelPlanOrder.draft.value"
-      :drag-idx="modelPlanOrder.dragIdx.value"
-      :is-selected="modelPlanOrder.isSelected"
-      :rank-of="modelPlanOrder.rankOf"
-      :toggle="modelPlanOrder.toggle"
-      :on-drag-start="modelPlanOrder.onDragStart"
-      :on-drag-over="modelPlanOrder.onDragOver"
-      :on-drag-end="modelPlanOrder.onDragEnd"
-      @close="modelPlanOrder.closeModal()"
     />
 
-    <PlanOrderModal
-      :open="modelPluginOrder.open.value"
+    <OrderedSelectionHost
+      :modal="modelPluginOrder"
       title="插件排序"
       description="拖动排序，勾选启用；请求会按此顺序执行插件"
       icon="mdi-puzzle-outline"
       empty-text="当前处理器暂无可用插件"
       :max-width="520"
-      :draft="modelPluginOrder.draft.value"
-      :drag-idx="modelPluginOrder.dragIdx.value"
-      :is-selected="modelPluginOrder.isSelected"
-      :rank-of="modelPluginOrder.rankOf"
-      :toggle="modelPluginOrder.toggle"
-      :on-drag-start="modelPluginOrder.onDragStart"
-      :on-drag-over="modelPluginOrder.onDragOver"
-      :on-drag-end="modelPluginOrder.onDragEnd"
       :item-label="modalPluginLabel"
       :item-description="modalPluginDescription"
-      @close="modelPluginOrder.closeModal()"
     />
 
-    <PlanOrderModal
-      :open="batchPlanOrder.open.value"
+    <OrderedSelectionHost
+      :modal="batchPlanOrder"
       title="批量调用套餐排序"
       :max-width="520"
-      :draft="batchPlanOrder.draft.value"
-      :drag-idx="batchPlanOrder.dragIdx.value"
-      :is-selected="batchPlanOrder.isSelected"
-      :rank-of="batchPlanOrder.rankOf"
-      :toggle="batchPlanOrder.toggle"
-      :on-drag-start="batchPlanOrder.onDragStart"
-      :on-drag-over="batchPlanOrder.onDragOver"
-      :on-drag-end="batchPlanOrder.onDragEnd"
-      @close="batchPlanOrder.closeModal()"
     />
 
-    <PlanOrderModal
-      :open="batchPluginOrder.open.value"
+    <OrderedSelectionHost
+      :modal="batchPluginOrder"
       title="批量插件排序"
       description="拖动排序，勾选启用；所有已选模型会使用同一插件顺序"
       icon="mdi-puzzle-outline"
       empty-text="当前处理器暂无可用插件"
       :max-width="520"
-      :draft="batchPluginOrder.draft.value"
-      :drag-idx="batchPluginOrder.dragIdx.value"
-      :is-selected="batchPluginOrder.isSelected"
-      :rank-of="batchPluginOrder.rankOf"
-      :toggle="batchPluginOrder.toggle"
-      :on-drag-start="batchPluginOrder.onDragStart"
-      :on-drag-over="batchPluginOrder.onDragOver"
-      :on-drag-end="batchPluginOrder.onDragEnd"
       :item-label="batchPluginLabel"
       :item-description="batchPluginDescription"
-      @close="batchPluginOrder.closeModal()"
     />
 
-    <ModalDialog
-      :open="confirm.open.value"
-      :title="confirm.title.value"
+    <ConfirmDialogHost
+      :confirm="confirm"
+      :action-busy="actionBusy"
       icon="mdi-delete-outline"
-      @close="confirm.close()"
-    >
-      <p class="text-body-1">{{ confirm.message.value }}</p>
-      <template #footer>
-        <AdminButton variant="ghost" :disabled="actionBusy" @click="confirm.close()">取消</AdminButton>
-        <AdminButton variant="danger" :loading="actionBusy" @click="confirm.submit()">确认删除</AdminButton>
-      </template>
-    </ModalDialog>
+    />
   </div>
 </template>
 
@@ -1217,7 +1164,7 @@ watch(
   width: 100%;
   padding: 12px 14px;
   border: 1px solid rgba(var(--v-theme-outline-variant), 0.62);
-  border-radius: 8px;
+  border-radius: var(--admin-radius-panel);
   background: rgba(var(--v-theme-surface-container), 0.72);
   color: rgba(var(--v-theme-on-surface), 0.9);
   text-align: left;
@@ -1363,29 +1310,22 @@ watch(
   font-weight: 400;
 }
 
-.model-plugin-badge {
-  max-width: 100%;
-  height: auto !important;
-  min-height: 32px;
-  align-items: center;
-  border: 1px solid rgba(var(--v-theme-tertiary), 0.34);
-  background: rgba(var(--v-theme-tertiary), 0.07);
-}
-
-.model-affinity-badge {
-  max-width: 100%;
-  height: auto !important;
-  min-height: 32px;
-  align-items: center;
-  border: 1px solid rgba(var(--v-theme-secondary), 0.32);
-  background: rgba(var(--v-theme-secondary), 0.06);
-}
-
+.model-plugin-badge,
+.model-affinity-badge,
 .model-plan-badge {
   max-width: 100%;
   height: auto !important;
   min-height: 32px;
   align-items: center;
+}
+
+.model-plugin-badge {
+  border: 1px solid rgba(var(--v-theme-tertiary), 0.34);
+  background: rgba(var(--v-theme-tertiary), 0.07);
+}
+
+.model-affinity-badge,
+.model-plan-badge {
   border: 1px solid rgba(var(--v-theme-secondary), 0.32);
   background: rgba(var(--v-theme-secondary), 0.06);
 }

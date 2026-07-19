@@ -46,6 +46,7 @@ defineEmits<{
           :model-value="isSelected(option.value)"
           density="compact"
           hide-details
+          :aria-label="option.title"
           @update:model-value="toggle(option.value)"
           @click.stop
         />
@@ -73,7 +74,7 @@ defineEmits<{
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border-radius: 10px;
+  border-radius: var(--admin-radius-panel);
   background: rgba(var(--v-theme-on-surface), 0.04);
   transition: background 0.15s;
   user-select: none;

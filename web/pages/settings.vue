@@ -5,9 +5,9 @@ import {
   DEFAULT_SETTINGS_FORM,
   antigravityAPIEndpointText,
   geminiBaseURLText,
+  handlerIcon,
   joinAntigravityAPIEndpointInput,
   joinGeminiBaseURLInput,
-  joinPlanTypeInput,
   settingsToForm,
   settingsToPayload,
   splitAntigravityAPIEndpointInput,
@@ -70,6 +70,12 @@ function toggleGeminiEndpoint(value: string) {
   const selected = splitGeminiBaseURLInput(form.value.gemini_base_urls)
   const idx = selected.indexOf(value)
   if (idx >= 0) {
+    // 至少保留一个端点:split 对空数组会静默回退到第一个选项,
+    // 在写路径上拦截,避免勾选被静默改成用户没选过的值
+    if (selected.length === 1) {
+      admin.notify('至少保留一个接口', 'warning')
+      return
+    }
     selected.splice(idx, 1)
   } else {
     selected.push(value)
@@ -85,6 +91,11 @@ function toggleAntigravityEndpoint(value: string) {
   const selected = splitAntigravityAPIEndpointInput(form.value.antigravity_api_endpoint)
   const idx = selected.indexOf(value)
   if (idx >= 0) {
+    // 同上:至少保留一个端点
+    if (selected.length === 1) {
+      admin.notify('至少保留一个端点', 'warning')
+      return
+    }
     selected.splice(idx, 1)
   } else {
     selected.push(value)
@@ -214,11 +225,11 @@ function normalizeSettingsForm(source: SettingsForm): SettingsForm {
     opencode_go_proxy: source.opencode_go_proxy.trim(),
     codex_user_agent: source.codex_user_agent.trim(),
     antigravity_user_agent: source.antigravity_user_agent.trim(),
-    antigravity_api_endpoint: joinAntigravityAPIEndpointInput(splitAntigravityAPIEndpointInput(source.antigravity_api_endpoint)),
-    codex_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.codex_preferred_plan_types, codexPlanTypes.value), codexPlanTypes.value),
-    gemini_base_urls: joinGeminiBaseURLInput(splitGeminiBaseURLInput(source.gemini_base_urls)),
-    gemini_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.gemini_preferred_plan_types, geminiPlanTypes.value), geminiPlanTypes.value),
-    antigravity_preferred_plan_types: joinPlanTypeInput(splitPlanTypeInput(source.antigravity_preferred_plan_types, antigravityPlanTypes.value), antigravityPlanTypes.value),
+    antigravity_api_endpoint: splitAntigravityAPIEndpointInput(source.antigravity_api_endpoint).join(','),
+    codex_preferred_plan_types: splitPlanTypeInput(source.codex_preferred_plan_types, codexPlanTypes.value).join(','),
+    gemini_base_urls: splitGeminiBaseURLInput(source.gemini_base_urls).join(','),
+    gemini_preferred_plan_types: splitPlanTypeInput(source.gemini_preferred_plan_types, geminiPlanTypes.value).join(','),
+    antigravity_preferred_plan_types: splitPlanTypeInput(source.antigravity_preferred_plan_types, antigravityPlanTypes.value).join(','),
   }
 
   for (const field of numericFields) {
@@ -262,20 +273,7 @@ async function saveSettings() {
   }
 }
 
-onMounted(() => {
-  if (admin.authReady.value) {
-    void loadSettings()
-  }
-})
-
-watch(
-  () => admin.authReady.value,
-  (ready) => {
-    if (ready) {
-      void loadSettings()
-    }
-  },
-)
+useAuthReadyLoader(loadSettings)
 </script>
 
 <template>
@@ -334,7 +332,7 @@ watch(
     </SectionCard>
 
     <!-- Codex -->
-    <SectionCard title="Codex" icon="mdi-console">
+    <SectionCard title="Codex" :icon="handlerIcon('codex')">
       <div class="setting-field-stack">
         <div class="settings-item">
           <div class="settings-item-copy">
@@ -361,15 +359,11 @@ watch(
           />
         </div>
 
-        <div class="settings-item settings-item--toggle" style="cursor: pointer" @click="codexPlanOrder.openModal()">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">调用套餐顺序</div>
-            <div class="settings-item-description text-medium-emphasis">
-              优先使用的套餐类型及顺序：{{ codexPlanOrder.preview.value.length ? codexPlanOrder.preview.value.join(' → ') : '未配置' }}
-            </div>
-          </div>
-          <VIcon icon="mdi-chevron-right" />
-        </div>
+        <SettingNavRow
+          title="调用套餐顺序"
+          :description="`优先使用的套餐类型及顺序：${codexPlanOrder.preview.value.length ? codexPlanOrder.preview.value.join(' → ') : '未配置'}`"
+          @activate="codexPlanOrder.openModal()"
+        />
 
         <div class="settings-item settings-item--toggle">
           <div class="settings-item-copy">
@@ -382,7 +376,7 @@ watch(
       </div>
     </SectionCard>
 
-    <SectionCard title="Gemini CLI" icon="mdi-google-circles-communities">
+    <SectionCard title="Gemini CLI" :icon="handlerIcon('gemini')">
       <div class="setting-field-stack">
         <div class="settings-item">
           <div class="settings-item-copy">
@@ -397,25 +391,17 @@ watch(
           />
         </div>
 
-        <div class="settings-item settings-item--toggle" style="cursor: pointer" @click="geminiEndpointOpen = true">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">Gemini CLI 接口</div>
-            <div class="settings-item-description text-medium-emphasis">
-              已启用：{{ geminiEndpointPreview }}
-            </div>
-          </div>
-          <VIcon icon="mdi-chevron-right" />
-        </div>
+        <SettingNavRow
+          title="Gemini CLI 接口"
+          :description="`已启用：${geminiEndpointPreview}`"
+          @activate="geminiEndpointOpen = true"
+        />
 
-        <div class="settings-item settings-item--toggle" style="cursor: pointer" @click="geminiPlanOrder.openModal()">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">调用套餐顺序</div>
-            <div class="settings-item-description text-medium-emphasis">
-              优先使用的套餐类型及顺序：{{ geminiPlanOrder.preview.value.length ? geminiPlanOrder.preview.value.join(' → ') : '未配置' }}
-            </div>
-          </div>
-          <VIcon icon="mdi-chevron-right" />
-        </div>
+        <SettingNavRow
+          title="调用套餐顺序"
+          :description="`优先使用的套餐类型及顺序：${geminiPlanOrder.preview.value.length ? geminiPlanOrder.preview.value.join(' → ') : '未配置'}`"
+          @activate="geminiPlanOrder.openModal()"
+        />
 
       </div>
     </SectionCard>
@@ -423,7 +409,7 @@ watch(
     <SectionCard
       v-if="hasAntigravityCreditsOverageSetting"
       title="Antigravity"
-      icon="mdi-compass-outline"
+      :icon="handlerIcon('antigravity')"
     >
       <div class="setting-field-stack">
         <div class="settings-item">
@@ -451,15 +437,11 @@ watch(
           />
         </div>
 
-        <div class="settings-item settings-item--toggle" style="cursor: pointer" @click="antigravityEndpointOpen = true">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">API 端点</div>
-            <div class="settings-item-description text-medium-emphasis">
-              已启用：{{ antigravityEndpointPreview }}
-            </div>
-          </div>
-          <VIcon icon="mdi-chevron-right" />
-        </div>
+        <SettingNavRow
+          title="API 端点"
+          :description="`已启用：${antigravityEndpointPreview}`"
+          @activate="antigravityEndpointOpen = true"
+        />
 
         <div class="settings-item settings-item--toggle">
           <div class="settings-item-copy">
@@ -469,19 +451,15 @@ watch(
           <VSwitch v-model="form.antigravity_use_credits" />
         </div>
 
-        <div class="settings-item settings-item--toggle" style="cursor: pointer" @click="antigravityPlanOrder.openModal()">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">调用套餐顺序</div>
-            <div class="settings-item-description text-medium-emphasis">
-              优先使用的套餐类型及顺序：{{ antigravityPlanOrder.preview.value.length ? antigravityPlanOrder.preview.value.join(' → ') : '未配置' }}
-            </div>
-          </div>
-          <VIcon icon="mdi-chevron-right" />
-        </div>
+        <SettingNavRow
+          title="调用套餐顺序"
+          :description="`优先使用的套餐类型及顺序：${antigravityPlanOrder.preview.value.length ? antigravityPlanOrder.preview.value.join(' → ') : '未配置'}`"
+          @activate="antigravityPlanOrder.openModal()"
+        />
       </div>
     </SectionCard>
 
-    <SectionCard title="OpenCode Go" icon="mdi-code-braces-box">
+    <SectionCard title="OpenCode Go" :icon="handlerIcon('opencode-go')">
       <div class="setting-field-stack">
         <div class="settings-item">
           <div class="settings-item-copy">
@@ -500,47 +478,9 @@ watch(
     </SectionCard>
 
     <!-- Plan Order Modals -->
-    <PlanOrderModal
-      :open="codexPlanOrder.open.value"
-      title="调用套餐顺序"
-      :draft="codexPlanOrder.draft.value"
-      :drag-idx="codexPlanOrder.dragIdx.value"
-      :is-selected="codexPlanOrder.isSelected"
-      :rank-of="codexPlanOrder.rankOf"
-      :toggle="codexPlanOrder.toggle"
-      :on-drag-start="codexPlanOrder.onDragStart"
-      :on-drag-over="codexPlanOrder.onDragOver"
-      :on-drag-end="codexPlanOrder.onDragEnd"
-      @close="codexPlanOrder.closeModal()"
-    />
-
-    <PlanOrderModal
-      :open="geminiPlanOrder.open.value"
-      title="调用套餐顺序"
-      :draft="geminiPlanOrder.draft.value"
-      :drag-idx="geminiPlanOrder.dragIdx.value"
-      :is-selected="geminiPlanOrder.isSelected"
-      :rank-of="geminiPlanOrder.rankOf"
-      :toggle="geminiPlanOrder.toggle"
-      :on-drag-start="geminiPlanOrder.onDragStart"
-      :on-drag-over="geminiPlanOrder.onDragOver"
-      :on-drag-end="geminiPlanOrder.onDragEnd"
-      @close="geminiPlanOrder.closeModal()"
-    />
-
-    <PlanOrderModal
-      :open="antigravityPlanOrder.open.value"
-      title="套餐顺序"
-      :draft="antigravityPlanOrder.draft.value"
-      :drag-idx="antigravityPlanOrder.dragIdx.value"
-      :is-selected="antigravityPlanOrder.isSelected"
-      :rank-of="antigravityPlanOrder.rankOf"
-      :toggle="antigravityPlanOrder.toggle"
-      :on-drag-start="antigravityPlanOrder.onDragStart"
-      :on-drag-over="antigravityPlanOrder.onDragOver"
-      :on-drag-end="antigravityPlanOrder.onDragEnd"
-      @close="antigravityPlanOrder.closeModal()"
-    />
+    <OrderedSelectionHost :modal="codexPlanOrder" title="调用套餐顺序" />
+    <OrderedSelectionHost :modal="geminiPlanOrder" title="调用套餐顺序" />
+    <OrderedSelectionHost :modal="antigravityPlanOrder" title="套餐顺序" />
 
     <EndpointSelectionModal
       :open="geminiEndpointOpen"

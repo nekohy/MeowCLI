@@ -113,10 +113,7 @@ async function createAuthKey() {
     await adminApi.createAuthKey(admin.token.value, payload)
     closeModal()
     admin.notify('密钥已创建')
-    await Promise.all([
-      admin.loadOverview(admin.token.value, true),
-      loadAuthKeys(),
-    ])
+    await admin.refreshAfterMutation(loadAuthKeys)
   } catch (error) {
     modalError.value = error instanceof Error ? error.message : '创建密钥失败'
   } finally {
@@ -163,6 +160,7 @@ function updateAuthKey(item: AuthKeyItem) {
     title: '保存密钥设置',
     message: `确认保存 ${item.key} 的角色和备注修改吗？`,
     confirmText: '确认保存',
+    confirmVariant: 'secondary',
     action: async () => {
       actionBusy.value = true
       try {
@@ -171,10 +169,7 @@ function updateAuthKey(item: AuthKeyItem) {
           note: nextNote,
         })
         admin.notify('密钥设置已更新')
-        await Promise.all([
-          admin.loadOverview(admin.token.value, true),
-          loadAuthKeys(),
-        ])
+        await admin.refreshAfterMutation(loadAuthKeys)
       } catch (error) {
         admin.notify(error instanceof Error ? error.message : '更新密钥失败', 'danger')
         roleDrafts.value[item.key] = item.role
@@ -196,10 +191,7 @@ function deleteAuthKey(item: AuthKeyItem) {
       try {
         await adminApi.deleteAuthKey(admin.token.value, item.key)
         admin.notify('密钥已删除')
-        await Promise.all([
-          admin.loadOverview(admin.token.value, true),
-          loadAuthKeys(),
-        ])
+        await admin.refreshAfterMutation(loadAuthKeys)
       } catch (error) {
         admin.notify(error instanceof Error ? error.message : '删除密钥失败', 'danger')
       } finally {
@@ -209,20 +201,7 @@ function deleteAuthKey(item: AuthKeyItem) {
   })
 }
 
-onMounted(() => {
-  if (admin.authReady.value) {
-    void loadAuthKeys()
-  }
-})
-
-watch(
-  () => admin.authReady.value,
-  (ready) => {
-    if (ready) {
-      void loadAuthKeys()
-    }
-  },
-)
+useAuthReadyLoader(loadAuthKeys)
 </script>
 
 <template>
@@ -273,9 +252,9 @@ watch(
           </div>
 
           <VChipGroup v-model="roleFilter" mandatory color="primary">
-            <VChip value="all" filter>全部角色</VChip>
-            <VChip value="admin" filter>管理员</VChip>
-            <VChip value="user" filter>普通成员</VChip>
+            <VChip value="all" filter size="small">全部角色</VChip>
+            <VChip value="admin" filter size="small">管理员</VChip>
+            <VChip value="user" filter size="small">普通成员</VChip>
           </VChipGroup>
         </div>
       </div>
@@ -305,11 +284,13 @@ watch(
                   </AdminBadge>
                 </div>
                 <div class="key-inline-row">
-                  <code
+                  <button
+                    type="button"
                     class="key-code-surface key-code-clickable"
                     title="点击复制"
+                    :aria-label="`复制密钥 ${item.key}`"
                     @click="copyAuthKey(item.key)"
-                  >{{ item.key }}</code>
+                  >{{ item.key }}</button>
                   <AdminButton
                     variant="danger"
                     size="sm"
@@ -390,13 +371,7 @@ watch(
           placeholder="例如：CI / 本地开发"
           prepend-inner-icon="mdi-note-outline"
         />
-        <VAlert
-          v-if="modalError"
-          type="error"
-          variant="tonal"
-          density="comfortable"
-          :text="modalError"
-        />
+        <FormErrorAlert :message="modalError" />
       </div>
       <template #footer>
         <AdminButton variant="ghost" @click="closeModal">取消</AdminButton>
@@ -410,17 +385,10 @@ watch(
       </template>
     </ModalDialog>
 
-    <ModalDialog
-      :open="confirm.open.value"
-      :title="confirm.title.value"
+    <ConfirmDialogHost
+      :confirm="confirm"
+      :action-busy="actionBusy"
       description="操作会立即影响当前密钥权限"
-      @close="confirm.close()"
-    >
-      <p class="text-body-1">{{ confirm.message.value }}</p>
-      <template #footer>
-        <AdminButton variant="ghost" :disabled="actionBusy" @click="confirm.close()">取消</AdminButton>
-        <AdminButton variant="danger" :loading="actionBusy" @click="confirm.submit()">{{ confirm.text.value }}</AdminButton>
-      </template>
-    </ModalDialog>
+    />
   </div>
 </template>

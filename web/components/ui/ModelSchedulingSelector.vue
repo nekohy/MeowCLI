@@ -41,7 +41,6 @@ function handleFocusOut(event: FocusEvent) {
 <template>
   <VField
     class="model-scheduling-selector"
-    :id="`${id}-field`"
     label="调度策略"
     variant="outlined"
     rounded="lg"
@@ -139,7 +138,7 @@ function handleFocusOut(event: FocusEvent) {
   min-height: 58px;
   padding: 9px 8px 9px 12px;
   border: 0;
-  border-radius: var(--admin-radius-control-sm);
+  border-radius: var(--admin-radius-panel);
   background: rgba(var(--v-theme-on-surface), 0.035);
   cursor: pointer;
   user-select: none;

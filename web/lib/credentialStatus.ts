@@ -80,22 +80,6 @@ export function credentialStatusQueryValue(statuses: CredentialStatusFilter[]): 
   return selected.length ? selected : undefined
 }
 
-export function credentialStatusFilterOptions(statuses: Iterable<string>) {
-  const available = new Set<string>()
-  for (const status of statuses) {
-    if (isKnownCredentialStatus(status) || isThrottleTierStatus(status)) {
-      available.add(status)
-    }
-  }
-
-  return [
-    { value: CREDENTIAL_STATUS_FILTER_ALL, label: '全部状态' },
-    ...[...KNOWN_CREDENTIAL_STATUSES, ...Array.from(available).filter(isThrottleTierStatus).sort()]
-      .filter((status) => available.has(status))
-      .map((status) => ({ value: status, label: credentialStatusLabel(status) })),
-  ]
-}
-
 export function credentialBaseStatus(statuses?: string[] | string | null) {
   const list = Array.isArray(statuses) ? statuses : [String(statuses || '')]
   return list.find(isKnownCredentialStatus) || ''

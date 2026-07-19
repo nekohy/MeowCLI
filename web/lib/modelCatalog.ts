@@ -41,7 +41,7 @@ export function normalizeModelCatalog(value: unknown): ModelCatalogItem[] {
     models.push({
       id,
       name: stringField(record.name) || id,
-      description: stringField(record.description) || stringField(record.description),
+      description: stringField(record.description),
     })
   }
 

@@ -44,7 +44,11 @@ interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
   query?: Record<string, string | number | boolean | string[] | undefined | null>
+  signal?: AbortSignal
 }
+
+/** 默认请求超时:防止后端 hang 住时轮询请求无限堆积 */
+export const REQUEST_TIMEOUT_MS = 15_000
 
 type QueryOptions = NonNullable<RequestOptions['query']>
 
@@ -83,7 +87,12 @@ export function getStoredToken() {
   if (!import.meta.client) {
     return ''
   }
-  return localStorage.getItem(PRIMARY_TOKEN_KEY) || ''
+  // 隐私模式/企业策略下 localStorage 可能抛 SecurityError,按未登录处理
+  try {
+    return localStorage.getItem(PRIMARY_TOKEN_KEY) || ''
+  } catch {
+    return ''
+  }
 }
 
 export function setStoredToken(token: string) {
@@ -91,16 +100,21 @@ export function setStoredToken(token: string) {
     return
   }
 
-  if (!token) {
-    localStorage.removeItem(PRIMARY_TOKEN_KEY)
-    return
-  }
+  // 存储不可用时静默跳过,仅丢失持久化,不中断登录流程
+  try {
+    if (!token) {
+      localStorage.removeItem(PRIMARY_TOKEN_KEY)
+      return
+    }
 
-  localStorage.setItem(PRIMARY_TOKEN_KEY, token)
+    localStorage.setItem(PRIMARY_TOKEN_KEY, token)
+  } catch {
+    // ignore
+  }
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { token = '', method = 'GET', body, query } = options
+  const { token = '', method = 'GET', body, query, signal } = options
   const headers: Record<string, string> = {}
 
   if (body !== undefined) {
@@ -114,6 +128,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal: signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
 
   const data = await parseResponse(response)

@@ -7,34 +7,36 @@ export function useOrderedSelectionModal(
   const draft = ref<string[]>([])
   const dragIdx = ref<number | null>(null)
 
-  function items() {
-    return allItems()
+  // computed 缓存归一化结果:isSelected/rankOf 在模板中按项调用,
+  // 普通函数会让每次渲染重复 trim/filter/去重(O(n²))
+  const items = computed(() => (
+    allItems()
       .map((item) => item.trim())
       .filter(Boolean)
       .filter((item, index, list) => list.indexOf(item) === index)
-  }
+  ))
 
-  function selectedItems() {
-    const allowed = new Set(items())
+  const selectedItems = computed(() => {
+    const allowed = new Set(items.value)
     return getSelected()
       .map((item) => item.trim())
       .filter(Boolean)
       .filter((item, index, list) => list.indexOf(item) === index && allowed.has(item))
-  }
+  })
 
   function openModal() {
-    const selected = selectedItems()
-    const unselected = items().filter((item) => !selected.includes(item))
+    const selected = selectedItems.value
+    const unselected = items.value.filter((item) => !selected.includes(item))
     draft.value = [...selected, ...unselected]
     open.value = true
   }
 
   function isSelected(item: string) {
-    return selectedItems().includes(item)
+    return selectedItems.value.includes(item)
   }
 
   function toggle(item: string) {
-    const selected = selectedItems()
+    const selected = [...selectedItems.value]
     const idx = selected.indexOf(item)
     if (idx >= 0) {
       selected.splice(idx, 1)
@@ -42,7 +44,7 @@ export function useOrderedSelectionModal(
       selected.push(item)
     }
     setSelected(selected)
-    const newSelected = selectedItems()
+    const newSelected = selectedItems.value
     const remaining = draft.value.filter((draftItem) => !newSelected.includes(draftItem))
     draft.value = [...newSelected, ...remaining]
   }
@@ -64,19 +66,32 @@ export function useOrderedSelectionModal(
 
   function onDragEnd() {
     dragIdx.value = null
-    const selected = new Set(selectedItems())
+    const selected = new Set(selectedItems.value)
     const ordered = draft.value.filter((item) => selected.has(item))
     setSelected(ordered)
+  }
+
+  // 拖拽的键盘替代:上移/下移按钮,提交逻辑与 onDragEnd 一致
+  function onMove(idx: number, direction: -1 | 1) {
+    const target = idx + direction
+    if (target < 0 || target >= draft.value.length) return
+    const list = [...draft.value]
+    const moved = list.splice(idx, 1)[0]
+    if (moved === undefined) return
+    list.splice(target, 0, moved)
+    draft.value = list
+    const selected = new Set(selectedItems.value)
+    setSelected(list.filter((item) => selected.has(item)))
   }
 
   function closeModal() {
     open.value = false
   }
 
-  const preview = computed(() => selectedItems())
+  const preview = selectedItems
 
   function rankOf(item: string) {
-    return selectedItems().indexOf(item) + 1
+    return selectedItems.value.indexOf(item) + 1
   }
 
   return {
@@ -89,6 +104,7 @@ export function useOrderedSelectionModal(
     onDragStart,
     onDragOver,
     onDragEnd,
+    onMove,
     closeModal,
     preview,
     rankOf,

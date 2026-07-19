@@ -20,10 +20,12 @@ defineEmits<{
       :class="{ 'is-active': selected === handler.key }"
       color="surface-container"
       variant="flat"
+      border
       role="button"
       tabindex="0"
       @click="$emit('select', handler.key)"
       @keyup.enter="$emit('select', handler.key)"
+      @keyup.space.prevent="$emit('select', handler.key)"
     >
       <VCardText class="handler-card-shell">
         <div class="handler-card-top">
@@ -38,7 +40,7 @@ defineEmits<{
             <div class="handler-card-stat-value">{{ handler.credentials_total || 0 }}</div>
           </div>
           <div class="handler-card-stat">
-            <div class="text-body-2 text-medium-emphasis">正常</div>
+            <div class="text-body-2 text-medium-emphasis">可用</div>
             <div class="handler-card-stat-value">{{ handler.credentials_enabled || 0 }}</div>
           </div>
         </div>

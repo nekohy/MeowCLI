@@ -12,9 +12,13 @@ const lightTheme = {
     'surface-container-high': '#EDF2EA',
     'surface-container-highest': '#E7ECE4',
     primary: '#2F6651',
+    // 显式覆盖 darken-1:Vuetify 默认主题深合并会残留默认蓝绿色变体
+    'primary-darken-1': '#295A47',
     'primary-container': '#BCECD0',
     secondary: '#4B6354',
+    'secondary-darken-1': '#42574A',
     'secondary-container': '#CFE9D7',
+    'on-secondary-container': '#0F2A1E',
     tertiary: '#7B5B2E',
     'tertiary-container': '#FFDDAF',
     success: '#2F6C4A',
@@ -27,8 +31,10 @@ const lightTheme = {
     'on-surface': '#171D19',
     'on-surface-variant': '#435149',
     'on-primary': '#FFFFFF',
+    'on-primary-darken-1': '#FFFFFF',
     'on-primary-container': '#032115',
     'on-secondary': '#FFFFFF',
+    'on-secondary-darken-1': '#FFFFFF',
     'on-tertiary': '#FFFFFF',
     'on-error': '#FFFFFF',
   },
@@ -46,9 +52,12 @@ const darkTheme = {
     'surface-container-high': '#202A23',
     'surface-container-highest': '#273229',
     primary: '#8FD7B4',
+    'primary-darken-1': '#7EBD9E',
     'primary-container': '#114E39',
     secondary: '#B0CCBA',
+    'secondary-darken-1': '#9BB4A4',
     'secondary-container': '#344A3D',
+    'on-secondary-container': '#D8EFE0',
     tertiary: '#F1C48A',
     'tertiary-container': '#5C4216',
     success: '#97D7AF',
@@ -61,8 +70,10 @@ const darkTheme = {
     'on-surface': '#DEE5DD',
     'on-surface-variant': '#BDC8BD',
     'on-primary': '#003826',
+    'on-primary-darken-1': '#003220',
     'on-primary-container': '#BCECD0',
     'on-secondary': '#1C3428',
+    'on-secondary-darken-1': '#182D23',
     'on-tertiary': '#462E06',
     'on-error': '#690005',
   },
@@ -75,14 +86,14 @@ export default defineVuetifyConfiguration({
       color: 'surface-container',
     },
     VBtn: {
-      rounded: 'lg',
+      rounded: 'pill',
       variant: 'tonal',
       color: 'primary',
       height: 40,
       elevation: 0,
     },
     VCard: {
-      rounded: 'xl',
+      rounded: 'lg',
       elevation: 0,
       border: false,
       VBtn: {
@@ -99,7 +110,7 @@ export default defineVuetifyConfiguration({
     },
     VExpansionPanel: {
       elevation: 0,
-      rounded: 'xl',
+      rounded: 'lg',
     },
     VList: {
       bgColor: 'transparent',
@@ -119,7 +130,7 @@ export default defineVuetifyConfiguration({
     VSelect: {
       color: 'primary',
       variant: 'outlined',
-      rounded: 'lg',
+      rounded: 'md',
       density: 'comfortable',
       hideDetails: 'auto',
       menuProps: {
@@ -128,7 +139,7 @@ export default defineVuetifyConfiguration({
       },
     },
     VSnackbar: {
-      rounded: 'xl',
+      rounded: 'md',
       elevation: 0,
     },
     VSwitch: {
@@ -137,21 +148,17 @@ export default defineVuetifyConfiguration({
       inset: true,
       density: 'compact',
     },
-    VTable: {
-      density: 'comfortable',
-      hover: true,
-    },
     VTextField: {
       color: 'primary',
       variant: 'outlined',
-      rounded: 'lg',
+      rounded: 'md',
       density: 'comfortable',
       hideDetails: 'auto',
     },
     VTextarea: {
       color: 'primary',
       variant: 'outlined',
-      rounded: 'lg',
+      rounded: 'md',
       density: 'comfortable',
       hideDetails: 'auto',
       autoGrow: true,
@@ -170,6 +177,13 @@ export default defineVuetifyConfiguration({
   },
   theme: {
     defaultTheme: 'light',
+    // 关闭颜色变体生成：默认会为 primary/secondary 等生成 lighten/darken 变体，
+    // 深合并后产物里残留 Vuetify 默认蓝色变体，与自定义绿灰主色冲突
+    variations: {
+      colors: [],
+      lighten: 0,
+      darken: 0,
+    },
     themes: {
       light: lightTheme,
       dark: darkTheme,

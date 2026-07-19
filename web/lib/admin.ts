@@ -21,42 +21,36 @@ export const NAV_ITEMS: NavItem[] = [
     to: '/',
     icon: 'mdi-view-dashboard-outline',
     label: '总览',
-    eyebrow: '运行',
   },
   {
     key: 'settings',
     to: '/settings',
     icon: 'mdi-cog-outline',
     label: '设置',
-    eyebrow: '策略',
   },
   {
     key: 'credentials',
     to: '/credentials',
     icon: 'mdi-key-outline',
     label: '凭据',
-    eyebrow: '凭据池',
   },
   {
     key: 'models',
     to: '/models',
     icon: 'mdi-compare-horizontal',
     label: '模型',
-    eyebrow: '映射',
   },
   {
     key: 'logs',
     to: '/logs',
     icon: 'mdi-text-box-outline',
     label: '日志',
-    eyebrow: '诊断',
   },
   {
     key: 'keys',
     to: '/keys',
     icon: 'mdi-shield-key-outline',
     label: '密钥',
-    eyebrow: '访问',
   },
 ]
 
@@ -113,14 +107,21 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   opencode_go_proxy: '',
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  available: '可用',
-  planned: '规划中',
-}
-
 const ROLE_LABELS: Record<string, string> = {
   admin: '管理员',
   user: '普通成员',
+}
+
+/** handler key → 导航/区块图标(图标需在 lib/icons.ts 注册) */
+export const HANDLER_ICON_BY_KEY: Record<string, string> = {
+  codex: 'mdi-console',
+  gemini: 'mdi-google-circles-communities',
+  antigravity: 'mdi-compass-outline',
+  'opencode-go': 'mdi-code-braces-box',
+}
+
+export function handlerIcon(handlerKey: string) {
+  return HANDLER_ICON_BY_KEY[handlerKey] || 'mdi-cpu-64-bit'
 }
 
 const PLAN_TYPE_SPLIT_RE = /[,\s;]+/
@@ -169,8 +170,13 @@ export function applyTheme(theme: ThemeMode) {
   }
 
   const normalized = normalizeTheme(theme)
-  document.documentElement.dataset.theme = normalized
-  document.documentElement.style.colorScheme = normalized
+  const root = document.documentElement
+  root.dataset.theme = normalized
+  root.style.colorScheme = normalized
+  // 主题类挂在 <html> 上,让 Vuetify 的 .v-theme--* 变量对整棵文档树生效
+  // (vuetifyTheme.change() 只更新 .v-application 与内联样式表,够不到 html/body)
+  root.classList.toggle('v-theme--dark', normalized === 'dark')
+  root.classList.toggle('v-theme--light', normalized === 'light')
 
   const meta = document.querySelector('meta[name="color-scheme"]')
   meta?.setAttribute('content', normalized === 'dark' ? 'dark light' : 'light dark')
@@ -191,6 +197,18 @@ export async function copyText(value: string) {
   }
 }
 
+// Intl 构造开销大，模块级缓存复用（凭据卡/日志列表每次渲染会大量调用）
+const zhDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+const enNumberFormatterCompact = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
+const enNumberFormatterFraction = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
+const usdCurrencyFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+
 export function formatTime(value?: string | null) {
   if (!value || value === '0001-01-01T00:00:00Z' || value === '0001-01-01 00:00:00') {
     return '-'
@@ -204,13 +222,18 @@ export function formatTime(value?: string | null) {
     return '-'
   }
 
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
+  return zhDateTimeFormatter.format(date)
+}
+
+export function formatCreditsAmount(value: number) {
+  if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) {
+    return '0'
+  }
+  return (value >= 100 ? enNumberFormatterCompact : enNumberFormatterFraction).format(value)
+}
+
+export function formatUsdFromCents(cents: number) {
+  return usdCurrencyFormatter.format(Number(cents || 0) / 100)
 }
 
 export function formatPercent(value?: number | null) {
@@ -224,7 +247,7 @@ export function statusText(status?: string | null) {
   if (isKnownCredentialStatus(status) || isThrottleTierStatus(status)) {
     return credentialStatusLabel(status)
   }
-  return STATUS_LABELS[status ?? ''] || status || '-'
+  return status || '-'
 }
 
 export function roleText(role?: string | null) {
@@ -232,19 +255,7 @@ export function roleText(role?: string | null) {
 }
 
 export function toneForStatus(status?: string | null): UiTone {
-  if (isKnownCredentialStatus(status) || isThrottleTierStatus(status)) {
-    return credentialStatusTone(status)
-  }
-  switch (status) {
-    case 'available':
-      return 'success'
-    case 'planned':
-      return 'accent'
-    case 'admin':
-      return 'warning'
-    default:
-      return 'neutral'
-  }
+  return credentialStatusTone(status)
 }
 
 export function colorForTone(tone?: UiTone) {
@@ -257,8 +268,6 @@ export function colorForTone(tone?: UiTone) {
       return 'warning'
     case 'accent':
       return 'tertiary'
-    case 'muted':
-      return 'surface-variant'
     case 'secondary':
       return 'secondary'
     default:
@@ -291,10 +300,6 @@ export function isPastTime(value?: string | null) {
   if (!value || isZeroTime(value)) return true
   const date = new Date(value)
   return Number.isNaN(date.getTime()) || date.getTime() <= Date.now()
-}
-
-export function apiTypesText(types?: string[]) {
-  return types?.join(' / ') || '未声明'
 }
 
 export function normalizePlanType(value?: string | null) {

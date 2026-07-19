@@ -183,9 +183,9 @@ onBeforeUnmount(() => {
     <div v-else class="text-center text-medium-emphasis py-4">
       暂无错误
     </div>
-    <div class="import-error-footer">
+    <template #footer>
       <VBtn variant="text" @click="errorDialogOpen = false">关闭</VBtn>
-    </div>
+    </template>
   </ModalDialog>
 </template>
 
@@ -280,15 +280,9 @@ onBeforeUnmount(() => {
 .import-error-copy > small {
   color: rgba(var(--v-theme-on-surface), 0.58);
   font-size: 0.75rem;
-  font-weight: 450;
+  font-weight: 400;
   line-height: 1.35;
   overflow-wrap: anywhere;
-}
-
-.import-error-footer {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 10px;
 }
 
 .import-dock-enter-active,

@@ -3,26 +3,22 @@ import { adminApi } from '~/composables/useAdminApi'
 import { newlyCompletedImportJobs } from '~/composables/useImportJobs'
 import {
   CREDENTIAL_THROTTLE_STATUS_ALL,
-  credentialBaseStatus,
-  credentialReasonLabel,
-  credentialStatusBadges,
-  credentialStatusIcon,
   credentialStatusQueryValue,
-  shouldShowCredentialReason,
   type CredentialStatusFilter,
 } from '~/lib/credentialStatus'
 import {
   CREDENTIAL_PAGE_SIZE_OPTIONS,
   codexCredentialAccountID,
   codexCredentialEmail,
+  formatCreditsAmount,
   formatPercent,
   formatTime,
+  formatUsdFromCents,
   isPastTime,
   isZeroTime,
   normalizePlanType,
   planTypeText,
   statusText,
-  toneForStatus,
 } from '~/lib/admin'
 import type {
   CredentialHandlerKey,
@@ -54,8 +50,7 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(6)
 const loading = ref(false)
-const searchInput = ref('')
-const searchQuery = ref('')
+const { input: searchInput, query: searchQuery } = useDebouncedRef()
 const statusFilter = ref<CredentialStatusFilter[]>([])
 const throttleFiltersExpanded = ref(false)
 const planFilter = ref('all')
@@ -259,7 +254,6 @@ const importDescription = computed(() => (
   activeCredentialField.value?.help_text || '一行一个凭据，保存后会纳入当前处理器调度'
 ))
 
-let searchTimer: ReturnType<typeof setTimeout> | undefined
 let latestLoadToken = 0
 
 function isCodexItem(item: CredentialItem): item is CodexItem {
@@ -288,6 +282,15 @@ function genericDetailEntries(item: CredentialItem) {
     { label: 'AT到期', value: raw.expired ? formatTime(String(raw.expired)) : '-' },
     { label: '最近同步', value: item.synced_at ? formatTime(String(item.synced_at)) : '-' },
   ].filter((entry) => entry.value && entry.value !== 'unknown')
+}
+
+// gemini/antigravity 分支共享的项目详情块
+function projectDetailEntries(item: GeminiCredentialItem | AntigravityCredentialItem) {
+  return [
+    { label: '项目 ID', value: item.project_id || '-' },
+    { label: 'AT到期', value: formatTime(item.expired) },
+    { label: '最近同步', value: item.synced_at ? formatTime(item.synced_at) : '-' },
+  ]
 }
 
 function throttleTiersForHandler(handler: string) {
@@ -452,10 +455,7 @@ async function completeOAuthLogin() {
     })
     closeOAuthModal(true)
     admin.notify(`OAuth 凭据已添加：${result.id}`, 'success')
-    await Promise.all([
-      admin.loadOverview(admin.token.value, true),
-      loadCredentials(1, pageSize.value),
-    ])
+    await admin.refreshAfterMutation(() => loadCredentials(1, pageSize.value))
   } catch (error) {
     oauthError.value = error instanceof Error ? error.message : 'OAuth 回调兑换失败'
   } finally {
@@ -496,9 +496,7 @@ function geminiQuotaPercentValue(metric: GeminiCredentialItem['pro']) {
   return Math.max(0, Math.min(100, Math.round((metric.quota || 0) * 100)))
 }
 
-type QuotaColor = 'success' | 'warning' | 'error' | 'secondary' | 'tertiary'
-
-function quotaTone(percent: number | null): QuotaColor {
+function quotaTone(percent: number | null): UiTone {
   if (percent === null) {
     return 'secondary'
   }
@@ -508,11 +506,11 @@ function quotaTone(percent: number | null): QuotaColor {
   if (percent >= 30) {
     return 'warning'
   }
-  return 'error'
+  return 'danger'
 }
 
-function throttledQuotaTone(): QuotaColor {
-  return 'tertiary'
+function throttledQuotaTone(): UiTone {
+  return 'accent'
 }
 
 function activeThrottleUntil(value?: string | null) {
@@ -630,19 +628,6 @@ function quotaScoreLabel(metric: { score: number; weight: number }) {
   return `Score ${formatScore(metric.score)}(${formatPercent(errorRateFromWeight(metric))})`
 }
 
-function formatCreditsAmount(value: number) {
-  if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) {
-    return '0'
-  }
-  return new Intl.NumberFormat('en-US', {
-    maximumFractionDigits: value >= 100 ? 0 : 2,
-  }).format(value)
-}
-
-function antigravityCreditsTone(item: AntigravityCredentialItem): UiTone {
-  return item.credits?.available ? 'accent' : 'secondary'
-}
-
 function antigravityCreditTypes(item: AntigravityCredentialItem) {
   return Array.isArray(item.credits?.types) ? item.credits.types.filter(Boolean) : []
 }
@@ -659,10 +644,6 @@ function codexResetCreditsCount(item: CodexItem): number {
   return typeof item.reset_credits_count === 'number' ? item.reset_credits_count : 0
 }
 
-function codexResetCreditsTone(item: CodexItem): UiTone {
-  return codexResetCreditsCount(item) > 0 ? 'accent' : 'secondary'
-}
-
 function canOpenCodexReset(item: CodexItem) {
   return codexResetCreditsCount(item) > 0
 }
@@ -671,21 +652,36 @@ function codexResetCreditStatusLabel(status: string) {
   return (status || '').toLowerCase() === 'available' ? '可用' : (status || '-')
 }
 
+let codexResetRequestToken = 0
+
 async function openCodexResetDialog(item: CodexItem) {
+  const requestToken = ++codexResetRequestToken
   codexResetDialogItem.value = item
   codexResetCredits.value = null
   codexResetError.value = ''
   codexResetLoading.value = true
   try {
-    codexResetCredits.value = await adminApi.fetchCodexResetCredits(admin.token.value, item.id)
+    const credits = await adminApi.fetchCodexResetCredits(admin.token.value, item.id)
+    // 弹窗已切换目标/已关闭时,晚到的响应直接丢弃
+    if (requestToken !== codexResetRequestToken || codexResetDialogItem.value !== item) {
+      return
+    }
+    codexResetCredits.value = credits
   } catch (error) {
+    if (requestToken !== codexResetRequestToken || codexResetDialogItem.value !== item) {
+      return
+    }
     codexResetError.value = error instanceof Error ? error.message : '加载重置次数失败'
   } finally {
-    codexResetLoading.value = false
+    if (requestToken === codexResetRequestToken) {
+      codexResetLoading.value = false
+    }
   }
 }
 
 function closeCodexResetDialog() {
+  // 使 in-flight 请求立即失效
+  codexResetRequestToken += 1
   codexResetDialogItem.value = null
   codexResetCredits.value = null
   codexResetError.value = ''
@@ -715,11 +711,6 @@ function consumeCodexReset() {
   })
 }
 
-function formatOpenCodeGoMoney(cents: number) {
-  const amount = Number(cents || 0) / 100
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
-}
-
 function openCodeGoRewardDescription(reward: OpenCodeGoReferralReward) {
   if (reward.source === 'invitee') {
     return reward.email ? `受邀加入（${reward.email}）` : '受邀加入奖励'
@@ -727,22 +718,37 @@ function openCodeGoRewardDescription(reward: OpenCodeGoReferralReward) {
   return reward.email ? `邀请 ${reward.email}` : '邀请奖励'
 }
 
+let openCodeGoRewardsRequestToken = 0
+
 async function openOpenCodeGoRewardsDialog(item: OpenCodeGoCredentialItem) {
+  const requestToken = ++openCodeGoRewardsRequestToken
   openCodeGoRewardsDialogItem.value = item
   openCodeGoRewards.value = null
   openCodeGoRewardsError.value = ''
   openCodeGoRewardsLoading.value = true
   try {
-    openCodeGoRewards.value = await adminApi.fetchOpenCodeGoReferralRewards(admin.token.value, item.id)
+    const rewards = await adminApi.fetchOpenCodeGoReferralRewards(admin.token.value, item.id)
+    // 弹窗已切换目标/已关闭时,晚到的响应直接丢弃
+    if (requestToken !== openCodeGoRewardsRequestToken || openCodeGoRewardsDialogItem.value !== item) {
+      return
+    }
+    openCodeGoRewards.value = rewards
   } catch (error) {
+    if (requestToken !== openCodeGoRewardsRequestToken || openCodeGoRewardsDialogItem.value !== item) {
+      return
+    }
     openCodeGoRewardsError.value = error instanceof Error ? error.message : '加载可用奖励失败'
   } finally {
-    openCodeGoRewardsLoading.value = false
+    if (requestToken === openCodeGoRewardsRequestToken) {
+      openCodeGoRewardsLoading.value = false
+    }
   }
 }
 
 function closeOpenCodeGoRewardsDialog() {
   if (openCodeGoRewardApplying.value) return
+  // 使 in-flight 请求立即失效
+  openCodeGoRewardsRequestToken += 1
   openCodeGoRewardsDialogItem.value = null
   openCodeGoRewards.value = null
   openCodeGoRewardsError.value = ''
@@ -753,7 +759,7 @@ function applyOpenCodeGoReward(reward: OpenCodeGoReferralReward) {
   if (!item) return
   confirm.show({
     title: '增加余额',
-    message: `确认应用 ${formatOpenCodeGoMoney(reward.amount_cents)} 奖励吗？官方会将奖励抵扣到当前 OpenCode Go 用量窗口。`,
+    message: `确认应用 ${formatUsdFromCents(reward.amount_cents)} 奖励吗？官方会将奖励抵扣到当前 OpenCode Go 用量窗口。`,
     confirmText: '确认增加',
     confirmVariant: 'secondary',
     action: async () => {
@@ -881,10 +887,7 @@ function batchSetStatus(status: string) {
             : `已更新 ${updatedCount} 条凭据`,
           errorCount > 0 ? 'warning' : 'success',
         )
-        await Promise.all([
-          admin.loadOverview(admin.token.value, true),
-          loadCredentials(page.value, pageSize.value),
-        ])
+        await admin.refreshAfterMutation(() => loadCredentials(page.value, pageSize.value))
       } catch (error) {
         admin.notify(error instanceof Error ? error.message : '更新状态失败', 'danger')
       } finally {
@@ -916,10 +919,7 @@ function batchDelete() {
             : `已删除 ${deletedCount} 条凭据`,
           errorCount > 0 ? 'warning' : 'success',
         )
-        await Promise.all([
-          admin.loadOverview(admin.token.value, true),
-          loadCredentials(1, pageSize.value),
-        ])
+        await admin.refreshAfterMutation(() => loadCredentials(1, pageSize.value))
       } catch (error) {
         admin.notify(error instanceof Error ? error.message : '删除失败', 'danger')
       } finally {
@@ -929,24 +929,7 @@ function batchDelete() {
   })
 }
 
-watch(searchInput, (value) => {
-  if (searchTimer) {
-    clearTimeout(searchTimer)
-  }
-  searchTimer = setTimeout(() => {
-    searchQuery.value = value.trim()
-  }, 250)
-})
-
-watch(
-  () => admin.authReady.value,
-  (ready) => {
-    if (ready) {
-      void loadCredentials(1, pageSize.value)
-    }
-  },
-  { immediate: true },
-)
+useAuthReadyLoader(() => loadCredentials(1, pageSize.value))
 
 watch(
   () => admin.selectedHandler.value,
@@ -988,12 +971,6 @@ watch(
     void loadCredentials(page.value, pageSize.value)
   },
 )
-
-onBeforeUnmount(() => {
-  if (searchTimer) {
-    clearTimeout(searchTimer)
-  }
-})
 </script>
 
 <template>
@@ -1135,26 +1112,28 @@ onBeforeUnmount(() => {
               </VChip>
 
               <div v-if="hasThrottleStatusFilters" class="throttle-filter-group">
-                <VChip
-                  :color="throttleFilterActive ? 'primary' : undefined"
-                  :class="{ 'text-primary v-chip--selected': throttleFilterActive }"
-                  filter
-                  @click="toggleThrottleAllFilter"
-                >
-                  <span>{{ statusText(CREDENTIAL_THROTTLE_STATUS_ALL) }}</span>
+                <div class="throttle-filter-row">
+                  <VChip
+                    :color="throttleFilterActive ? 'primary' : undefined"
+                    :class="{ 'text-primary v-chip--selected': throttleFilterActive }"
+                    filter
+                    @click="toggleThrottleAllFilter"
+                  >
+                    {{ statusText(CREDENTIAL_THROTTLE_STATUS_ALL) }}
+                  </VChip>
                   <button
                     type="button"
                     class="throttle-chip-toggle"
                     :aria-label="throttleFiltersExpanded ? '收起节流子项' : '展开节流子项'"
                     :aria-expanded="throttleFiltersExpanded"
-                    @click.stop="toggleThrottleFiltersExpanded"
+                    @click="toggleThrottleFiltersExpanded"
                   >
                     <VIcon
                       :icon="throttleFiltersExpanded ? 'mdi-chevron-up' : 'mdi-chevron-down'"
                       size="16"
                     />
                   </button>
-                </VChip>
+                </div>
 
                 <div v-if="throttleFiltersExpanded" class="throttle-filter-children">
                   <VChip
@@ -1207,431 +1186,163 @@ onBeforeUnmount(() => {
 
             <div class="stack-list">
               <template v-if="isCodexHandler">
-                <VCard
+                <CredentialCardShell
                   v-for="item in codexRows"
                   :key="item.id"
-                  color="surface-container"
-                  variant="flat"
+                  :title="codexCredentialEmail(item.id)"
+                  :plan-type="item.plan_type"
+                  :statuses="item.status"
+                  :reason="item.reason"
+                  :checked="selectedSet.has(item.id)"
+                  @toggle="toggleSelectOne(item.id)"
                 >
-                  <VCardText class="stack-card-body">
-                    <div class="stack-card-top">
-                      <div class="d-flex align-start ga-3" style="min-width: 0">
-                        <VCheckboxBtn
-                          :model-value="selectedSet.has(item.id)"
-                          @update:model-value="() => toggleSelectOne(item.id)"
-                        />
-                        <div class="stack-card-copy">
-                          <div class="stack-card-title">{{ codexCredentialEmail(item.id) }}</div>
-                          <div class="stack-card-meta">
-                            <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
-                              {{ planTypeText(item.plan_type) }}
-                            </AdminBadge>
-                            <AdminBadge
-                              v-for="status in credentialStatusBadges(item.status)"
-                              :key="status"
-                              :tone="toneForStatus(status)"
-                              subtle
-                              :icon="credentialStatusIcon(status)"
-                            >
-                              {{ statusText(status) }}
-                            </AdminBadge>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                  <QuotaCard
+                    v-if="canOpenCodexReset(item)"
+                    clickable
+                    label="重置次数"
+                    :value="String(codexResetCreditsCount(item))"
+                    tone="accent"
+                    @activate="openCodexResetDialog(item)"
+                  />
 
-                    <div
-                      v-if="canOpenCodexReset(item)"
-                      class="quota-card"
-                      role="button"
-                      tabindex="0"
-                      style="cursor: pointer"
-                      @click="openCodexResetDialog(item)"
-                      @keydown.enter="openCodexResetDialog(item)"
-                      @keydown.space.prevent="openCodexResetDialog(item)"
-                    >
-                      <div class="quota-row">
-                        <div class="quota-label text-medium-emphasis">重置次数</div>
-                        <span :class="'text-' + codexResetCreditsTone(item)" class="quota-value font-weight-bold">
-                          {{ codexResetCreditsCount(item) }}
-                        </span>
-                      </div>
-                    </div>
+                  <QuotaCardGrid :cards="codexQuotaCards(item)" />
 
-                    <div class="quota-grid">
-                      <div v-for="quota in codexQuotaCards(item)" :key="quota.label" class="quota-card">
-                        <div class="quota-row">
-                          <div class="quota-label text-medium-emphasis">{{ quota.label }}</div>
-                          <span :class="'text-' + quota.tone" class="quota-value font-weight-bold">
-                            {{ quota.value }}
-                          </span>
-                        </div>
-                        <VProgressLinear
-                          :model-value="quota.percent ?? 0"
-                          :color="quota.tone"
-                          rounded
-                          height="8"
-                        />
-                        <div class="quota-footer text-medium-emphasis">
-                          <div class="quota-caption">
-                            <span v-for="caption in quota.caption" :key="caption">
-                              <span class="quota-caption-text">{{ caption }}</span>
-                            </span>
-                          </div>
-                          <div class="quota-score">{{ quota.score }}</div>
-                        </div>
-                      </div>
+                  <div class="detail-grid">
+                    <div class="detail-block">
+                      <div class="detail-label text-medium-emphasis">AT到期</div>
+                      <div class="detail-value">{{ formatTime(item.expired) }}</div>
                     </div>
-
-                    <div class="detail-grid">
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">AT到期</div>
-                        <div class="detail-value">{{ formatTime(item.expired) }}</div>
-                      </div>
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">Account ID</div>
-                        <div class="detail-value">{{ codexCredentialAccountID(item.id) }}</div>
-                      </div>
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">最近同步</div>
-                        <div class="detail-value">{{ formatTime(item.synced_at) }}</div>
-                      </div>
+                    <div class="detail-block">
+                      <div class="detail-label text-medium-emphasis">Account ID</div>
+                      <div class="detail-value">{{ codexCredentialAccountID(item.id) }}</div>
                     </div>
-
-                    <div v-if="shouldShowCredentialReason(item.status) && item.reason" class="reason-block">
-                      <div class="reason-label">{{ credentialReasonLabel(item.status) }}</div>
-                      <div class="reason-value">{{ item.reason }}</div>
+                    <div class="detail-block">
+                      <div class="detail-label text-medium-emphasis">最近同步</div>
+                      <div class="detail-value">{{ formatTime(item.synced_at) }}</div>
                     </div>
-                  </VCardText>
-                </VCard>
+                  </div>
+                </CredentialCardShell>
               </template>
 
               <template v-else-if="isGeminiHandler">
-                <VCard
+                <CredentialCardShell
                   v-for="item in geminiRows"
                   :key="item.id"
-                  color="surface-container"
-                  variant="flat"
+                  :title="item.email || item.id"
+                  :plan-type="item.plan_type"
+                  :statuses="item.status"
+                  :reason="item.reason"
+                  :checked="selectedSet.has(item.id)"
+                  @toggle="toggleSelectOne(item.id)"
                 >
-                  <VCardText class="stack-card-body">
-                    <div class="stack-card-top">
-                      <div class="d-flex align-start ga-3" style="min-width: 0">
-                        <VCheckboxBtn
-                          :model-value="selectedSet.has(item.id)"
-                          @update:model-value="() => toggleSelectOne(item.id)"
-                        />
-                        <div class="stack-card-copy">
-                          <div class="stack-card-title">{{ item.email || item.id }}</div>
-                          <div class="stack-card-meta">
-                            <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
-                              {{ planTypeText(item.plan_type) }}
-                            </AdminBadge>
-                            <AdminBadge
-                              v-for="status in credentialStatusBadges(item.status)"
-                              :key="status"
-                              :tone="toneForStatus(status)"
-                              subtle
-                              :icon="credentialStatusIcon(status)"
-                            >
-                              {{ statusText(status) }}
-                            </AdminBadge>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                  <QuotaCardGrid :cards="geminiQuotaCards(item)" />
 
-                    <div class="quota-grid">
-                      <div v-for="quota in geminiQuotaCards(item)" :key="quota.label" class="quota-card">
-                        <div class="quota-row">
-                          <div class="quota-label text-medium-emphasis">{{ quota.label }}</div>
-                          <span :class="'text-' + quota.tone" class="quota-value font-weight-bold">
-                            {{ quota.value }}
-                          </span>
-                        </div>
-                        <VProgressLinear
-                          :model-value="quota.percent ?? 0"
-                          :color="quota.tone"
-                          rounded
-                          height="8"
-                        />
-                        <div class="quota-footer text-medium-emphasis">
-                          <div class="quota-caption">
-                            <span v-for="caption in quota.caption" :key="caption">
-                              <span class="quota-caption-text">{{ caption }}</span>
-                            </span>
-                          </div>
-                          <div class="quota-score">{{ quota.score }}</div>
-                        </div>
-                      </div>
+                  <div class="detail-grid">
+                    <div
+                      v-for="entry in projectDetailEntries(item)"
+                      :key="entry.label"
+                      class="detail-block"
+                    >
+                      <div class="detail-label text-medium-emphasis">{{ entry.label }}</div>
+                      <div class="detail-value">{{ entry.value }}</div>
                     </div>
-
-                    <div class="detail-grid">
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">项目 ID</div>
-                        <div class="detail-value">{{ item.project_id || '-' }}</div>
-                      </div>
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">AT到期</div>
-                        <div class="detail-value">{{ formatTime(item.expired) }}</div>
-                      </div>
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">最近同步</div>
-                        <div class="detail-value">{{ item.synced_at ? formatTime(item.synced_at) : '-' }}</div>
-                      </div>
-                    </div>
-
-                    <div v-if="shouldShowCredentialReason(item.status) && item.reason" class="reason-block">
-                      <div class="reason-label">{{ credentialReasonLabel(item.status) }}</div>
-                      <div class="reason-value">{{ item.reason }}</div>
-                    </div>
-                  </VCardText>
-                </VCard>
+                  </div>
+                </CredentialCardShell>
               </template>
 
               <template v-else-if="isAntigravityHandler">
-                <VCard
+                <CredentialCardShell
                   v-for="item in antigravityRows"
                   :key="item.id"
-                  color="surface-container"
-                  variant="flat"
+                  :title="item.email || item.id"
+                  :plan-type="item.plan_type"
+                  :statuses="item.status"
+                  :reason="item.reason"
+                  :checked="selectedSet.has(item.id)"
+                  @toggle="toggleSelectOne(item.id)"
                 >
-                  <VCardText class="stack-card-body">
-                    <div class="stack-card-top">
-                      <div class="d-flex align-start ga-3" style="min-width: 0">
-                        <VCheckboxBtn
-                          :model-value="selectedSet.has(item.id)"
-                          @update:model-value="() => toggleSelectOne(item.id)"
-                        />
-                        <div class="stack-card-copy">
-                          <div class="stack-card-title">{{ item.email || item.id }}</div>
-                          <div class="stack-card-meta">
-                            <AdminBadge tone="secondary" subtle icon="mdi-star-circle-outline">
-                              {{ planTypeText(item.plan_type) }}
-                            </AdminBadge>
-                            <AdminBadge
-                              v-for="status in credentialStatusBadges(item.status)"
-                              :key="status"
-                              :tone="toneForStatus(status)"
-                              subtle
-                              :icon="credentialStatusIcon(status)"
-                            >
-                              {{ statusText(status) }}
-                            </AdminBadge>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                  <QuotaCardGrid :cards="antigravityQuotaCards(item)">
+                    <QuotaCard
+                      v-if="item.credits?.available"
+                      clickable
+                      label="Credits"
+                      :value="formatCreditsAmount(item.credits?.amount || 0)"
+                      tone="accent"
+                      @activate="openCreditsDialog(item)"
+                    />
+                  </QuotaCardGrid>
 
-                    <div class="quota-grid">
-                      <div
-                        v-if="item.credits?.available"
-                        class="quota-card"
-                        role="button"
-                        tabindex="0"
-                        style="cursor: pointer"
-                        @click="openCreditsDialog(item)"
-                        @keydown.enter="openCreditsDialog(item)"
-                        @keydown.space.prevent="openCreditsDialog(item)"
-                      >
-                        <div class="quota-row">
-                          <div class="quota-label text-medium-emphasis">Credits</div>
-                          <span :class="'text-' + antigravityCreditsTone(item)" class="quota-value font-weight-bold">
-                            {{ formatCreditsAmount(item.credits?.amount || 0) }}
-                          </span>
-                        </div>
-                      </div>
-                      <div v-for="quota in antigravityQuotaCards(item)" :key="quota.label" class="quota-card">
-                        <div class="quota-row">
-                          <div class="quota-label text-medium-emphasis">{{ quota.label }}</div>
-                          <span :class="'text-' + quota.tone" class="quota-value font-weight-bold">
-                            {{ quota.value }}
-                          </span>
-                        </div>
-                        <VProgressLinear
-                          :model-value="quota.percent ?? 0"
-                          :color="quota.tone"
-                          rounded
-                          height="8"
-                        />
-                        <div class="quota-footer text-medium-emphasis">
-                          <div class="quota-caption">
-                            <span v-for="caption in quota.caption" :key="caption">
-                              <span class="quota-caption-text">{{ caption }}</span>
-                            </span>
-                          </div>
-                          <div class="quota-score">{{ quota.score }}</div>
-                        </div>
-                      </div>
+                  <div class="detail-grid">
+                    <div
+                      v-for="entry in projectDetailEntries(item)"
+                      :key="entry.label"
+                      class="detail-block"
+                    >
+                      <div class="detail-label text-medium-emphasis">{{ entry.label }}</div>
+                      <div class="detail-value">{{ entry.value }}</div>
                     </div>
-
-                    <div class="detail-grid">
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">项目 ID</div>
-                        <div class="detail-value">{{ item.project_id || '-' }}</div>
-                      </div>
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">AT到期</div>
-                        <div class="detail-value">{{ formatTime(item.expired) }}</div>
-                      </div>
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">最近同步</div>
-                        <div class="detail-value">{{ item.synced_at ? formatTime(item.synced_at) : '-' }}</div>
-                      </div>
-                    </div>
-
-                    <div v-if="credentialBaseStatus(item.status) === 'disabled' && item.reason" class="reason-block">
-                      <div class="reason-label">停用原因</div>
-                      <div class="reason-value">{{ item.reason }}</div>
-                    </div>
-                  </VCardText>
-                </VCard>
+                  </div>
+                </CredentialCardShell>
               </template>
 
               <template v-else-if="isOpenCodeGoHandler">
-                <VCard
+                <CredentialCardShell
                   v-for="item in openCodeGoRows"
                   :key="item.id"
-                  color="surface-container"
-                  variant="flat"
+                  :title="item.email"
+                  :statuses="item.status"
+                  :reason="item.reason"
+                  :checked="selectedSet.has(item.id)"
+                  @toggle="toggleSelectOne(item.id)"
                 >
-                  <VCardText class="stack-card-body">
-                    <div class="stack-card-top">
-                      <div class="d-flex align-start ga-3" style="min-width: 0">
-                        <VCheckboxBtn
-                          :model-value="selectedSet.has(item.id)"
-                          @update:model-value="() => toggleSelectOne(item.id)"
-                        />
-                        <div class="stack-card-copy">
-                          <div class="stack-card-title">
-                            {{ item.email }}
-                          </div>
-                          <div class="stack-card-meta">
-                            <AdminBadge
-                              v-for="status in credentialStatusBadges(item.status)"
-                              :key="status"
-                              :tone="toneForStatus(status)"
-                              subtle
-                              :icon="credentialStatusIcon(status)"
-                            >
-                              {{ statusText(status) }}
-                            </AdminBadge>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                  <QuotaCard
+                    v-if="item.rewards_count > 0"
+                    clickable
+                    label="增加余额"
+                    :value="`${item.rewards_count} 次`"
+                    tone="accent"
+                    @activate="openOpenCodeGoRewardsDialog(item)"
+                  />
 
-                    <div
-                      v-if="item.rewards_count > 0"
-                      class="quota-card"
-                      role="button"
-                      tabindex="0"
-                      style="cursor: pointer"
-                      @click="openOpenCodeGoRewardsDialog(item)"
-                      @keydown.enter="openOpenCodeGoRewardsDialog(item)"
-                      @keydown.space.prevent="openOpenCodeGoRewardsDialog(item)"
-                    >
-                      <div class="quota-row">
-                        <div class="quota-label text-medium-emphasis">增加余额</div>
-                        <span class="quota-value font-weight-bold text-accent">
-                          {{ item.rewards_count }} 次
-                        </span>
-                      </div>
+                  <QuotaCardGrid
+                    v-if="openCodeGoQuotaCards(item).length"
+                    :cards="openCodeGoQuotaCards(item)"
+                  />
+                  <div class="detail-grid">
+                    <div class="detail-block">
+                      <div class="detail-label text-medium-emphasis">工作区</div>
+                      <div class="detail-value">{{ item.workspace_id || '-' }}</div>
                     </div>
-
-                    <div v-if="openCodeGoQuotaCards(item).length" class="quota-grid">
-                      <div v-for="quota in openCodeGoQuotaCards(item)" :key="quota.label" class="quota-card">
-                        <div class="quota-row">
-                          <div class="quota-label text-medium-emphasis">{{ quota.label }}</div>
-                          <span :class="'text-' + quota.tone" class="quota-value font-weight-bold">
-                            {{ quota.value }}
-                          </span>
-                        </div>
-                        <VProgressLinear
-                          :model-value="quota.percent ?? 0"
-                          :color="quota.tone"
-                          rounded
-                          height="8"
-                        />
-                        <div class="quota-footer text-medium-emphasis">
-                          <div class="quota-caption">
-                            <span v-for="caption in quota.caption" :key="caption">
-                              <span class="quota-caption-text">{{ caption }}</span>
-                            </span>
-                          </div>
-                          <div class="quota-score">{{ quota.score }}</div>
-                        </div>
-                      </div>
+                    <div class="detail-block">
+                      <div class="detail-label text-medium-emphasis">最近同步</div>
+                      <div class="detail-value">{{ item.synced_at ? formatTime(item.synced_at) : '-' }}</div>
                     </div>
-                    <div class="detail-grid">
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">工作区</div>
-                        <div class="detail-value">{{ item.workspace_id || '-' }}</div>
-                      </div>
-                      <div class="detail-block">
-                        <div class="detail-label text-medium-emphasis">最近同步</div>
-                        <div class="detail-value">{{ item.synced_at ? formatTime(item.synced_at) : '-' }}</div>
-                      </div>
-                    </div>
-
-                    <div v-if="shouldShowCredentialReason(item.status) && item.reason" class="reason-block">
-                      <div class="reason-label">{{ credentialReasonLabel(item.status) }}</div>
-                      <div class="reason-value">{{ item.reason }}</div>
-                    </div>
-                  </VCardText>
-                </VCard>
+                  </div>
+                </CredentialCardShell>
               </template>
 
               <template v-else>
-                <VCard
+                <CredentialCardShell
                   v-for="item in genericRows"
                   :key="item.id"
-                  color="surface-container"
-                  variant="flat"
+                  :title="item.id"
+                  :plan-type="credentialPlanType(item) || undefined"
+                  :statuses="item.status"
+                  :reason="item.reason"
+                  :checked="selectedSet.has(item.id)"
+                  @toggle="toggleSelectOne(item.id)"
                 >
-                  <VCardText class="stack-card-body">
-                    <div class="stack-card-top">
-                      <div class="d-flex align-start ga-3" style="min-width: 0">
-                        <VCheckboxBtn
-                          :model-value="selectedSet.has(item.id)"
-                          @update:model-value="() => toggleSelectOne(item.id)"
-                        />
-                        <div class="stack-card-copy">
-                          <div class="stack-card-title">{{ item.id }}</div>
-                          <div class="stack-card-meta">
-                            <AdminBadge v-if="credentialPlanType(item)" tone="secondary" subtle icon="mdi-star-circle-outline">
-                              {{ planTypeText(credentialPlanType(item)) }}
-                            </AdminBadge>
-                            <AdminBadge
-                              v-for="status in credentialStatusBadges(item.status)"
-                              :key="status"
-                              :tone="toneForStatus(status)"
-                              subtle
-                              :icon="credentialStatusIcon(status)"
-                            >
-                              {{ statusText(status) }}
-                            </AdminBadge>
-                          </div>
-                        </div>
-                      </div>
+                  <div class="detail-grid">
+                    <div
+                      v-for="entry in genericDetailEntries(item)"
+                      :key="entry.label"
+                      class="detail-block"
+                    >
+                      <div class="detail-label text-medium-emphasis">{{ entry.label }}</div>
+                      <div class="detail-value">{{ entry.value }}</div>
                     </div>
-
-                    <div class="detail-grid">
-                      <div
-                        v-for="entry in genericDetailEntries(item)"
-                        :key="entry.label"
-                        class="detail-block"
-                      >
-                        <div class="detail-label text-medium-emphasis">{{ entry.label }}</div>
-                        <div class="detail-value">{{ entry.value }}</div>
-                      </div>
-                    </div>
-
-                    <div v-if="shouldShowCredentialReason(item.status) && item.reason" class="reason-block">
-                      <div class="reason-label">{{ credentialReasonLabel(item.status) }}</div>
-                      <div class="reason-value">{{ item.reason }}</div>
-                    </div>
-                  </VCardText>
-                </VCard>
+                  </div>
+                </CredentialCardShell>
               </template>
             </div>
           </div>
@@ -1709,14 +1420,7 @@ onBeforeUnmount(() => {
           </AdminBadge>
         </div>
 
-        <VAlert
-          v-if="importError"
-          type="error"
-          variant="tonal"
-          density="comfortable"
-          :text="importError"
-          style="white-space: pre-wrap"
-        />
+        <FormErrorAlert :message="importError" pre-wrap />
       </div>
       <template #footer>
         <AdminButton variant="ghost" @click="closeImportModal">取消</AdminButton>
@@ -1836,7 +1540,7 @@ onBeforeUnmount(() => {
           >
             <div class="d-flex align-center justify-space-between flex-wrap ga-3">
               <div class="d-grid ga-1">
-                <div class="detail-value">{{ formatOpenCodeGoMoney(reward.amount_cents) }}</div>
+                <div class="detail-value">{{ formatUsdFromCents(reward.amount_cents) }}</div>
                 <div class="text-body-2 text-medium-emphasis">{{ openCodeGoRewardDescription(reward) }}</div>
                 <div class="text-body-2 text-medium-emphasis">获得于 {{ formatTime(reward.created_at) }}</div>
               </div>
@@ -1884,14 +1588,7 @@ onBeforeUnmount(() => {
           :disabled="!oauthFlow"
         />
 
-        <VAlert
-          v-if="oauthError"
-          type="error"
-          variant="tonal"
-          density="comfortable"
-          :text="oauthError"
-          style="white-space: pre-wrap"
-        />
+        <FormErrorAlert :message="oauthError" pre-wrap />
       </div>
       <template #footer>
         <AdminButton variant="ghost" :disabled="oauthBusy" @click="closeOAuthModal">取消</AdminButton>
@@ -1914,23 +1611,10 @@ onBeforeUnmount(() => {
       </template>
     </ModalDialog>
 
-    <ModalDialog
-      :open="confirm.open.value"
-      :title="confirm.title.value"
+    <ConfirmDialogHost
+      :confirm="confirm"
+      :action-busy="actionBusy"
       description="操作会立即提交到后台"
-      @close="confirm.close()"
-    >
-      <p class="text-body-1">{{ confirm.message.value }}</p>
-      <template #footer>
-        <AdminButton variant="ghost" :disabled="actionBusy" @click="confirm.close()">取消</AdminButton>
-        <AdminButton
-          :variant="confirm.variant.value"
-          :loading="actionBusy"
-          @click="confirm.submit()"
-        >
-          {{ confirm.text.value }}
-        </AdminButton>
-      </template>
-    </ModalDialog>
+    />
   </div>
 </template>

@@ -38,6 +38,9 @@ const DEFAULT_BUILD_INFO: BuildInfo = {
   build_time: 'unknown',
 }
 
+/** toast 自增序号:VSnackbar 以它为 key 强制 remount,让连续 toast 各自重新计时 */
+let toastSeq = 0
+
 export function useAdminApp() {
   const themePreference = useState<ThemePreference>('admin-theme-preference', () => 'system')
   const systemTheme = useState<ThemeMode>('admin-system-theme', () => 'light')
@@ -74,7 +77,8 @@ export function useAdminApp() {
   }
 
   function notify(text: string, tone: UiTone = 'success') {
-    toast.value = { text, tone }
+    toastSeq += 1
+    toast.value = { id: toastSeq, text, tone }
   }
 
   function dismissToast() {
@@ -100,6 +104,11 @@ export function useAdminApp() {
 
     try {
       const data = await adminApi.overview(nextToken)
+      // await 期间用户可能已用新密钥重新登录,过期响应直接丢弃,
+      // 避免旧会话的数据覆盖新会话
+      if (nextToken !== token.value) {
+        return false
+      }
       overview.value = data
       authReady.value = true
       loginError.value = ''
@@ -119,7 +128,11 @@ export function useAdminApp() {
     } catch (error) {
       const status = error instanceof Error && 'status' in error ? Number((error as { status?: number }).status) : 0
       if (status === 401 || status === 403) {
-        resetAuthState('管理员密钥无效或已失效')
+        // 仅当这次请求用的还是当前 token 时才重置会话;
+        // 否则是旧 token 的过期 in-flight 请求,不能把刚登录的新会话踢掉
+        if (nextToken === token.value) {
+          resetAuthState('管理员密钥无效或已失效')
+        }
         return false
       }
 
@@ -219,6 +232,11 @@ export function useAdminApp() {
     resetAuthState('')
   }
 
+  /** 变更操作成功后统一刷新:概览(强制) + 调用方的本页数据重载 */
+  async function refreshAfterMutation(reload: () => Promise<unknown>) {
+    await Promise.all([loadOverview(token.value, true), reload()])
+  }
+
   return {
     activeHandler,
     authReady,
@@ -236,9 +254,9 @@ export function useAdminApp() {
     needSetup,
     notify,
     overview,
+    refreshAfterMutation,
     resetAuthState,
     selectedHandler,
-    setStoredToken,
     setSystemTheme,
     setThemePreference,
     setupAdmin,

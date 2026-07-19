@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path'
 import assert from 'node:assert/strict'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
-const appVue = readFileSync(resolve(scriptDir, '../app.vue'), 'utf8')
+const appVue = readFileSync(resolve(scriptDir, '../app.vue'), 'utf8').replace(/\r\n/g, '\n')
 
 const needSetupBlockMatch = appVue.match(/if \(admin\.needSetup\.value\) \{\s*return \{(?<body>[\s\S]*?)\n\s*\}\n\s*\}/)
 assert.ok(needSetupBlockMatch?.groups?.body, 'Could not find needSetup auth card metadata block')

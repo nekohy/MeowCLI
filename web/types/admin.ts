@@ -23,8 +23,6 @@ export interface NavItem {
   to: string
   icon: string
   label: string
-  eyebrow: string
-  description?: string
 }
 
 export interface CredentialField {
@@ -386,6 +384,7 @@ export interface SetupResult {
 }
 
 export interface ToastMessage {
+  id: number
   text: string
   tone: UiTone
 }

@@ -23,7 +23,7 @@ defineEmits<{
     scrollable
     @update:model-value="(value) => !value && $emit('close')"
   >
-    <VCard color="surface-container-high" rounded="xl" class="modal-card">
+    <VCard color="surface-container-high" class="modal-card">
       <VCardItem class="pa-5">
         <template #prepend>
           <VAvatar size="44" color="primary-container" rounded="xl">
@@ -36,6 +36,7 @@ defineEmits<{
           <VBtn
             icon="mdi-close"
             variant="text"
+            aria-label="关闭对话框"
             @click="$emit('close')"
           />
         </template>

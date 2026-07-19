@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
 import { PAGE_SIZE_OPTIONS } from '~/lib/admin'
-import { hasLogError, logItemKey, logMetaItems } from '~/lib/logs'
 import type { LogItem, LogStatusCount } from '~/types/admin'
 
 definePageMeta({
@@ -16,8 +15,7 @@ const summary = ref<{ total: number, status_codes: LogStatusCount[] }>({ total: 
 const page = ref(1)
 const pageSize = ref(25)
 const loading = ref(false)
-const searchInput = ref('')
-const searchQuery = ref('')
+const { input: searchInput, query: searchQuery } = useDebouncedRef()
 const handlerFilter = ref('all')
 const statusCodeFilter = ref('all')
 const autoRefreshStorageKey = 'meowcli-logs-auto-refresh-ms'
@@ -70,7 +68,6 @@ const statusCodeOptions = computed(() => [
     label: `${item.status_code} (${item.total})`,
   })),
 ])
-let searchTimer: ReturnType<typeof setTimeout> | undefined
 let refreshTimer: number | undefined
 let latestLoadToken = 0
 
@@ -163,24 +160,7 @@ function cycleAutoRefreshInterval() {
   autoRefreshIntervalMs.value = next.value
 }
 
-watch(searchInput, (value) => {
-  if (searchTimer) {
-    clearTimeout(searchTimer)
-  }
-  searchTimer = setTimeout(() => {
-    searchQuery.value = value.trim()
-  }, 250)
-})
-
-watch(
-  () => admin.authReady.value,
-  (ready) => {
-    if (ready) {
-      void loadLogs(1, pageSize.value)
-    }
-  },
-  { immediate: true },
-)
+useAuthReadyLoader(() => loadLogs(1, pageSize.value))
 
 watch(
   () => [searchQuery.value, handlerFilter.value, statusCodeFilter.value],
@@ -208,9 +188,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (searchTimer) {
-    clearTimeout(searchTimer)
-  }
   stopAutoRefresh()
 })
 </script>
@@ -307,12 +284,13 @@ onBeforeUnmount(() => {
             size="small"
             width="36"
             height="36"
+            class="hit-target-48"
             :loading="loading"
             aria-label="刷新日志"
             @click="loadLogs(page, pageSize)"
           />
           <VBtn
-            class="log-auto-refresh-trigger text-none"
+            class="log-auto-refresh-trigger text-none hit-target-48"
             :class="{ 'log-auto-refresh-trigger--off': autoRefreshIntervalMs === 0 }"
             color="secondary"
             variant="tonal"
@@ -353,62 +331,10 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <div
+        <LogEntryPanels
           v-if="items.length"
-          class="log-list"
-        >
-          <template
-            v-for="item in items"
-            :key="logItemKey(item)"
-          >
-            <VExpansionPanels
-              variant="accordion"
-              class="log-panels"
-            >
-              <VExpansionPanel
-                elevation="0"
-                border
-              >
-                <VExpansionPanelTitle>
-                  <div class="activity-title">
-                    <div class="activity-topline">
-                      <span
-                        class="log-status-pill"
-                        :class="item.status_code < 400 ? 'log-status-pill--success' : 'log-status-pill--error'"
-                      >
-                        <span class="log-status-dot" />
-                        {{ item.status_code }}
-                      </span>
-                      <span class="font-weight-medium">{{ admin.handlerLookup.value.get(item.handler)?.label || item.handler }}</span>
-                    </div>
-                  </div>
-                </VExpansionPanelTitle>
-                <VExpansionPanelText>
-                  <div class="log-detail-stack">
-                    <div class="log-meta-panel">
-                      <div
-                        v-for="meta in logMetaItems(item)"
-                        :key="meta.label"
-                        class="log-meta-item"
-                        :class="{ 'log-meta-item--wide': meta.wide }"
-                      >
-                        <span>{{ meta.label }}</span>
-                        <strong>{{ meta.value }}</strong>
-                      </div>
-                    </div>
-                    <div v-if="hasLogError(item.error)" class="log-detail-surface">
-                      <div class="log-detail-heading">
-                        <span>错误响应</span>
-                        <span>JSON</span>
-                      </div>
-                      <pre class="log-text">{{ item.error }}</pre>
-                    </div>
-                  </div>
-                </VExpansionPanelText>
-              </VExpansionPanel>
-            </VExpansionPanels>
-          </template>
-        </div>
+          :items="items"
+        />
 
         <EmptyState
           v-else

@@ -44,16 +44,41 @@ export default defineNuxtConfig({
       link: [
         { rel: 'icon', type: 'image/x-icon', href: `${baseURL}faction.ico` },
       ],
+      script: [
+        {
+          // 首帧前解析主题,避免 SSG 深色用户加载时闪浅色(FOUC)。
+          // 与 lib/admin.ts 的 resolveInitialThemePreference/applyTheme 同源:
+          // 同一存储键、同一 meta 颜色、同样把 v-theme--* 类写到 <html> 上
+          key: 'meowcli-theme-init',
+          innerHTML: `(() => {
+  try {
+    const stored = window.localStorage.getItem('meowcli-admin-theme')
+    const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
+    const theme = stored === 'dark' || (stored !== 'light' && prefersDark) ? 'dark' : 'light'
+    const root = document.documentElement
+    root.dataset.theme = theme
+    root.style.colorScheme = theme
+    root.classList.add(theme === 'dark' ? 'v-theme--dark' : 'v-theme--light')
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0F1511' : '#EEF2EC')
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', theme === 'dark' ? 'dark light' : 'light dark')
+  } catch {}
+})()`,
+        },
+      ],
     },
   },
   nitro: {
-    routeRules: isDev
-      ? {
-          '/admin/api/**': { proxy: `${backendURL}/admin/api/**` },
-          '/v1/**': { proxy: `${backendURL}/v1/**` },
-          '/v1beta/**': { proxy: `${backendURL}/v1beta/**` },
-        }
-      : {},
+    routeRules: {
+      // 旧版 /dashboard 路径统一重定向到总览首页（生产环境带 /admin/ 前缀）
+      '/dashboard': { redirect: isDev ? '/' : `${baseURL}` },
+      ...(isDev
+        ? {
+            '/admin/api/**': { proxy: `${backendURL}/admin/api/**` },
+            '/v1/**': { proxy: `${backendURL}/v1/**` },
+            '/v1beta/**': { proxy: `${backendURL}/v1beta/**` },
+          }
+        : {}),
+    },
     prerender: {
       routes: ['/', '/dashboard', '/settings', '/credentials', '/models', '/logs', '/keys'],
     },
