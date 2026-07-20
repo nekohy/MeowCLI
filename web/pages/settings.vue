@@ -394,7 +394,7 @@ useAuthReadyLoader(loadSettings)
 
         <SettingNavRow
           title="Gemini CLI 接口"
-          :description="`已启用：${geminiEndpoint.preview}`"
+          :description="`已启用：${geminiEndpoint.preview.value}`"
           @activate="geminiEndpointOpen = true"
         />
 
@@ -440,7 +440,7 @@ useAuthReadyLoader(loadSettings)
 
         <SettingNavRow
           title="API 端点"
-          :description="`已启用：${antigravityEndpoint.preview}`"
+          :description="`已启用：${antigravityEndpoint.preview.value}`"
           @activate="antigravityEndpointOpen = true"
         />
 
