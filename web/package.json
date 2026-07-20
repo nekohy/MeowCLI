@@ -12,7 +12,6 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
-    "@lobehub/icons": "^5.14.0",
     "@mdi/js": "^7.4.47",
     "copy-to-clipboard": "^4.0.2",
     "nuxt": "^4.4.2",

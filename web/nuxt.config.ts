@@ -1,5 +1,3 @@
-import lobeIconsPlugin from './build/lobe-icons.plugin.mjs'
-
 const isDev = process.env.NODE_ENV === 'development'
 const baseURL = isDev ? '/' : '/admin/'
 const backendURL = process.env.MEOWCLI_BACKEND_URL || 'http://127.0.0.1:3000'
@@ -10,9 +8,6 @@ export default defineNuxtConfig({
   ssr: !isDev,
   srcDir: '.',
   modules: ['vuetify-nuxt-module'],
-  vite: {
-    plugins: [lobeIconsPlugin()],
-  },
   css: [
     '~/assets/css/main.css',
   ],
