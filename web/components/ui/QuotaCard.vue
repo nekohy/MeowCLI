@@ -46,14 +46,14 @@ function handleActivate() {
   >
     <div class="quota-row">
       <div class="quota-label text-medium-emphasis">{{ label }}</div>
-      <span :class="`text-${toneColor}`" class="quota-value font-weight-bold">{{ value }}</span>
+      <span class="quota-value">{{ value }}</span>
     </div>
     <VProgressLinear
       v-if="percent !== null"
       :model-value="percent"
       :color="toneColor"
       rounded
-      height="8"
+      height="10"
     />
     <div v-if="caption.length || score" class="quota-footer text-medium-emphasis">
       <div v-if="caption.length" class="quota-caption">

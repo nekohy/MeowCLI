@@ -7,13 +7,13 @@ import {
   colorForTone,
   copyText,
 } from '~/lib/admin'
+import type { ThemeMode } from '~/types/admin'
 
 const admin = useAdminApp()
 const route = useRoute()
 const router = useRouter()
 const runtimeConfig = useRuntimeConfig()
 const display = useVDisplay()
-const vuetifyTheme = useVTheme()
 const defaultNav = NAV_ITEMS[0]!
 
 const clientReady = ref(false)
@@ -120,6 +120,22 @@ function mountSystemThemeListener() {
   systemThemeMedia.addEventListener('change', handleSystemThemeChange)
 }
 
+// 主题切换动画：View Transitions 截旧页 → 回调内翻 <html> 类并等 VApp 的 :theme
+// 重渲染 → 截新页交叉淡入。原子化消除"html 先翻、app 后翻"的半新半旧帧；
+// 不支持或减少动态时即时切换
+function applyThemeWithTransition(theme: ThemeMode) {
+  // 支持检测：原生方法解绑 this 会 Illegal invocation，故用 in 判定、直接以方法形式调用
+  if (!('startViewTransition' in document) || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    applyTheme(theme)
+    return
+  }
+
+  (document as Document).startViewTransition(async () => {
+    applyTheme(theme)
+    await nextTick()
+  })
+}
+
 watch(
   () => admin.theme.value,
   (theme) => {
@@ -127,8 +143,7 @@ watch(
       return
     }
 
-    vuetifyTheme.change(theme)
-    applyTheme(theme)
+    applyThemeWithTransition(theme)
   },
 )
 
@@ -169,7 +184,6 @@ onMounted(() => {
   admin.initializeClient()
   mountSystemThemeListener()
   clientReady.value = true
-  vuetifyTheme.change(admin.theme.value)
   applyTheme(admin.theme.value)
   // 存储不可用时仅丢失主题持久化,不得中断后续 boot
   try {
@@ -199,7 +213,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <VApp class="admin-app">
+  <VApp class="admin-app" :theme="admin.theme.value">
     <VSnackbar
       :key="admin.toast.value?.id"
       v-model="snackbarOpen"
@@ -393,7 +407,7 @@ onBeforeUnmount(() => {
                 :active="currentNav.key === item.key"
               >
                 <template #prepend>
-                  <VIcon :icon="item.icon" :color="currentNav.key === item.key ? 'on-secondary-container' : 'on-surface-variant'" size="20" />
+                  <VIcon :icon="item.icon" :color="currentNav.key === item.key ? 'primary' : 'on-surface-variant'" size="20" />
                 </template>
                 <VListItemTitle class="nav-item-title">{{ item.label }}</VListItemTitle>
               </VListItem>
@@ -417,23 +431,21 @@ onBeforeUnmount(() => {
         <VAppBar height="64" class="app-bar">
           <VAppBarNavIcon v-if="display.smAndDown.value" aria-label="打开导航菜单" @click="drawer = !drawer" />
 
-          <div class="app-bar-copy">
-            <div class="app-bar-title">{{ currentNav.label }}</div>
-          </div>
-
           <template #append>
-            <ThemeToggle
-              :theme="admin.theme.value"
-              :preference="admin.themePreference.value"
-              @update:preference="admin.setThemePreference"
-            />
-            <VBtn
-              variant="text"
-              color="primary"
-              icon="mdi-logout"
-              aria-label="退出登录"
-              @click="admin.logout()"
-            />
+            <div class="app-bar-actions surface-card">
+              <ThemeToggle
+                :theme="admin.theme.value"
+                :preference="admin.themePreference.value"
+                @update:preference="admin.setThemePreference"
+              />
+              <VBtn
+                variant="text"
+                color="primary"
+                icon="mdi-logout"
+                aria-label="退出登录"
+                @click="admin.logout()"
+              />
+            </div>
           </template>
 
           <VProgressLinear

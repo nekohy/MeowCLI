@@ -23,7 +23,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <VCard color="surface-container" variant="flat">
+  <VCard color="surface" variant="flat" class="surface-card">
     <VCardText class="stack-card-body">
       <div class="stack-card-top">
         <div class="d-flex align-start ga-3 stack-card-heading">

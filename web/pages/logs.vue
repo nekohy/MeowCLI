@@ -255,7 +255,7 @@ onBeforeUnmount(() => {
             </VChip>
           </VChipGroup>
 
-          <VChipGroup v-model="handlerFilter" mandatory color="secondary">
+          <VChipGroup v-model="handlerFilter" mandatory color="primary">
             <VChip value="all" filter size="small">全部服务</VChip>
             <VChip
               v-for="handler in admin.handlers.value"
@@ -278,20 +278,24 @@ onBeforeUnmount(() => {
       <template #actions>
         <div class="log-refresh-controls">
           <VBtn
-            icon="mdi-refresh"
+            icon
             color="secondary"
             variant="tonal"
             size="small"
             width="36"
             height="36"
             class="hit-target-48"
-            :loading="loading"
             aria-label="刷新日志"
             @click="loadLogs(page, pageSize)"
-          />
+          >
+            <VIcon
+              icon="mdi-refresh"
+              size="20"
+              :class="{ 'is-spinning': loading }"
+            />
+          </VBtn>
           <VBtn
             class="log-auto-refresh-trigger text-none hit-target-48"
-            :class="{ 'log-auto-refresh-trigger--off': autoRefreshIntervalMs === 0 }"
             color="secondary"
             variant="tonal"
             size="small"
@@ -300,14 +304,18 @@ onBeforeUnmount(() => {
             @click="cycleAutoRefreshInterval"
           >
             <template #prepend>
-              <span class="log-auto-refresh-icon" aria-hidden="true">
+              <span
+                class="icon-swap"
+                :class="{ 'icon-swap--swapped': autoRefreshIntervalMs === 0 }"
+                aria-hidden="true"
+              >
                 <VIcon
-                  class="log-auto-refresh-icon__timer"
+                  class="icon-swap__front"
                   icon="mdi-timer-sand"
                   size="18"
                 />
                 <VIcon
-                  class="log-auto-refresh-icon__off"
+                  class="icon-swap__back"
                   icon="mdi-timer-off-outline"
                   size="18"
                 />

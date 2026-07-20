@@ -296,7 +296,7 @@ useAuthReadyLoader(loadSettings)
     <VProgressLinear v-if="loading" indeterminate color="primary" rounded class="mb-2" />
 
     <!-- Global -->
-    <SectionCard title="全局" icon="mdi-earth">
+    <SectionCard title="全局" icon="mdi-web">
       <div class="setting-field-stack">
         <div class="settings-item">
           <div class="settings-item-copy">

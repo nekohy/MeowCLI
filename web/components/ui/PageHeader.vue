@@ -7,11 +7,11 @@ defineProps<{
 </script>
 
 <template>
-  <VCard color="surface-container" variant="flat" class="page-header-card">
+  <VCard color="surface" variant="flat" class="page-header-card surface-card">
     <VCardText class="page-header-shell">
       <div class="page-header-copy">
-        <VAvatar size="52" color="primary-container" rounded="xl" class="page-header-avatar">
-          <VIcon :icon="icon || 'mdi-view-dashboard-outline'" color="primary" size="24" />
+        <VAvatar size="56" color="primary-container" rounded="xl" class="page-header-avatar">
+          <VIcon :icon="icon || 'mdi-view-dashboard-outline'" color="primary" size="26" />
         </VAvatar>
         <div class="page-header-text">
           <div v-if="eyebrow" class="page-header-eyebrow">{{ eyebrow }}</div>

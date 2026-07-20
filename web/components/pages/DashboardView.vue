@@ -52,15 +52,16 @@ async function openPage(path: string) {
   <div class="page-grid">
     <PageHeader
       title="运行概览"
-      icon="mdi-view-dashboard"
+      icon="mdi-view-dashboard-outline"
     >
       <template #actions>
         <AdminButton
           variant="secondary"
-          prepend-icon="mdi-refresh"
-          :loading="refreshing"
           @click="refreshOverview"
         >
+          <template #prepend>
+            <VIcon icon="mdi-refresh" :class="{ 'is-spinning': refreshing }" />
+          </template>
           刷新
         </AdminButton>
       </template>
@@ -68,10 +69,9 @@ async function openPage(path: string) {
 
     <div class="dashboard-action-grid">
       <VCard
-        class="interactive-card dashboard-action-card"
-        color="surface-container"
+        class="interactive-card dashboard-action-card surface-card"
+        color="surface"
         variant="flat"
-        border
         role="button"
         tabindex="0"
         @click="openPage('/models')"
@@ -84,17 +84,16 @@ async function openPage(path: string) {
             <div class="dashboard-action-value">{{ summary.models_total }}</div>
             <div class="dashboard-action-helper text-medium-emphasis">管理模型别名、上游模型和处理器绑定</div>
           </div>
-          <VAvatar size="54" color="primary-container" rounded="xl">
+          <VAvatar size="54" color="primary-container" rounded="xl" class="dashboard-action-avatar">
             <VIcon icon="mdi-vector-link" color="primary" size="26" />
           </VAvatar>
         </VCardText>
       </VCard>
 
       <VCard
-        class="interactive-card dashboard-action-card"
-        color="surface-container"
+        class="interactive-card dashboard-action-card surface-card"
+        color="surface"
         variant="flat"
-        border
         role="button"
         tabindex="0"
         @click="openPage('/keys')"
@@ -107,8 +106,8 @@ async function openPage(path: string) {
             <div class="dashboard-action-value">{{ summary.auth_keys_total }}</div>
             <div class="dashboard-action-helper text-medium-emphasis">维护后台和 API 共用的访问凭证</div>
           </div>
-          <VAvatar size="54" color="secondary-container" rounded="xl">
-            <VIcon icon="mdi-shield-lock" color="secondary" size="26" />
+          <VAvatar size="54" color="primary-container" rounded="xl" class="dashboard-action-avatar">
+            <VIcon icon="mdi-shield-lock-outline" color="primary" size="26" />
           </VAvatar>
         </VCardText>
       </VCard>
@@ -116,11 +115,10 @@ async function openPage(path: string) {
 
     <SectionCard
       title="后端服务"
-      icon="mdi-cpu-64-bit"
+      icon="mdi-server-network-outline"
     >
       <HandlerSwitchGrid
         :handlers="admin.handlers.value"
-        :selected="admin.selectedHandler.value"
         @select="(key) => openHandler(key, admin.handlerLookup.value.get(key)?.supports_credentials ?? false)"
       />
     </SectionCard>

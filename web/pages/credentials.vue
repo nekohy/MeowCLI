@@ -496,6 +496,7 @@ function geminiQuotaPercentValue(metric: GeminiCredentialItem['pro']) {
   return Math.max(0, Math.min(100, Math.round((metric.quota || 0) * 100)))
 }
 
+// 配额语义色（只染进度条，数值文字保持墨色）：充裕 success / 偏紧 warning / 将尽 danger / 退避 accent
 function quotaTone(percent: number | null): UiTone {
   if (percent === null) {
     return 'secondary'
@@ -977,10 +978,10 @@ watch(
   <div class="page-grid">
     <PageHeader
       title="凭据管理"
-      icon="mdi-key-chain-variant"
+      icon="mdi-shield-key-outline"
     >
       <template #meta>
-        <AdminBadge tone="secondary" icon="mdi-key-chain-variant">
+        <AdminBadge tone="secondary" icon="mdi-shield-key-outline">
           总量 {{ total }}
         </AdminBadge>
         <AdminBadge v-if="selectedIds.length" tone="accent" icon="mdi-checkbox-multiple-marked-outline">
@@ -1009,7 +1010,7 @@ watch(
 
     <SectionCard
       title="后端服务"
-      icon="mdi-cpu-64-bit"
+      icon="mdi-server-network-outline"
     >
       <HandlerSwitchGrid
         :handlers="admin.handlers.value"
@@ -1020,7 +1021,7 @@ watch(
 
     <SectionCard
       title="凭据列表"
-      icon="mdi-table-large"
+      icon="mdi-view-list-outline"
     >
       <Transition name="handler-content-fade" mode="out-in">
         <div
@@ -1150,7 +1151,7 @@ watch(
               </div>
             </div>
 
-            <VChipGroup v-if="availablePlanTypes.length > 1 || planFilter !== 'all'" v-model="planFilter" mandatory color="secondary">
+            <VChipGroup v-if="availablePlanTypes.length > 1 || planFilter !== 'all'" v-model="planFilter" mandatory color="primary">
               <VChip value="all" filter>全部套餐</VChip>
               <VChip
                 v-for="plan in availablePlanTypes.filter((item) => item !== 'all')"

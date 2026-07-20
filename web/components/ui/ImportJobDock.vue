@@ -196,8 +196,8 @@ onBeforeUnmount(() => {
   bottom: max(16px, env(safe-area-inset-bottom));
   z-index: 2400;
   width: min(420px, calc(100vw - 32px));
-  border: 1px solid rgba(var(--v-theme-outline-variant), 0.72);
-  box-shadow: var(--v-shadow-4);
+  border: var(--admin-border-subtle);
+  box-shadow: var(--admin-shadow-2);
 }
 
 .import-job-dock__body {
@@ -233,12 +233,12 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 10px;
   cursor: pointer;
-  transition: background 0.15s, box-shadow 0.15s;
+  transition: background-color var(--md-dur-fast) var(--md-motion-standard);
 }
 
 .import-job-row:hover,
 .import-job-row:focus-visible {
-  background: rgba(var(--v-theme-on-surface), 0.08) !important;
+  background: var(--admin-hover-tint) !important;
 }
 
 .import-job-row:focus-visible {
@@ -259,7 +259,7 @@ onBeforeUnmount(() => {
 .import-error-item {
   min-height: 58px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--admin-radius-panel-sm);
   background: rgba(var(--v-theme-on-surface), 0.04);
 }
 
@@ -287,7 +287,9 @@ onBeforeUnmount(() => {
 
 .import-dock-enter-active,
 .import-dock-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
+  transition:
+    opacity var(--md-dur-fast) var(--md-motion-standard),
+    transform var(--md-dur-fast) var(--md-motion-standard);
 }
 
 .import-dock-enter-from,

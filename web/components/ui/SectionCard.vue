@@ -8,11 +8,11 @@ defineProps<{
 </script>
 
 <template>
-  <VCard color="surface-container" variant="flat">
+  <VCard color="surface" variant="flat" class="surface-card">
     <VCardItem v-if="title || eyebrow || description || $slots.actions" class="section-card-head">
       <div class="section-card-leading">
-        <VAvatar v-if="icon" size="40" color="secondary-container" rounded="lg">
-          <VIcon :icon="icon" color="secondary" size="18" />
+        <VAvatar v-if="icon" size="40" color="primary-container" rounded="lg">
+          <VIcon :icon="icon" color="primary" size="20" />
         </VAvatar>
         <div class="section-card-copy">
           <VCardSubtitle v-if="eyebrow" class="section-card-eyebrow">{{ eyebrow }}</VCardSubtitle>

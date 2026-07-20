@@ -642,10 +642,10 @@ watch(
   <div class="page-grid">
     <PageHeader
       title="模型映射"
-      icon="mdi-compare-horizontal"
+      icon="mdi-vector-arrange-above"
     >
       <template #meta>
-        <AdminBadge tone="secondary" icon="mdi-shape-outline">
+        <AdminBadge tone="secondary" icon="mdi-vector-arrange-above">
           {{ items.length }} 映射
         </AdminBadge>
       </template>
@@ -657,7 +657,7 @@ watch(
     <SectionCard
       title="映射列表"
       :eyebrow="`${filteredItems.length} 个结果`"
-      icon="mdi-format-list-bulleted-square"
+      icon="mdi-format-list-bulleted"
     >
       <div class="toolbar-panel mb-4">
         <VTextField
@@ -710,8 +710,8 @@ watch(
         <VCard
           v-for="item in filteredItems"
           :key="item.alias"
-          class="interactive-card model-card"
-          color="surface-container"
+          class="interactive-card model-card surface-card"
+          color="surface"
           variant="flat"
         >
           <VCardText class="pa-5 d-flex flex-column ga-3 model-card-body">
@@ -858,7 +858,7 @@ watch(
         <VSelect
           v-model="modalHandler"
           label="目标处理器"
-          prepend-inner-icon="mdi-cpu-64-bit"
+          prepend-inner-icon="mdi-server-network-outline"
           :items="admin.handlers.value.map((handler) => ({
             title: handler.label,
             value: handler.key,
@@ -916,7 +916,7 @@ watch(
       :open="modelCatalogOpen"
       :title="`${modelCatalogHandlerLabel} 模型列表`"
       description=""
-      icon="mdi-format-list-bulleted-square"
+      icon="mdi-format-list-bulleted"
       max-width="860"
       @close="closeModelCatalog"
     >
@@ -1163,9 +1163,8 @@ watch(
   gap: 6px;
   width: 100%;
   padding: 12px 14px;
-  border: 1px solid rgba(var(--v-theme-outline-variant), 0.62);
+  border: var(--admin-border-subtle);
   border-radius: var(--admin-radius-panel);
-  background: rgba(var(--v-theme-surface-container), 0.72);
   color: rgba(var(--v-theme-on-surface), 0.9);
   text-align: left;
   cursor: pointer;
@@ -1174,7 +1173,7 @@ watch(
 
 .model-catalog-item:hover {
   border-color: rgba(var(--v-theme-primary), 0.58);
-  background: rgba(var(--v-theme-primary), 0.07);
+  background: var(--admin-hover-tint);
   transform: translateY(-1px);
 }
 
@@ -1214,12 +1213,6 @@ watch(
   color: rgba(var(--v-theme-on-surface), 0.7);
   font-size: 0.88rem;
   font-weight: 700;
-}
-
-.model-card {
-  border: 1px solid rgba(var(--v-theme-outline-variant), 0.62);
-  background: rgba(var(--v-theme-surface-container), 0.82) !important;
-  box-shadow: inset 0 1px 0 rgba(var(--v-theme-on-surface), 0.035);
 }
 
 .model-card-body {
@@ -1367,7 +1360,7 @@ watch(
 .extra-json-panel {
   border: 1px solid rgba(var(--v-theme-outline-variant), 0.58);
   border-radius: 12px;
-  background: rgba(var(--v-theme-surface-container-high), 0.74);
+  background: var(--admin-inset-bg);
 }
 
 .extra-json-panel > summary {

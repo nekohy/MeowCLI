@@ -30,6 +30,21 @@ const currentLabel = computed(() => (
     : props.preference === 'dark' ? '深色' : '浅色'
 ))
 
+// 三态图标轮换:front/back 双层交替承载新图标,
+// 配合共享类 .icon-swap / .icon-swap--swapped 做旋转缩放交叉切换
+const frontIcon = ref(currentIcon.value)
+const backIcon = ref(currentIcon.value)
+const swapped = ref(false)
+
+watch(currentIcon, (next) => {
+  if (swapped.value) {
+    frontIcon.value = next
+  } else {
+    backIcon.value = next
+  }
+  swapped.value = !swapped.value
+})
+
 function cyclePreference() {
   emit('update:preference', nextPreference.value)
 }
@@ -37,13 +52,18 @@ function cyclePreference() {
 
 <template>
   <VBtn
-    :prepend-icon="currentIcon"
     variant="text"
     color="primary"
     class="text-none"
     size="default"
     @click="cyclePreference"
   >
+    <template #prepend>
+      <span class="icon-swap" :class="{ 'icon-swap--swapped': swapped }" aria-hidden="true">
+        <VIcon class="icon-swap__front" :icon="frontIcon" />
+        <VIcon class="icon-swap__back" :icon="backIcon" />
+      </span>
+    </template>
     {{ currentLabel }}
   </VBtn>
 </template>

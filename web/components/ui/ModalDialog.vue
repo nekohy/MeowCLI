@@ -24,13 +24,11 @@ defineEmits<{
     @update:model-value="(value) => !value && $emit('close')"
   >
     <VCard color="surface-container-high" class="modal-card">
-      <VCardItem class="pa-5">
-        <template #prepend>
-          <VAvatar size="44" color="primary-container" rounded="xl">
-            <VIcon :icon="icon" color="primary" size="20" />
-          </VAvatar>
-        </template>
-        <VCardTitle class="text-h6 font-weight-bold">{{ title }}</VCardTitle>
+      <VCardItem class="pa-5 pb-3">
+        <VCardTitle class="text-h6 font-weight-bold modal-title">
+          <VIcon :icon="icon" color="primary" size="20" />
+          <span>{{ title }}</span>
+        </VCardTitle>
         <VCardSubtitle v-if="description" class="text-wrap mt-1">{{ description }}</VCardSubtitle>
         <template #append>
           <VBtn

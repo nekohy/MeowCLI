@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import type { HandlerOverview } from '~/types/admin'
 
-defineProps<{
+withDefaults(defineProps<{
   handlers: HandlerOverview[]
-  selected: string
-}>()
+  // 切换场景（凭据页）传入当前选中 key 以高亮；展示场景（仪表盘）不传则不显示选中态
+  selected?: string
+}>(), {
+  selected: '',
+})
 
 defineEmits<{
   select: [key: string]
@@ -16,11 +19,10 @@ defineEmits<{
     <VCard
       v-for="handler in handlers"
       :key="handler.key"
-      class="interactive-card handler-card"
-      :class="{ 'is-active': selected === handler.key }"
-      color="surface-container"
+      class="interactive-card handler-card surface-card"
+      :class="{ 'is-active': selected !== '' && selected === handler.key }"
+      color="surface"
       variant="flat"
-      border
       role="button"
       tabindex="0"
       @click="$emit('select', handler.key)"

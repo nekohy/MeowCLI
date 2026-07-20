@@ -50,7 +50,7 @@ const summaryTiles = computed(() => [
     label: '全部密钥',
     value: items.value.length,
     helper: '后台和 API 共用的密钥总数',
-    icon: 'mdi-key-variant',
+    icon: 'mdi-key-outline',
   },
   {
     label: '管理员',
@@ -208,10 +208,10 @@ useAuthReadyLoader(loadAuthKeys)
   <div class="page-grid">
     <PageHeader
       title="API 密钥"
-      icon="mdi-shield-key-outline"
+      icon="mdi-shield-lock-outline"
     >
       <template #meta>
-        <AdminBadge tone="secondary" icon="mdi-key-variant">
+        <AdminBadge tone="secondary" icon="mdi-shield-lock-outline">
           共 {{ items.length }} 个密钥
         </AdminBadge>
         <AdminBadge v-if="changedCount" tone="warning" icon="mdi-content-save-alert-outline">
@@ -269,7 +269,8 @@ useAuthReadyLoader(loadAuthKeys)
         <VCard
           v-for="item in filteredItems"
           :key="item.key"
-          color="surface-container"
+          class="surface-card"
+          color="surface"
           variant="flat"
         >
           <VCardText class="key-card-body">

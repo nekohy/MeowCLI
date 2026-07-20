@@ -112,16 +112,16 @@ const ROLE_LABELS: Record<string, string> = {
   user: '普通成员',
 }
 
-/** handler key → 导航/区块图标(图标需在 lib/icons.ts 注册) */
+/** handler key → 导航/区块图标(provider 品牌图标在 lib/icons.ts 的 lobeIconPaths 注册) */
 export const HANDLER_ICON_BY_KEY: Record<string, string> = {
-  codex: 'mdi-console',
-  gemini: 'mdi-google-circles-communities',
-  antigravity: 'mdi-compass-outline',
-  'opencode-go': 'mdi-code-braces-box',
+  codex: 'lobe-openai',
+  gemini: 'lobe-gemini-cli',
+  antigravity: 'lobe-antigravity',
+  'opencode-go': 'lobe-opencode',
 }
 
 export function handlerIcon(handlerKey: string) {
-  return HANDLER_ICON_BY_KEY[handlerKey] || 'mdi-cpu-64-bit'
+  return HANDLER_ICON_BY_KEY[handlerKey] || 'mdi-server-network-outline'
 }
 
 const PLAN_TYPE_SPLIT_RE = /[,\s;]+/
@@ -173,8 +173,8 @@ export function applyTheme(theme: ThemeMode) {
   const root = document.documentElement
   root.dataset.theme = normalized
   root.style.colorScheme = normalized
-  // 主题类挂在 <html> 上,让 Vuetify 的 .v-theme--* 变量对整棵文档树生效
-  // (vuetifyTheme.change() 只更新 .v-application 与内联样式表,够不到 html/body)
+  // 主题类挂在 <html> 上，让 .v-theme--* 的 CSS 变量覆盖到 html/body；
+  // .v-application 上的同名类由 <VApp :theme> 绑定（provideTheme 子树局部解析）
   root.classList.toggle('v-theme--dark', normalized === 'dark')
   root.classList.toggle('v-theme--light', normalized === 'light')
 

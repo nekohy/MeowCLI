@@ -45,8 +45,11 @@ const buttonHeight = computed(() => (props.size === 'sm' ? 36 : 40))
     :prepend-icon="prependIcon"
     :append-icon="appendIcon"
     :slim="false"
-    class="admin-button text-none font-weight-medium"
+    class="admin-button text-none"
   >
+    <template v-if="$slots.prepend" #prepend>
+      <slot name="prepend" />
+    </template>
     <slot />
   </VBtn>
 </template>

@@ -11,23 +11,63 @@
   --admin-shell-max-width: 1380px;
   --admin-auth-max-width: 1240px;
   --admin-drawer-width: 216px;
-  /* MD3 形状刻度：按钮/导航 stadium，卡片 12dp，对话框 28dp，chip 8dp */
-  --admin-radius-control: 999px;
-  --admin-radius-control-sm: 999px;
-  --admin-radius-panel: 12px;
-  --admin-radius-nav: 999px;
+  /* MD3 形状刻度：外 16 / 内 12 嵌套；控件 14/12；导航 14 圆角矩形；对话框 28；chip 10 */
+  --admin-radius-control: 14px;
+  --admin-radius-control-sm: 12px;
+  --admin-radius-panel: 16px;
+  --admin-radius-panel-sm: 12px;
+  --admin-radius-nav: 14px;
   --admin-radius-modal: 28px;
-  --admin-radius-chip: 8px;
+  --admin-radius-chip: 10px;
   --admin-control-height: 40px;
   --admin-control-height-sm: 36px;
   --admin-chip-height: 32px;
-  --admin-nav-height: 56px;
+  --admin-nav-height: 50px;
   --admin-nav-icon-box: 34px;
-  /* MD3 动效令牌（emphasized，无回弹） */
+  /* 描边只做收边，不做造型 */
+  --admin-border-subtle: 1px solid rgba(var(--v-theme-outline-variant), 0.5);
+  /* 内嵌"井"唯一填充：代码块 / 日志详情等需要凹陷读感的位置；
+     其余内嵌块一律透明 + 发丝描边，避免层层灰块割裂 */
+  --admin-inset-bg: rgba(var(--v-theme-surface-container-high), 0.6);
+  /* 交互态主色浸染，替代中性灰 hover */
+  --admin-hover-tint: color-mix(in srgb, rgb(var(--v-theme-primary)) 8%, transparent);
+  --admin-hover-tint-strong: color-mix(in srgb, rgb(var(--v-theme-primary)) 12%, transparent);
+  /* 导航交互态：primary-container 浸染（9e93eac 经典侧边栏基调） */
+  --admin-nav-hover: rgba(var(--v-theme-primary-container), 0.56);
+  --admin-nav-active: rgba(var(--v-theme-primary-container), 0.88);
+  /* 阴影刻度：卡片无静息阴影（扁平描边体系）；浮层更深；raise 仅 hover 交互反馈 */
+  --admin-shadow-2: 0 2px 6px rgba(var(--v-theme-shadow), 0.08), 0 16px 32px -12px rgba(var(--v-theme-shadow), 0.18);
+  --admin-shadow-raise: 0 2px 4px rgba(var(--v-theme-shadow), 0.10), 0 20px 40px -14px rgba(var(--v-theme-shadow), 0.22);
+  /* MD3 动效令牌：颜色过渡用 standard + fast，形状/位移用 emphasized|decelerate + med，离场用 accelerate */
   --md-motion-emphasized: cubic-bezier(0.2, 0, 0, 1);
   --md-motion-standard: cubic-bezier(0.2, 0, 0, 1);
+  --md-motion-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --md-motion-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --md-dur-press: 90ms;
+  --md-dur-fast: 160ms;
+  --md-dur-med: 240ms;
+  --md-dur-slow: 340ms;
   --v-font-family: var(--admin-font-sans);
 }
+
+/* 深色仅覆写阴影 alpha，颜色仍走 --v-theme-shadow；
+   可读性补偿：次级文字不透明度 0.6→0.78，发丝描边 0.5→0.7 */
+.v-theme--dark {
+  --admin-shadow-2: 0 2px 6px rgba(var(--v-theme-shadow), 0.34), 0 16px 32px -12px rgba(var(--v-theme-shadow), 0.46);
+  --admin-shadow-raise: 0 2px 4px rgba(var(--v-theme-shadow), 0.40), 0 20px 40px -14px rgba(var(--v-theme-shadow), 0.55);
+  --v-medium-emphasis-opacity: 0.78;
+  --admin-border-subtle: 1px solid rgba(var(--v-theme-outline-variant), 0.7);
+}
+
+/* 主题切换整页交叉淡入（配合 app.vue applyThemeWithTransition 的 startViewTransition；
+   减少动态时 JS 侧直接跳过 VT，无需在此降级） */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--md-dur-med);
+  animation-timing-function: var(--md-motion-standard);
+}
+
+/* 全站字重四档口诀：800 页面主标题与关键数字 · 700 区块/卡片标题与激活态 · 600 控件文字（按钮、chip、徽标、字段小标签） · 500 导航与正文辅助 */
 
 :root[data-theme='dark'] {
   color-scheme: dark;
@@ -99,19 +139,11 @@ pre {
   font-family: var(--admin-font-mono), monospace;
 }
 
-/* --- Vuetify font family & 主题感知页面背景 --- */
-/* 渐变背景放在应用根（而非 body）：主题变量沿 <html> 的 v-theme--* 类继承，
-   此处随主题切换自动解析；.admin-app 提升特异度以覆盖 Vuetify 自带背景 */
+/* --- Vuetify font family & 纯色页面背景 --- */
+/* 主题类（v-theme--*）挂在 <html> 上，背景直接解析主题底色，不做渐变叠层 */
 .v-application.admin-app {
   --v-font-family: var(--admin-font-sans);
-  background:
-    linear-gradient(180deg, rgba(var(--v-theme-primary-container), 0.28) 0, rgba(var(--v-theme-background), 0) 180px),
-    rgb(var(--v-theme-background));
-}
-
-.v-theme--light,
-.v-theme--dark {
-  --v-font-family: var(--admin-font-sans);
+  background: rgb(var(--v-theme-background));
 }
 
 .v-btn__content,
@@ -147,7 +179,9 @@ pre {
   min-height: var(--admin-control-height);
   border-radius: var(--admin-radius-control) !important;
   padding-inline: 18px !important;
-  letter-spacing: 0;
+  font-weight: 600;
+  letter-spacing: 0.015em;
+  transition: transform var(--md-dur-fast) var(--md-motion-standard);
 }
 
 .v-btn--size-small:not(.v-btn--icon) {
@@ -158,6 +192,60 @@ pre {
 
 .v-btn--icon {
   border-radius: 50% !important;
+  transition: transform var(--md-dur-fast) var(--md-motion-standard);
+}
+
+/* 全站按压反馈：普通钮 scale(0.97)，icon 钮 scale(0.88) */
+.v-btn:not(.v-btn--icon):active {
+  transform: scale(0.97);
+  transition-duration: var(--md-dur-press);
+}
+
+.v-btn--icon:active {
+  transform: scale(0.88);
+  transition-duration: var(--md-dur-press);
+}
+
+/* 主按钮浮起：同色阴影伪元素预渲染，hover 时 opacity 交叉淡入（无 box-shadow transition）。
+   注意：Vuetify 原生 .v-btn::after 是 2px currentColor 焦点环，这里复用同一伪元素投影，
+   必须清掉边框，焦点指示改走 outline（与 .interactive-card:focus-visible 同一模式）。 */
+.admin-button.v-btn--variant-flat {
+  position: relative;
+}
+
+.admin-button.v-btn--variant-flat::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, rgb(var(--v-theme-primary)) 32%, transparent),
+    0 6px 14px -6px color-mix(in srgb, rgb(var(--v-theme-primary)) 32%, transparent);
+  opacity: 0;
+  transition: opacity 200ms var(--md-motion-emphasized);
+  pointer-events: none;
+}
+
+.admin-button.v-btn--variant-flat:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 2px;
+}
+
+.admin-button.v-btn--variant-flat:hover {
+  transform: translateY(-1px);
+}
+
+.admin-button.v-btn--variant-flat:hover::after {
+  opacity: 1;
+}
+
+.admin-button.v-btn--variant-flat:active {
+  transform: translateY(0);
+}
+
+.admin-button.v-btn--variant-flat:active::after {
+  opacity: 0;
 }
 
 .v-card {
@@ -166,17 +254,39 @@ pre {
 
 .modal-card {
   border-radius: var(--admin-radius-modal) !important;
+  box-shadow: var(--admin-shadow-2);
+}
+
+.modal-card .v-card-title {
+  font-size: 1.12rem;
+  font-weight: 700;
+}
+
+/* 对话框标题：小图标内联于标题行，不再用整行大头像 */
+.modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .v-sheet.rounded-xl:not(.v-card) {
   border-radius: var(--admin-radius-panel) !important;
 }
 
+/* 展示头像与内嵌块统一嵌套刻度（外 16 / 内 12）：Vuetify rounded-xl=24 在
+   小头像上比例失调，全站 VAvatar 一律 12px，与 SectionCard 头部节奏一致 */
+.v-avatar.rounded-xl,
+.v-avatar.rounded-lg,
+.v-sheet.rounded-lg:not(.v-card) {
+  border-radius: var(--admin-radius-panel-sm) !important;
+}
+
 .v-chip {
   min-height: var(--admin-chip-height);
   border-radius: var(--admin-radius-chip) !important;
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .v-chip.v-chip--size-small {
@@ -231,7 +341,7 @@ pre {
 }
 
 .text-medium-emphasis {
-  color: rgba(var(--v-theme-on-surface), 0.72) !important;
+  color: rgba(var(--v-theme-on-surface), 0.75) !important;
 }
 
 /* --- Brand --- */
@@ -249,10 +359,10 @@ pre {
 .quota-label,
 .drawer-brand-eyebrow,
 .drawer-footer-heading {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   line-height: 1.3;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
@@ -261,6 +371,27 @@ pre {
 .drawer-brand-eyebrow,
 .loading-eyebrow {
   color: rgb(var(--v-theme-primary));
+}
+
+/* 区块 eyebrow 带次级色，消除一片灰 */
+.section-card-eyebrow {
+  color: rgb(var(--v-theme-secondary));
+}
+
+/* --- 共享卡片刻度：唯一载体 surface-card（surface 背景 + 发丝描边，无静息阴影；
+     层级靠描边与留白表达，hover 浮起阴影由 .interactive-card 单独提供） --- */
+.surface-card {
+  background: rgb(var(--v-theme-surface));
+  border: var(--admin-border-subtle);
+}
+
+/* admin-badge：字重由 CSS 统一接管；tonal 描边色调化，深浅色自动解析 */
+.admin-badge {
+  font-weight: 600;
+}
+
+.admin-badge.v-chip--variant-tonal {
+  border: 1px solid color-mix(in srgb, currentColor 26%, transparent);
 }
 
 /* --- Shell layout --- */
@@ -293,6 +424,11 @@ pre {
   margin-bottom: 12px;
 }
 
+/* snackbar 走浮层阴影刻度 */
+.v-snackbar__wrapper {
+  box-shadow: var(--admin-shadow-2);
+}
+
 .loading-copy {
   display: grid;
   gap: 6px;
@@ -302,12 +438,8 @@ pre {
   margin-top: 8px;
   font-size: 0.84rem;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: rgba(var(--v-theme-on-surface), 0.62);
-}
-
-.page-header-card,
-.modal-card {
-  border: 1px solid rgba(var(--v-theme-outline-variant), 0.72);
 }
 
 .open-code-go-rewards-list {
@@ -354,8 +486,73 @@ pre {
   gap: 20px;
 }
 
+/* 页面级网格入场 stagger：只挂 .page-grid 直接子级（内层网格随轮询刷新，不重放） */
 .page-grid > * {
   min-width: 0;
+  animation: admin-rise var(--md-dur-slow) var(--md-motion-decelerate) backwards;
+}
+
+.page-grid > :nth-child(1) { animation-delay: 0ms; }
+.page-grid > :nth-child(2) { animation-delay: 50ms; }
+.page-grid > :nth-child(3) { animation-delay: 100ms; }
+.page-grid > :nth-child(4) { animation-delay: 150ms; }
+.page-grid > :nth-child(5) { animation-delay: 200ms; }
+.page-grid > :nth-child(n+6) { animation-delay: 250ms; }
+
+@keyframes admin-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* 手动刷新 loading 态的旋转图标 */
+@keyframes admin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.is-spinning {
+  animation: admin-spin 900ms linear infinite;
+}
+
+/* 双图标绝对定位交叉切换（ThemeToggle / log 自动刷新共用） */
+.icon-swap {
+  position: relative;
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+}
+
+.icon-swap__front,
+.icon-swap__back {
+  position: absolute;
+  inset: 0;
+  transition:
+    opacity 180ms var(--md-motion-standard),
+    transform 260ms var(--md-motion-emphasized);
+}
+
+.icon-swap__front {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+.icon-swap__back {
+  opacity: 0;
+  transform: rotate(-80deg) scale(0.62);
+}
+
+.icon-swap--swapped .icon-swap__front {
+  opacity: 0;
+  transform: rotate(80deg) scale(0.62);
+}
+
+.icon-swap--swapped .icon-swap__back {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
 }
 
 /* --- Auth layout --- */
@@ -426,6 +623,7 @@ pre {
   display: grid;
   gap: 8px;
   padding: 10px;
+  border: var(--admin-border-subtle);
   border-radius: var(--admin-radius-panel) !important;
 }
 
@@ -486,7 +684,15 @@ pre {
   justify-content: center;
   place-items: center;
   margin-inline: 0;
-  font-size: 21px;
+  font-size: 20px;
+  transition:
+    transform var(--md-dur-fast) var(--md-motion-standard),
+    color var(--md-dur-fast) var(--md-motion-standard);
+}
+
+.nav-item:hover .v-icon {
+  transform: scale(1.06);
+  color: rgb(var(--v-theme-primary));
 }
 
 .nav-item.v-list-item--active .v-list-item__prepend > .v-icon {
@@ -495,26 +701,20 @@ pre {
 
 .nav-item-title,
 .nav-item .v-list-item-title {
-  font-weight: 500;
+  font-weight: 700;
   font-size: 0.96rem;
   line-height: 1.25;
-  color: rgb(var(--v-theme-on-surface-variant));
+  color: rgb(var(--v-theme-on-surface));
 }
 
-/* MD3 导航抽屉：hover 用 state layer，激活项为 secondary-container stadium 指示器 */
+/* 导航抽屉（9e93eac 经典样式）：hover/激活均为 primary-container 浸染，激活更深一档 */
 .nav-item:hover,
 .nav-item:focus-visible {
-  background: rgba(var(--v-theme-on-surface), 0.08);
+  background: var(--admin-nav-hover);
 }
 
 .nav-item.v-list-item--active {
-  background: rgb(var(--v-theme-secondary-container));
-}
-
-.nav-item.v-list-item--active .nav-item-title,
-.nav-item.v-list-item--active .v-list-item-title {
-  font-weight: 700;
-  color: rgb(var(--v-theme-on-secondary-container));
+  background: var(--admin-nav-active);
 }
 
 .drawer-footer-surface {
@@ -524,12 +724,15 @@ pre {
   color: inherit;
   cursor: pointer;
   text-decoration: none;
-  transition: background-color 160ms var(--md-motion-standard);
+  transition:
+    background-color var(--md-dur-fast) var(--md-motion-standard),
+    transform var(--md-dur-fast) var(--md-motion-standard);
 }
 
 .drawer-footer-surface:hover,
 .drawer-footer-surface:focus-visible {
-  background: rgba(var(--v-theme-on-surface), 0.08) !important;
+  background: rgba(var(--v-theme-primary-container), 0.62) !important;
+  transform: translateY(-1px);
 }
 
 .drawer-footer-surface:focus-visible {
@@ -537,9 +740,10 @@ pre {
   outline-offset: 2px;
 }
 
-/* --- App bar (MD3 顶栏：全宽平铺，无边框无圆角) --- */
+/* --- App bar (MD3 顶栏：全宽平铺 + 发丝结构线) --- */
 .app-bar {
-  background: rgb(var(--v-theme-surface-container)) !important;
+  background: transparent !important;
+  border-bottom: 0;
 }
 
 .app-bar .v-toolbar__content {
@@ -548,18 +752,26 @@ pre {
   padding-inline: 16px !important;
 }
 
-.app-bar-copy {
-  display: grid;
-  gap: 0;
-  min-width: 0;
-  flex: 1 1 auto;
+.app-bar .v-toolbar__append {
+  align-self: flex-start;
+  margin-top: 8px;
 }
 
-.app-bar-title {
-  font-size: 1.05rem;
-  line-height: 1.2;
-  font-weight: 700;
-  color: rgb(var(--v-theme-on-surface));
+.app-bar-actions {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  overflow: hidden;
+  border-radius: var(--admin-radius-control);
+}
+
+.app-bar-actions .v-btn {
+  height: 46px !important;
+  border-radius: 0;
+}
+
+.app-bar-actions .v-btn + .v-btn {
+  border-inline-start: var(--admin-border-subtle);
 }
 
 /* --- Page header --- */
@@ -569,7 +781,7 @@ pre {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 20px !important;
+  padding: 24px !important;
 }
 
 .page-header-copy {
@@ -582,6 +794,8 @@ pre {
 
 .page-header-avatar {
   flex-shrink: 0;
+  border-radius: var(--admin-radius-panel) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, rgb(var(--v-theme-primary)) 18%, transparent);
 }
 
 .page-header-text {
@@ -592,9 +806,9 @@ pre {
 
 .page-header-title {
   font-size: clamp(1.45rem, 2.6vw, 2rem);
-  line-height: 1.08;
-  font-weight: 700;
-  letter-spacing: 0;
+  line-height: 1.12;
+  font-weight: 800;
+  letter-spacing: -0.012em;
   color: rgb(var(--v-theme-on-surface));
 }
 
@@ -609,9 +823,13 @@ pre {
   justify-content: flex-end;
 }
 
+.page-header-actions .admin-button .v-btn__content {
+  font-weight: 500;
+}
+
 /* --- Section card --- */
 .section-card-head {
-  padding: 18px 18px 0 !important;
+  padding: 20px 20px 0 !important;
 }
 
 .section-card-head .v-card-item__append {
@@ -635,7 +853,7 @@ pre {
 }
 
 .section-card-title {
-  font-size: 0.98rem;
+  font-size: 1.02rem;
   line-height: 1.2;
   font-weight: 700;
   color: rgb(var(--v-theme-on-surface));
@@ -657,49 +875,15 @@ pre {
   letter-spacing: 0;
 }
 
-.log-auto-refresh-icon {
-  position: relative;
-  display: inline-grid;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-}
-
-.log-auto-refresh-icon .v-icon {
-  position: absolute;
-  inset: 0;
-  transition: opacity 180ms var(--md-motion-standard), transform 260ms var(--md-motion-emphasized);
-}
-
-.log-auto-refresh-icon__timer {
-  opacity: 1;
-  transform: rotate(0deg) scale(1);
-}
-
-.log-auto-refresh-icon__off {
-  opacity: 0;
-  transform: rotate(-80deg) scale(0.62);
-}
-
-.log-auto-refresh-trigger--off .log-auto-refresh-icon__timer {
-  opacity: 0;
-  transform: rotate(80deg) scale(0.62);
-}
-
-.log-auto-refresh-trigger--off .log-auto-refresh-icon__off {
-  opacity: 1;
-  transform: rotate(0deg) scale(1);
-}
-
 .section-card-body {
-  padding: 18px !important;
+  padding: 20px !important;
 }
 
 /* --- Metric card --- */
 .metric-shell {
   display: grid;
   gap: 12px;
-  padding: 18px !important;
+  padding: 20px !important;
 }
 
 .metric-head {
@@ -720,7 +904,8 @@ pre {
   font-size: 1.65rem;
   line-height: 1.15;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
   color: rgb(var(--v-theme-on-surface));
 }
 
@@ -757,6 +942,7 @@ pre {
   border-color: rgba(var(--v-theme-outline-variant), 0.58) !important;
 }
 
+/* 经典横排：文案在左占满、头像在右垂直居中，融为一体 */
 .dashboard-action-shell {
   display: flex;
   min-height: 132px;
@@ -768,6 +954,7 @@ pre {
 
 .dashboard-action-copy {
   display: grid;
+  flex: 1 1 auto;
   gap: 10px;
   min-width: 0;
 }
@@ -785,7 +972,8 @@ pre {
   font-size: clamp(1.55rem, 2.4vw, 2.1rem);
   line-height: 1.05;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
   color: rgb(var(--v-theme-on-surface));
 }
 
@@ -793,6 +981,16 @@ pre {
   max-width: 28rem;
   font-size: 0.92rem;
   line-height: 1.65;
+}
+
+/* dashboard 行动卡微动效：hover 时 avatar 轻放大 */
+.dashboard-action-avatar {
+  transition: transform var(--md-dur-med) var(--md-motion-emphasized);
+}
+
+.dashboard-action-card:hover .dashboard-action-avatar,
+.dashboard-action-card:focus-visible .dashboard-action-avatar {
+  transform: scale(1.07);
 }
 
 .handler-switch-grid {
@@ -811,7 +1009,6 @@ pre {
 .stack-list > .v-card {
   min-width: 0;
   max-width: 100%;
-  border: 1px solid rgba(var(--v-theme-outline-variant), 0.72);
 }
 
 .quota-grid {
@@ -837,8 +1034,8 @@ pre {
   display: grid;
   gap: 12px;
   padding: 14px;
-  border-radius: var(--admin-radius-panel);
-  background: rgba(var(--v-theme-surface-container-high), 0.86);
+  border: var(--admin-border-subtle);
+  border-radius: var(--admin-radius-panel-sm);
 }
 
 .toolbar-panel {
@@ -960,7 +1157,7 @@ pre {
 }
 
 .throttle-chip-toggle:hover {
-  background: rgba(var(--v-theme-on-surface), 0.1);
+  background: var(--admin-hover-tint-strong);
 }
 
 .throttle-chip-toggle:focus-visible {
@@ -973,9 +1170,7 @@ pre {
   border: 1px solid rgba(var(--v-theme-outline-variant), 0.52);
   border-radius: var(--admin-radius-panel) !important;
   background: rgb(var(--v-theme-surface-container-highest)) !important;
-  box-shadow:
-    0 2px 6px rgba(var(--v-theme-shadow), 0.12),
-    0 12px 28px rgba(var(--v-theme-shadow), 0.2);
+  box-shadow: var(--admin-shadow-2) !important;
   -ms-overflow-style: none;
   overscroll-behavior: contain;
   scrollbar-width: none;
@@ -1052,6 +1247,7 @@ pre {
   min-height: 40px;
   align-items: center;
   line-height: 1.4;
+  font-variant-numeric: tabular-nums;
 }
 
 .pagination-bar > :nth-child(2) {
@@ -1080,7 +1276,8 @@ pre {
 }
 
 .pagination-bar .v-pagination__item--is-active .v-btn {
-  background: rgba(var(--v-theme-primary), 0.14);
+  background: rgba(var(--v-theme-primary), 0.16);
+  font-weight: 700;
 }
 
 /* --- Card internals --- */
@@ -1122,12 +1319,8 @@ pre {
   display: grid;
   gap: 8px;
   padding: 16px;
-  border-radius: var(--admin-radius-panel);
-  background: rgba(var(--v-theme-surface-container-high), 0.76);
-}
-
-.detail-block {
-  border: 1px solid rgba(var(--v-theme-outline), 0.16);
+  border: var(--admin-border-subtle);
+  border-radius: var(--admin-radius-panel-sm);
 }
 
 .quota-card {
@@ -1138,11 +1331,27 @@ pre {
 
 .quota-card--clickable {
   cursor: pointer;
-  transition: background-color 160ms var(--md-motion-standard);
+  transition:
+    background-color var(--md-dur-fast) var(--md-motion-standard),
+    transform var(--md-dur-fast) var(--md-motion-standard);
 }
 
 .quota-card--clickable:hover {
-  background: rgba(var(--v-theme-surface-container-highest), 0.92);
+  background: var(--admin-hover-tint);
+  transform: translateY(-1px);
+}
+
+/* 进度条轨道压成中性灰（Vuetify 会把 color 同时套到轨道上，须显式覆盖），
+   语义色只给填充段，避免同一根条出现同色系两种深浅 */
+.quota-card .v-progress-linear__background {
+  background: rgba(var(--v-theme-on-surface), 0.1) !important;
+  opacity: 1;
+}
+
+.quota-card .v-progress-linear__determinate {
+  transition:
+    background-color var(--md-dur-med) var(--md-motion-standard),
+    inline-size var(--md-dur-med) var(--md-motion-decelerate);
 }
 
 .quota-card--clickable:focus-visible {
@@ -1262,6 +1471,8 @@ pre {
 
 .quota-value {
   font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -1269,13 +1480,12 @@ pre {
   flex: 0 0 auto;
   margin-inline-start: auto;
   padding: 3px 8px;
-  border: 1px solid rgba(var(--v-theme-outline), 0.2);
+  border: 1px solid color-mix(in srgb, rgb(var(--v-theme-primary)) 18%, transparent);
   border-radius: 999px;
-  background: rgba(var(--v-theme-surface-container-highest), 0.92);
-  box-shadow: 0 1px 2px rgba(var(--v-theme-shadow), 0.08);
   font-size: 0.75rem;
   font-weight: 700;
   line-height: 1.35;
+  font-variant-numeric: tabular-nums;
   color: rgb(var(--v-theme-on-surface));
   white-space: nowrap;
 }
@@ -1324,7 +1534,8 @@ pre {
   display: grid;
   gap: 8px;
   padding: 16px;
-  border-radius: var(--admin-radius-panel);
+  border-inline-start: 3px solid rgb(var(--v-theme-error));
+  border-radius: var(--admin-radius-panel-sm);
   background: rgba(var(--v-theme-error), 0.1);
 }
 
@@ -1346,15 +1557,19 @@ pre {
 
 /* --- Interactive cards --- */
 .interactive-card {
+  position: relative;
   cursor: pointer;
   transition:
-    transform 180ms var(--md-motion-emphasized),
-    background-color 160ms var(--md-motion-standard);
+    transform var(--md-dur-med) var(--md-motion-decelerate),
+    background-color var(--md-dur-fast) var(--md-motion-standard);
 }
 
+/* hover 浮起阴影直接挂卡片自身：VCard overflow:hidden 会裁剪 ::after 外阴影，
+   且不做 box-shadow transition（动效仅限 transform/opacity），随 hover 即时切换 */
 .interactive-card:hover,
 .interactive-card:focus-visible {
   transform: translateY(-2px);
+  box-shadow: var(--admin-shadow-raise);
 }
 
 .interactive-card:focus-visible {
@@ -1362,8 +1577,13 @@ pre {
   outline-offset: 2px;
 }
 
+/* handler 卡静息描边略收淡，与选中态拉开层级 */
+.handler-card.surface-card {
+  border-color: rgba(var(--v-theme-outline-variant), 0.5);
+}
+
 .handler-card.is-active {
-  outline: 2px solid rgba(var(--v-theme-primary), 0.32);
+  outline: 3px solid rgba(var(--v-theme-primary), 0.42);
   outline-offset: -2px;
   transform: translateY(-2px);
 }
@@ -1439,8 +1659,7 @@ pre {
   gap: 0;
   overflow: hidden;
   border: 1px solid rgba(var(--v-theme-outline-variant), 0.44);
-  border-radius: var(--admin-radius-panel);
-  background: rgba(var(--v-theme-surface-container-high), 0.46);
+  border-radius: var(--admin-radius-panel-sm);
 }
 
 .log-meta-item {
@@ -1466,7 +1685,7 @@ pre {
 .log-meta-item span {
   color: rgba(var(--v-theme-on-surface), 0.62);
   font-size: 0.78rem;
-  font-weight: 400;
+  font-weight: 600;
   line-height: 1.18;
   letter-spacing: 0.075em;
 }
@@ -1503,7 +1722,6 @@ pre {
 }
 
 .log-panels .v-expansion-panel {
-  background: rgb(var(--v-theme-surface-container));
   transition:
     border-color 180ms var(--md-motion-standard),
     background-color 180ms var(--md-motion-standard);
@@ -1522,8 +1740,8 @@ pre {
 .log-detail-surface {
   padding: 13px 16px 15px;
   border: 1px solid rgba(var(--v-theme-outline-variant), 0.44);
-  border-radius: var(--admin-radius-panel) !important;
-  background: rgba(var(--v-theme-surface-container-high), 0.46) !important;
+  border-radius: var(--admin-radius-panel-sm) !important;
+  background: var(--admin-inset-bg) !important;
 }
 
 .log-detail-heading {
@@ -1574,11 +1792,15 @@ pre {
 .key-code {
   display: block;
   padding: 12px 14px;
-  border-radius: var(--admin-radius-panel);
-  background: rgba(var(--v-theme-surface-container-high), 0.86);
+  border-radius: var(--admin-radius-panel-sm);
+  background: var(--admin-inset-bg);
   word-break: break-all;
   font-size: 0.9rem;
   line-height: 1.65;
+}
+
+.key-code {
+  font-variant-numeric: tabular-nums;
 }
 
 /* 可点击复制密钥:原生 button,重置 UA 样式,键盘可达 */
@@ -1592,7 +1814,7 @@ pre {
 }
 
 .key-code-clickable:hover {
-  background: rgba(var(--v-theme-primary), 0.12);
+  background: var(--admin-hover-tint-strong);
 }
 
 .key-code-clickable:focus-visible {
@@ -1647,7 +1869,10 @@ pre {
   justify-self: end;
 }
 
-.settings-item-control .v-field {
+/* 嵌套在有色容器（设置行 / 筛选工具条）里的输入框统一用 surface 底色，
+   与容器拉开层次，避免透明底透出 panel 的灰绿底色显得浑浊 */
+.settings-item-control .v-field,
+.toolbar-panel .v-field--variant-outlined {
   background: rgba(var(--v-theme-surface), 0.72);
 }
 
@@ -1674,20 +1899,30 @@ pre {
   text-align: center;
 }
 
+/* 静态径向渐变头像底，无 blur 零成本 */
+.empty-state-avatar {
+  background: radial-gradient(circle at 50% 30%, rgba(var(--v-theme-primary-container), 0.9), rgba(var(--v-theme-primary-container), 0.55));
+}
+
 .empty-state-copy {
   display: grid;
   gap: 6px;
   max-width: 30rem;
 }
 
-/* --- Page transitions (MD3 emphasized easing) --- */
+/* --- Page transitions (MD3 emphasized 入场 / accelerate 离场) --- */
 .page-fade-enter-active,
+.handler-content-fade-enter-active {
+  transition:
+    opacity 220ms var(--md-motion-emphasized),
+    transform 220ms var(--md-motion-emphasized);
+}
+
 .page-fade-leave-active,
-.handler-content-fade-enter-active,
 .handler-content-fade-leave-active {
   transition:
-    opacity 200ms var(--md-motion-emphasized),
-    transform 200ms var(--md-motion-emphasized);
+    opacity 140ms var(--md-motion-accelerate),
+    transform 140ms var(--md-motion-accelerate);
 }
 
 .page-fade-enter-from,
@@ -1695,13 +1930,14 @@ pre {
 .handler-content-fade-enter-from,
 .handler-content-fade-leave-to {
   opacity: 0;
-  transform: translateY(6px);
+  transform: translateY(4px);
 }
 
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
+    animation-delay: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
@@ -1714,7 +1950,16 @@ pre {
   .handler-content-fade-leave-to,
   .interactive-card:hover,
   .interactive-card:focus-visible,
-  .handler-card.is-active {
+  .handler-card.is-active,
+  .quota-card--clickable:hover,
+  .admin-button.v-btn--variant-flat:hover,
+  .v-btn:not(.v-btn--icon):active,
+  .v-btn--icon:active,
+  .nav-item:hover .v-icon,
+  .drawer-footer-surface:hover,
+  .drawer-footer-surface:focus-visible,
+  .dashboard-action-card:hover .dashboard-action-avatar,
+  .dashboard-action-card:focus-visible .dashboard-action-avatar {
     transform: none;
   }
 }

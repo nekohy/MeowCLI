@@ -21,7 +21,7 @@ const CREDENTIAL_STATUS_TONES: Record<KnownCredentialStatus, UiTone> = {
 
 const CREDENTIAL_STATUS_ICONS: Record<KnownCredentialStatus, string> = {
   enabled: 'mdi-check',
-  disabled: 'mdi-close-circle',
+  disabled: 'mdi-close-circle-outline',
 }
 
 const THROTTLE_TIER_LABELS: Record<string, string> = {
@@ -68,7 +68,7 @@ export function credentialStatusIcon(status?: string | null) {
   if (isThrottleTierStatus(status)) {
     return 'mdi-timer-sand'
   }
-  return 'mdi-close-circle'
+  return 'mdi-close-circle-outline'
 }
 
 export function isThrottleTierStatus(status?: string | null) {
