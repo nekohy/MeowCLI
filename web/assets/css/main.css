@@ -2034,8 +2034,13 @@ pre {
 }
 
 .log-list {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+}
+
+.log-list .v-expansion-panel {
+  width: 100%;
 }
 
 .log-panels .v-expansion-panel {
