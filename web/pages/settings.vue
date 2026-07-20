@@ -57,51 +57,52 @@ const hasAntigravityCreditsOverageSetting = computed(() => (
   typeof form.value.antigravity_use_credits === 'boolean'
 ))
 
-const geminiEndpointSelection = computed(() => splitGeminiBaseURLInput(form.value.gemini_base_urls))
-const geminiEndpointPreview = computed(() => geminiEndpointSelection.value.map(geminiBaseURLText).join(' / '))
-const antigravityEndpointSelection = computed(() => splitAntigravityAPIEndpointInput(form.value.antigravity_api_endpoint))
-const antigravityEndpointPreview = computed(() => antigravityEndpointSelection.value.map(antigravityAPIEndpointText).join(' / '))
-
-function isGeminiEndpointSelected(value: string) {
-  return geminiEndpointSelection.value.includes(value)
-}
-
-function toggleGeminiEndpoint(value: string) {
-  const selected = splitGeminiBaseURLInput(form.value.gemini_base_urls)
-  const idx = selected.indexOf(value)
-  if (idx >= 0) {
-    // 至少保留一个端点:split 对空数组会静默回退到第一个选项,
-    // 在写路径上拦截,避免勾选被静默改成用户没选过的值
-    if (selected.length === 1) {
-      admin.notify('至少保留一个接口', 'warning')
-      return
+function makeEndpointSelection(
+  get: () => string | undefined,
+  set: (value: string) => void,
+  split: (value: string) => string[],
+  join: (values: string[]) => string,
+  format: (value: string) => string,
+  noun: string,
+) {
+  const selection = computed(() => split(get() ?? ''))
+  const preview = computed(() => selection.value.map(format).join(' / '))
+  const isSelected = (value: string) => selection.value.includes(value)
+  const toggle = (value: string) => {
+    const selected = split(get() ?? '')
+    const idx = selected.indexOf(value)
+    if (idx >= 0) {
+      // 至少保留一个端点:split 对空数组会静默回退到第一个选项,
+      // 在写路径上拦截,避免勾选被静默改成用户没选过的值
+      if (selected.length === 1) {
+        admin.notify(`至少保留一个${noun}`, 'warning')
+        return
+      }
+      selected.splice(idx, 1)
+    } else {
+      selected.push(value)
     }
-    selected.splice(idx, 1)
-  } else {
-    selected.push(value)
+    set(join(selected))
   }
-  form.value.gemini_base_urls = joinGeminiBaseURLInput(selected)
+  return { selection, preview, isSelected, toggle }
 }
 
-function isAntigravityEndpointSelected(value: string) {
-  return antigravityEndpointSelection.value.includes(value)
-}
-
-function toggleAntigravityEndpoint(value: string) {
-  const selected = splitAntigravityAPIEndpointInput(form.value.antigravity_api_endpoint)
-  const idx = selected.indexOf(value)
-  if (idx >= 0) {
-    // 同上:至少保留一个端点
-    if (selected.length === 1) {
-      admin.notify('至少保留一个端点', 'warning')
-      return
-    }
-    selected.splice(idx, 1)
-  } else {
-    selected.push(value)
-  }
-  form.value.antigravity_api_endpoint = joinAntigravityAPIEndpointInput(selected)
-}
+const geminiEndpoint = makeEndpointSelection(
+  () => form.value.gemini_base_urls,
+  (v) => { form.value.gemini_base_urls = v },
+  splitGeminiBaseURLInput,
+  joinGeminiBaseURLInput,
+  geminiBaseURLText,
+  '接口',
+)
+const antigravityEndpoint = makeEndpointSelection(
+  () => form.value.antigravity_api_endpoint,
+  (v) => { form.value.antigravity_api_endpoint = v },
+  splitAntigravityAPIEndpointInput,
+  joinAntigravityAPIEndpointInput,
+  antigravityAPIEndpointText,
+  '端点',
+)
 
 const numericFields = [
   {
@@ -251,7 +252,7 @@ async function loadSettings() {
   try {
     form.value = normalizeSettingsForm(settingsToForm(await adminApi.getSettings(admin.token.value)))
   } catch (error) {
-    admin.notify(error instanceof Error ? error.message : '加载设置失败', 'danger')
+    admin.notifyError(error, '加载设置失败')
   } finally {
     loading.value = false
   }
@@ -267,7 +268,7 @@ async function saveSettings() {
     admin.notify('设置已保存', 'success')
     await admin.loadOverview(admin.token.value, true)
   } catch (error) {
-    admin.notify(error instanceof Error ? error.message : '保存设置失败', 'danger')
+    admin.notifyError(error, '保存设置失败')
   } finally {
     actionBusy.value = false
   }
@@ -393,7 +394,7 @@ useAuthReadyLoader(loadSettings)
 
         <SettingNavRow
           title="Gemini CLI 接口"
-          :description="`已启用：${geminiEndpointPreview}`"
+          :description="`已启用：${geminiEndpoint.preview}`"
           @activate="geminiEndpointOpen = true"
         />
 
@@ -439,7 +440,7 @@ useAuthReadyLoader(loadSettings)
 
         <SettingNavRow
           title="API 端点"
-          :description="`已启用：${antigravityEndpointPreview}`"
+          :description="`已启用：${antigravityEndpoint.preview}`"
           @activate="antigravityEndpointOpen = true"
         />
 
@@ -485,9 +486,9 @@ useAuthReadyLoader(loadSettings)
     <EndpointSelectionModal
       :open="geminiEndpointOpen"
       title="Gemini CLI 接口"
-      :selected="geminiEndpointSelection"
-      :is-selected="isGeminiEndpointSelected"
-      :toggle="toggleGeminiEndpoint"
+      :selected="geminiEndpoint.selection.value"
+      :is-selected="geminiEndpoint.isSelected"
+      :toggle="geminiEndpoint.toggle"
       @close="geminiEndpointOpen = false"
     />
 
@@ -495,9 +496,9 @@ useAuthReadyLoader(loadSettings)
       :open="antigravityEndpointOpen"
       title="Antigravity API 端点"
       :options="ANTIGRAVITY_API_ENDPOINT_OPTIONS"
-      :selected="antigravityEndpointSelection"
-      :is-selected="isAntigravityEndpointSelected"
-      :toggle="toggleAntigravityEndpoint"
+      :selected="antigravityEndpoint.selection.value"
+      :is-selected="antigravityEndpoint.isSelected"
+      :toggle="antigravityEndpoint.toggle"
       @close="antigravityEndpointOpen = false"
     />
   </div>

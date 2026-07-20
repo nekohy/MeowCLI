@@ -1,9 +1,9 @@
 import type { UiTone } from '../types/admin'
 
-export const CREDENTIAL_STATUS_FILTER_ALL = 'all' as const
+const CREDENTIAL_STATUS_FILTER_ALL = 'all' as const
 
-export const KNOWN_CREDENTIAL_STATUSES = ['enabled', 'disabled'] as const
-export const KNOWN_THROTTLE_STATUS_PREFIX = 'throttled:' as const
+const KNOWN_CREDENTIAL_STATUSES = ['enabled', 'disabled'] as const
+const KNOWN_THROTTLE_STATUS_PREFIX = 'throttled:' as const
 export const CREDENTIAL_THROTTLE_STATUS_ALL = `${KNOWN_THROTTLE_STATUS_PREFIX}all` as const
 
 export type KnownCredentialStatus = typeof KNOWN_CREDENTIAL_STATUSES[number]
@@ -80,7 +80,7 @@ export function credentialStatusQueryValue(statuses: CredentialStatusFilter[]): 
   return selected.length ? selected : undefined
 }
 
-export function credentialBaseStatus(statuses?: string[] | string | null) {
+function credentialBaseStatus(statuses?: string[] | string | null) {
   const list = Array.isArray(statuses) ? statuses : [String(statuses || '')]
   return list.find(isKnownCredentialStatus) || ''
 }

@@ -81,6 +81,11 @@ export function useAdminApp() {
     toast.value = { id: toastSeq, text, tone }
   }
 
+  // 收敛 CRUD catch 里的 admin.notify(error instanceof Error ? error.message : '...失败', 'danger')
+  function notifyError(error: unknown, fallback: string) {
+    notify(error instanceof Error ? error.message : fallback, 'danger')
+  }
+
   function dismissToast() {
     toast.value = null
   }
@@ -253,6 +258,7 @@ export function useAdminApp() {
     logout,
     needSetup,
     notify,
+    notifyError,
     overview,
     refreshAfterMutation,
     resetAuthState,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { adminApi, REQUEST_TIMEOUT_MS } from '~/composables/useAdminApi'
-import { handlerIcon, joinPlanTypeInput, planTypeText, safeStringify, splitPlanTypeInput } from '~/lib/admin'
+import { handlerIcon, joinPlanTypeInput, planTypeText, safeStringify, splitPlanTypeInput, splitPluginInput } from '~/lib/admin'
 import {
   DEFAULT_MODEL_CATALOG_URLS,
   modelCatalogStorageKey,
@@ -79,14 +79,6 @@ function planTypesForHandler(handlerKey: string) {
 
 function modelPlanTypes(item: ModelItem) {
   return splitPlanTypeInput(item.plan_types, planTypesForHandler(item.handler))
-}
-
-function splitPluginInput(value: string) {
-  return String(value || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .filter((item, index, list) => list.indexOf(item) === index)
 }
 
 function pluginsForHandler(handlerKey: string) {
@@ -290,12 +282,12 @@ function resetModelCatalogUrl() {
   saveModelCatalogUrl(handlerKey, defaultUrl)
 }
 
-let catalogFetchSeq = 0
+const catalogFetchGuard = useStaleGuard()
 
 async function fetchModelCatalog() {
   const handlerKey = modalHandler.value
   const url = modelCatalogUrl.value.trim()
-  const seq = ++catalogFetchSeq
+  const seq = catalogFetchGuard.next()
   modelCatalogLoading.value = true
   modelCatalogError.value = ''
 
@@ -314,7 +306,7 @@ async function fetchModelCatalog() {
     const catalog = normalizeModelCatalog(await response.json())
     // 晚到的旧响应(连点刷新/已切换 handler/弹窗已关闭)直接丢弃,
     // 避免旧 URL 的结果与回写覆盖新状态
-    if (seq !== catalogFetchSeq) {
+    if (catalogFetchGuard.isStale(seq)) {
       return
     }
     modelCatalogItems.value = catalog
@@ -323,7 +315,7 @@ async function fetchModelCatalog() {
       modelCatalogError.value = '远程列表为空'
     }
   } catch (error) {
-    if (seq !== catalogFetchSeq) {
+    if (catalogFetchGuard.isStale(seq)) {
       return
     }
     modelCatalogItems.value = []
@@ -331,7 +323,7 @@ async function fetchModelCatalog() {
       ? '模型列表获取超时，请检查链接'
       : error instanceof Error ? error.message : '模型列表获取失败'
   } finally {
-    if (seq === catalogFetchSeq) {
+    if (!catalogFetchGuard.isStale(seq)) {
       modelCatalogLoading.value = false
     }
   }
@@ -357,7 +349,7 @@ function openModelCatalog() {
 
 function closeModelCatalog() {
   // 使 in-flight 响应立即失效,晚到的结果不会写回已关闭的弹窗
-  catalogFetchSeq += 1
+  catalogFetchGuard.invalidate()
   modelCatalogOpen.value = false
   modelCatalogError.value = ''
 }
@@ -372,7 +364,7 @@ async function loadModels() {
   try {
     items.value = await adminApi.listModels(admin.token.value)
   } catch (error) {
-    admin.notify(error instanceof Error ? error.message : '加载模型映射失败', 'danger')
+    admin.notifyError(error, '加载模型映射失败')
   } finally {
     loading.value = false
   }
@@ -488,17 +480,20 @@ function updateBatchSchedulingStrategy(value: ModelSchedulingSelection) {
   batchSchedulingStrategy.value = value
 }
 
+function parseExtraInput(value: string): Record<string, unknown> {
+  try {
+    return JSON.parse(value || '{}') as Record<string, unknown>
+  } catch {
+    throw new Error('附加参数必须是合法的 JSON')
+  }
+}
+
 async function saveModel() {
   actionBusy.value = true
   modalError.value = ''
 
   try {
-    let extra: Record<string, unknown> = {}
-    try {
-      extra = JSON.parse(modalExtra.value || '{}') as Record<string, unknown>
-    } catch {
-      throw new Error('附加参数必须是合法的 JSON')
-    }
+    const extra = parseExtraInput(modalExtra.value)
 
     const payload = {
       origin: modalOrigin.value.trim(),
@@ -538,12 +533,7 @@ async function saveBatchModels() {
     if (!batchSelectionEnabled.value || !selectedBatchItems.value.length) {
       throw new Error('请选择同一处理器下的模型')
     }
-    let extra: Record<string, unknown> = {}
-    try {
-      extra = JSON.parse(batchExtra.value || '{}') as Record<string, unknown>
-    } catch {
-      throw new Error('附加参数必须是合法的 JSON')
-    }
+    const extra = parseExtraInput(batchExtra.value)
 
     const response = await adminApi.batchUpdateModels(admin.token.value, {
       aliases: selectedBatchItems.value.map((item) => item.alias),
@@ -587,7 +577,7 @@ function openDeleteConfirm(item: ModelItem) {
         admin.notify('模型映射已删除')
         await admin.refreshAfterMutation(loadModels)
       } catch (error) {
-        admin.notify(error instanceof Error ? error.message : '删除模型映射失败', 'danger')
+        admin.notifyError(error, '删除模型映射失败')
       } finally {
         actionBusy.value = false
       }

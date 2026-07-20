@@ -28,7 +28,6 @@ defineEmits<{
     <VCard
       :color="surface === 'secondary' ? 'surface-container-highest' : 'surface-container-high'"
       class="modal-card"
-      :class="{ 'modal-card--secondary': surface === 'secondary' }"
     >
       <VCardItem class="pa-5 pb-3">
         <VCardTitle class="text-h6 font-weight-bold modal-title">

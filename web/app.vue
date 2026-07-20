@@ -76,14 +76,15 @@ const snackbarOpen = computed({
 
 const snackbarTone = computed(() => {
   const tone = admin.toast.value?.tone
+  const notice = { icon: 'mdi-information-outline', color: 'secondary', container: 'secondary-container', label: '通知' }
   const presentation: Record<UiTone, { icon: string; color: string; container: string; label: string }> = {
-    neutral: { icon: 'mdi-information-outline', color: 'secondary', container: 'secondary-container', label: '通知' },
+    neutral: notice,
     success: { icon: 'mdi-check', color: 'success', container: 'primary-container', label: '成功' },
     danger: { icon: 'mdi-alert-circle-outline', color: 'error', container: 'error-container', label: '错误' },
     warning: { icon: 'mdi-alert-circle-outline', color: 'warning', container: 'tertiary-container', label: '警告' },
     accent: { icon: 'mdi-information-outline', color: 'tertiary', container: 'tertiary-container', label: '提示' },
-    muted: { icon: 'mdi-information-outline', color: 'secondary', container: 'secondary-container', label: '通知' },
-    secondary: { icon: 'mdi-information-outline', color: 'secondary', container: 'secondary-container', label: '通知' },
+    muted: notice,
+    secondary: notice,
   }
 
   return presentation[tone || 'neutral']

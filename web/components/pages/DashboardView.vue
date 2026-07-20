@@ -46,6 +46,23 @@ async function openHandler(key: string, supportsCredentials: boolean) {
 async function openPage(path: string) {
   await router.push(path)
 }
+
+const actionCards = computed(() => [
+  {
+    path: '/models',
+    label: '映射规则',
+    value: summary.value.models_total,
+    helper: '管理模型别名、上游模型和处理器绑定',
+    icon: 'mdi-vector-link',
+  },
+  {
+    path: '/keys',
+    label: '访问密钥',
+    value: summary.value.auth_keys_total,
+    helper: '维护后台和 API 共用的访问凭证',
+    icon: 'mdi-shield-lock-outline',
+  },
+])
 </script>
 
 <template>
@@ -72,45 +89,25 @@ async function openPage(path: string) {
 
     <div class="dashboard-action-grid">
       <VCard
+        v-for="card in actionCards"
+        :key="card.path"
         class="interactive-card dashboard-action-card surface-card"
         color="surface"
         variant="flat"
         role="button"
         tabindex="0"
-        @click="openPage('/models')"
-        @keyup.enter="openPage('/models')"
-        @keyup.space.prevent="openPage('/models')"
+        @click="openPage(card.path)"
+        @keyup.enter="openPage(card.path)"
+        @keyup.space.prevent="openPage(card.path)"
       >
         <VCardText class="dashboard-action-shell">
           <div class="dashboard-action-copy">
-            <div class="dashboard-action-label">映射规则</div>
-            <div class="dashboard-action-value">{{ summary.models_total }}</div>
-            <div class="dashboard-action-helper text-medium-emphasis">管理模型别名、上游模型和处理器绑定</div>
+            <div class="dashboard-action-label">{{ card.label }}</div>
+            <div class="dashboard-action-value">{{ card.value }}</div>
+            <div class="dashboard-action-helper text-medium-emphasis">{{ card.helper }}</div>
           </div>
           <VAvatar size="54" color="primary-container" rounded="xl" class="dashboard-action-avatar">
-            <VIcon icon="mdi-vector-link" color="primary" size="26" />
-          </VAvatar>
-        </VCardText>
-      </VCard>
-
-      <VCard
-        class="interactive-card dashboard-action-card surface-card"
-        color="surface"
-        variant="flat"
-        role="button"
-        tabindex="0"
-        @click="openPage('/keys')"
-        @keyup.enter="openPage('/keys')"
-        @keyup.space.prevent="openPage('/keys')"
-      >
-        <VCardText class="dashboard-action-shell">
-          <div class="dashboard-action-copy">
-            <div class="dashboard-action-label">访问密钥</div>
-            <div class="dashboard-action-value">{{ summary.auth_keys_total }}</div>
-            <div class="dashboard-action-helper text-medium-emphasis">维护后台和 API 共用的访问凭证</div>
-          </div>
-          <VAvatar size="54" color="primary-container" rounded="xl" class="dashboard-action-avatar">
-            <VIcon icon="mdi-shield-lock-outline" color="primary" size="26" />
+            <VIcon :icon="card.icon" color="primary" size="26" />
           </VAvatar>
         </VCardText>
       </VCard>

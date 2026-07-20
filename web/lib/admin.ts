@@ -127,7 +127,7 @@ export function handlerIcon(handlerKey: string) {
 const PLAN_TYPE_SPLIT_RE = /[,\s;]+/
 const CREDENTIAL_ID_SEPARATOR = '__'
 
-export function normalizeTheme(value?: string | null): ThemeMode {
+function normalizeTheme(value?: string | null): ThemeMode {
   return value === 'dark' ? 'dark' : 'light'
 }
 
@@ -361,6 +361,14 @@ export function splitPlanTypeInput(value?: string | null, allowedPlanTypes?: str
 
 export function joinPlanTypeInput(planTypes: string[], allowedPlanTypes?: string[]) {
   return splitPlanTypeInput(planTypes.join(','), allowedPlanTypes).join(',')
+}
+
+export function splitPluginInput(value: string) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item, index, list) => list.indexOf(item) === index)
 }
 
 export function splitGeminiBaseURLInput(value?: string | null) {

@@ -175,9 +175,6 @@ export default defineVuetifyConfiguration({
   display: {
     mobileBreakpoint: 'md',
   },
-  icons: {
-    defaultSet: 'custom',
-  },
   theme: {
     defaultTheme: 'light',
     // 关闭颜色变体生成：默认会为 primary/secondary 等生成 lighten/darken 变体，

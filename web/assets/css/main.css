@@ -978,9 +978,6 @@ pre {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-}
-
-.page-header-actions {
   justify-content: flex-end;
 }
 
@@ -1103,9 +1100,6 @@ pre {
 .dashboard-action-grid {
   display: grid;
   gap: 16px;
-}
-
-.dashboard-action-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -1234,16 +1228,7 @@ pre {
 
 .pagination-bar {
   display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: var(--admin-border-subtle);
-  border-radius: var(--admin-radius-panel-sm);
   background: transparent;
-}
-
-.toolbar-panel {
-  position: relative;
-  overflow: hidden;
 }
 
 .credentials-inline-progress {
@@ -1293,8 +1278,8 @@ pre {
 .filter-toolbar .filter-grow .v-field {
   min-height: 52px;
   color: rgb(var(--v-theme-on-surface));
-  transition: background-color var(--md-dur-short) var(--md-motion-standard),
-    box-shadow var(--md-dur-short) var(--md-motion-standard);
+  transition: background-color var(--md-dur-fast) var(--md-motion-standard),
+    box-shadow var(--md-dur-fast) var(--md-motion-standard);
 }
 
 .filter-toolbar .filter-grow .v-field__input {
@@ -1346,8 +1331,8 @@ pre {
   min-height: 52px;
   border-radius: 6px;
   color: rgb(var(--v-theme-on-surface));
-  transition: background-color var(--md-dur-short) var(--md-motion-standard),
-    box-shadow var(--md-dur-short) var(--md-motion-standard);
+  transition: background-color var(--md-dur-fast) var(--md-motion-standard),
+    box-shadow var(--md-dur-fast) var(--md-motion-standard);
 }
 
 .filter-toolbar .filter-select .v-field__outline {
@@ -1374,8 +1359,8 @@ pre {
 
 .filter-toolbar .filter-select .v-select__menu-icon {
   color: rgba(var(--v-theme-on-surface-variant), 0.9);
-  transition: color var(--md-dur-short) var(--md-motion-standard),
-    transform var(--md-dur-short) var(--md-motion-standard);
+  transition: color var(--md-dur-fast) var(--md-motion-standard),
+    transform var(--md-dur-fast) var(--md-motion-standard);
 }
 
 .filter-toolbar .filter-select .v-field:hover {
@@ -1573,10 +1558,6 @@ pre {
 .pagination-bar {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
-}
-
-.pagination-bar {
-  gap: 12px;
 }
 
 .pagination-bar > :first-child {
@@ -2167,9 +2148,6 @@ pre {
 .setting-field-stack {
   display: grid;
   gap: 12px;
-}
-
-.setting-field-stack {
   width: 100%;
   max-width: none;
 }
@@ -2220,8 +2198,8 @@ pre {
 .settings-item-control .v-field {
   border-radius: var(--admin-radius-control-sm);
   transition:
-    background-color var(--md-dur-short) var(--md-motion-standard),
-    box-shadow var(--md-dur-short) var(--md-motion-standard);
+    background-color var(--md-dur-fast) var(--md-motion-standard),
+    box-shadow var(--md-dur-fast) var(--md-motion-standard);
 }
 
 .settings-item-control .v-field__outline {
@@ -2371,6 +2349,7 @@ pre {
 @media (max-width: 1279px) {
   .pagination-bar {
     grid-template-columns: 1fr;
+    justify-items: stretch;
   }
 
   .selection-bar {
@@ -2380,10 +2359,6 @@ pre {
 
   .selection-bar__actions {
     justify-content: flex-start;
-  }
-
-  .pagination-bar {
-    justify-items: stretch;
   }
 
   .pagination-bar > :nth-child(2) {

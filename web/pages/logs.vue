@@ -69,7 +69,7 @@ const statusCodeOptions = computed(() => [
   })),
 ])
 let refreshTimer: number | undefined
-let latestLoadToken = 0
+const logsLoadGuard = useStaleGuard()
 
 function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.value) {
   const statusCode = Number(statusCodeFilter.value)
@@ -84,11 +84,11 @@ function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.valu
 }
 
 async function loadLogs(nextPage = page.value, nextPageSize = pageSize.value, quiet = false) {
-  const requestToken = ++latestLoadToken
+  const requestToken = logsLoadGuard.next()
   loading.value = true
   try {
     const data = await adminApi.queryLogs(admin.token.value, currentQueryOptions(nextPage, nextPageSize))
-    if (requestToken !== latestLoadToken) {
+    if (logsLoadGuard.isStale(requestToken)) {
       return
     }
     items.value = data.data
@@ -97,15 +97,15 @@ async function loadLogs(nextPage = page.value, nextPageSize = pageSize.value, qu
     page.value = data.page
     pageSize.value = data.page_size
   } catch (error) {
-    if (requestToken === latestLoadToken) {
+    if (!logsLoadGuard.isStale(requestToken)) {
       if (!quiet) {
         items.value = []
         total.value = 0
-        admin.notify(error instanceof Error ? error.message : '加载日志失败', 'danger')
+        admin.notifyError(error, '加载日志失败')
       }
     }
   } finally {
-    if (requestToken === latestLoadToken) {
+    if (!logsLoadGuard.isStale(requestToken)) {
       loading.value = false
     }
   }
@@ -305,18 +305,13 @@ onBeforeUnmount(() => {
         </div>
       </template>
       <div class="d-grid ga-5">
-        <div class="pagination-bar">
-          <div class="text-body-2 text-medium-emphasis">
-            共 {{ total }} 条，当前第 {{ page }} / {{ maxPage }} 页
-          </div>
-          <VPagination
-            :model-value="page"
-            :length="maxPage"
-            density="comfortable"
-            total-visible="5"
-            @update:model-value="(value) => loadLogs(Number(value), pageSize)"
-          />
-        </div>
+        <PaginationBar
+          :total="total"
+          :page="page"
+          :max-page="maxPage"
+          :total-visible="5"
+          @change="(value) => loadLogs(value, pageSize)"
+        />
 
         <LogEntryPanels
           v-if="items.length"

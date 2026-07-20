@@ -77,7 +77,7 @@ async function loadAuthKeys() {
     items.value = await adminApi.listAuthKeys(admin.token.value)
     syncDrafts(items.value)
   } catch (error) {
-    admin.notify(error instanceof Error ? error.message : '加载密钥失败', 'danger')
+    admin.notifyError(error, '加载密钥失败')
   } finally {
     loading.value = false
   }
@@ -171,7 +171,7 @@ function updateAuthKey(item: AuthKeyItem) {
         admin.notify('密钥设置已更新')
         await admin.refreshAfterMutation(loadAuthKeys)
       } catch (error) {
-        admin.notify(error instanceof Error ? error.message : '更新密钥失败', 'danger')
+        admin.notifyError(error, '更新密钥失败')
         roleDrafts.value[item.key] = item.role
         noteDrafts.value[item.key] = item.note || ''
       } finally {
@@ -193,7 +193,7 @@ function deleteAuthKey(item: AuthKeyItem) {
         admin.notify('密钥已删除')
         await admin.refreshAfterMutation(loadAuthKeys)
       } catch (error) {
-        admin.notify(error instanceof Error ? error.message : '删除密钥失败', 'danger')
+        admin.notifyError(error, '删除密钥失败')
       } finally {
         actionBusy.value = false
       }

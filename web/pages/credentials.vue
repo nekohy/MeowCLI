@@ -254,7 +254,7 @@ const importDescription = computed(() => (
   activeCredentialField.value?.help_text || '一行一个凭据，保存后会纳入当前处理器调度'
 ))
 
-let latestLoadToken = 0
+const credentialLoadGuard = useStaleGuard()
 
 function isCodexItem(item: CredentialItem): item is CodexItem {
   return item.handler === 'codex'
@@ -510,10 +510,6 @@ function quotaTone(percent: number | null): UiTone {
   return 'danger'
 }
 
-function throttledQuotaTone(): UiTone {
-  return 'accent'
-}
-
 function activeThrottleUntil(value?: string | null) {
   return value && !isPastTime(value) ? value : ''
 }
@@ -538,19 +534,44 @@ function renderGeminiQuotaValue(metric: GeminiCredentialItem['pro']) {
   return formatPercent(metric.quota)
 }
 
-function codexQuotaCard(label: string, metric: CodexItem['default'], quotaKey: CodexQuotaKey, resetKey: CodexResetKey) {
-  if (!hasCodexQuotaWindow(metric, resetKey)) return null
-  const percent = codexQuotaPercentValue(metric, quotaKey, resetKey)
+function resolveQuotaTone(percent: number | null, throttledUntil: string): UiTone {
+  return throttledUntil ? 'accent' : quotaTone(percent)
+}
+
+interface QuotaMetricLike {
+  throttled_until?: string | null
+  score: number
+  weight: number
+}
+
+// codex/gemini/opencode-go 共用同一配额卡片结构,仅 percent/value/reset 的来源不同
+function buildQuotaCard(
+  label: string,
+  metric: QuotaMetricLike,
+  percent: number | null,
+  reset: string,
+  value: string,
+) {
   const throttledUntil = activeThrottleUntil(metric.throttled_until)
-  const tone = quotaTone(percent)
   return {
     label,
     score: quotaScoreLabel(metric),
     percent,
-    tone: throttledUntil ? throttledQuotaTone() : tone,
-    value: renderCodexQuotaValue(metric, quotaKey, resetKey),
-    caption: quotaCaption(metric[resetKey], throttledUntil),
+    tone: resolveQuotaTone(percent, throttledUntil),
+    value,
+    caption: quotaCaption(reset, throttledUntil),
   }
+}
+
+function codexQuotaCard(label: string, metric: CodexItem['default'], quotaKey: CodexQuotaKey, resetKey: CodexResetKey) {
+  if (!hasCodexQuotaWindow(metric, resetKey)) return null
+  return buildQuotaCard(
+    label,
+    metric,
+    codexQuotaPercentValue(metric, quotaKey, resetKey),
+    metric[resetKey],
+    renderCodexQuotaValue(metric, quotaKey, resetKey),
+  )
 }
 
 function codexQuotaCards(item: CodexItem) {
@@ -578,17 +599,13 @@ function openCodeGoQuotaCards(item: OpenCodeGoCredentialItem) {
 }
 
 function geminiQuotaCard(label: string, metric: GeminiCredentialItem['pro']) {
-  const percent = geminiQuotaPercentValue(metric)
-  const throttledUntil = activeThrottleUntil(metric.throttled_until)
-  const tone = quotaTone(percent)
-  return {
+  return buildQuotaCard(
     label,
-    score: quotaScoreLabel(metric),
-    percent,
-    tone: throttledUntil ? throttledQuotaTone() : tone,
-    value: renderGeminiQuotaValue(metric),
-    caption: quotaCaption(metric.reset, throttledUntil),
-  }
+    metric,
+    geminiQuotaPercentValue(metric),
+    metric.reset,
+    renderGeminiQuotaValue(metric),
+  )
 }
 
 function geminiQuotaCards(item: GeminiCredentialItem) {
@@ -653,10 +670,10 @@ function codexResetCreditStatusLabel(status: string) {
   return (status || '').toLowerCase() === 'available' ? '可用' : (status || '-')
 }
 
-let codexResetRequestToken = 0
+const codexResetGuard = useStaleGuard()
 
 async function openCodexResetDialog(item: CodexItem) {
-  const requestToken = ++codexResetRequestToken
+  const requestToken = codexResetGuard.next()
   codexResetDialogItem.value = item
   codexResetCredits.value = null
   codexResetError.value = ''
@@ -664,17 +681,17 @@ async function openCodexResetDialog(item: CodexItem) {
   try {
     const credits = await adminApi.fetchCodexResetCredits(admin.token.value, item.id)
     // 弹窗已切换目标/已关闭时,晚到的响应直接丢弃
-    if (requestToken !== codexResetRequestToken || codexResetDialogItem.value !== item) {
+    if (codexResetGuard.isStale(requestToken) || codexResetDialogItem.value !== item) {
       return
     }
     codexResetCredits.value = credits
   } catch (error) {
-    if (requestToken !== codexResetRequestToken || codexResetDialogItem.value !== item) {
+    if (codexResetGuard.isStale(requestToken) || codexResetDialogItem.value !== item) {
       return
     }
     codexResetError.value = error instanceof Error ? error.message : '加载重置次数失败'
   } finally {
-    if (requestToken === codexResetRequestToken) {
+    if (!codexResetGuard.isStale(requestToken)) {
       codexResetLoading.value = false
     }
   }
@@ -682,7 +699,7 @@ async function openCodexResetDialog(item: CodexItem) {
 
 function closeCodexResetDialog() {
   // 使 in-flight 请求立即失效
-  codexResetRequestToken += 1
+  codexResetGuard.invalidate()
   codexResetDialogItem.value = null
   codexResetCredits.value = null
   codexResetError.value = ''
@@ -704,7 +721,7 @@ function consumeCodexReset() {
         closeCodexResetDialog()
         await loadCredentials(page.value, pageSize.value)
       } catch (error) {
-        admin.notify(error instanceof Error ? error.message : '重置失败', 'danger')
+        admin.notifyError(error, '重置失败')
       } finally {
         codexResetConsuming.value = false
       }
@@ -719,10 +736,10 @@ function openCodeGoRewardDescription(reward: OpenCodeGoReferralReward) {
   return reward.email ? `邀请 ${reward.email}` : '邀请奖励'
 }
 
-let openCodeGoRewardsRequestToken = 0
+const openCodeGoRewardsGuard = useStaleGuard()
 
 async function openOpenCodeGoRewardsDialog(item: OpenCodeGoCredentialItem) {
-  const requestToken = ++openCodeGoRewardsRequestToken
+  const requestToken = openCodeGoRewardsGuard.next()
   openCodeGoRewardsDialogItem.value = item
   openCodeGoRewards.value = null
   openCodeGoRewardsError.value = ''
@@ -730,17 +747,17 @@ async function openOpenCodeGoRewardsDialog(item: OpenCodeGoCredentialItem) {
   try {
     const rewards = await adminApi.fetchOpenCodeGoReferralRewards(admin.token.value, item.id)
     // 弹窗已切换目标/已关闭时,晚到的响应直接丢弃
-    if (requestToken !== openCodeGoRewardsRequestToken || openCodeGoRewardsDialogItem.value !== item) {
+    if (openCodeGoRewardsGuard.isStale(requestToken) || openCodeGoRewardsDialogItem.value !== item) {
       return
     }
     openCodeGoRewards.value = rewards
   } catch (error) {
-    if (requestToken !== openCodeGoRewardsRequestToken || openCodeGoRewardsDialogItem.value !== item) {
+    if (openCodeGoRewardsGuard.isStale(requestToken) || openCodeGoRewardsDialogItem.value !== item) {
       return
     }
     openCodeGoRewardsError.value = error instanceof Error ? error.message : '加载可用奖励失败'
   } finally {
-    if (requestToken === openCodeGoRewardsRequestToken) {
+    if (!openCodeGoRewardsGuard.isStale(requestToken)) {
       openCodeGoRewardsLoading.value = false
     }
   }
@@ -749,7 +766,7 @@ async function openOpenCodeGoRewardsDialog(item: OpenCodeGoCredentialItem) {
 function closeOpenCodeGoRewardsDialog() {
   if (openCodeGoRewardApplying.value) return
   // 使 in-flight 请求立即失效
-  openCodeGoRewardsRequestToken += 1
+  openCodeGoRewardsGuard.invalidate()
   openCodeGoRewardsDialogItem.value = null
   openCodeGoRewards.value = null
   openCodeGoRewardsError.value = ''
@@ -772,7 +789,7 @@ function applyOpenCodeGoReward(reward: OpenCodeGoReferralReward) {
         closeOpenCodeGoRewardsDialog()
         await loadCredentials(page.value, pageSize.value)
       } catch (error) {
-        admin.notify(error instanceof Error ? error.message : '增加余额失败', 'danger')
+        admin.notifyError(error, '增加余额失败')
       } finally {
         openCodeGoRewardApplying.value = ''
       }
@@ -795,7 +812,7 @@ function currentQueryOptions(nextPage = page.value, nextPageSize = pageSize.valu
 }
 
 async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.value) {
-  const requestToken = ++latestLoadToken
+  const requestToken = credentialLoadGuard.next()
   const handlerKey = credentialHandlerKey.value
   const endpoint = credentialEndpoint.value
   const supportsCredentials = Boolean(admin.activeHandler.value?.supports_credentials)
@@ -814,7 +831,7 @@ async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.va
   loading.value = true
   try {
     const data = await adminApi.queryCredentials(admin.token.value, endpoint, currentQueryOptions(nextPage, nextPageSize))
-    if (requestToken !== latestLoadToken) {
+    if (credentialLoadGuard.isStale(requestToken)) {
       return
     }
     rows.value = data.data
@@ -825,16 +842,16 @@ async function loadCredentials(nextPage = page.value, nextPageSize = pageSize.va
     pageSize.value = data.page_size
     selectedIds.value = []
   } catch (error) {
-    if (requestToken === latestLoadToken) {
+    if (!credentialLoadGuard.isStale(requestToken)) {
       rows.value = []
       rowsHandlerKey.value = handlerKey
       planTypes.value = []
       total.value = 0
       selectedIds.value = []
-      admin.notify(error instanceof Error ? error.message : '加载凭据失败', 'danger')
+      admin.notifyError(error, '加载凭据失败')
     }
   } finally {
-    if (requestToken === latestLoadToken) {
+    if (!credentialLoadGuard.isStale(requestToken)) {
       loading.value = false
     }
   }
@@ -890,7 +907,7 @@ function batchSetStatus(status: string) {
         )
         await admin.refreshAfterMutation(() => loadCredentials(page.value, pageSize.value))
       } catch (error) {
-        admin.notify(error instanceof Error ? error.message : '更新状态失败', 'danger')
+        admin.notifyError(error, '更新状态失败')
       } finally {
         actionBusy.value = false
       }
@@ -922,7 +939,7 @@ function batchDelete() {
         )
         await admin.refreshAfterMutation(() => loadCredentials(1, pageSize.value))
       } catch (error) {
-        admin.notify(error instanceof Error ? error.message : '删除失败', 'danger')
+        admin.notifyError(error, '删除失败')
       } finally {
         actionBusy.value = false
       }
@@ -1364,18 +1381,13 @@ watch(
             </template>
           </EmptyState>
 
-          <div class="pagination-bar">
-            <div class="text-body-2 text-medium-emphasis">
-              共 {{ total }} 条，当前第 {{ page }} / {{ maxPage }} 页
-            </div>
-            <VPagination
-              :model-value="page"
-              :length="maxPage"
-              density="comfortable"
-              total-visible="7"
-              @update:model-value="(value) => loadCredentials(Number(value), pageSize)"
-            />
-          </div>
+          <PaginationBar
+            :total="total"
+            :page="page"
+            :max-page="maxPage"
+            :total-visible="7"
+            @change="(value) => loadCredentials(value, pageSize)"
+          />
         </div>
 
         <EmptyState
