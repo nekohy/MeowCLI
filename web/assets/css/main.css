@@ -421,7 +421,7 @@ pre {
 }
 
 .modal-card .v-field--variant-outlined.v-field--disabled {
-  background: rgba(var(--v-theme-surface-container-lowest), 0.5);
+  background: rgba(var(--v-theme-surface), 0.5);
   color: rgba(var(--v-theme-on-surface), 0.52);
 }
 
@@ -957,7 +957,7 @@ pre {
 
 .auth-brand-eyebrow {
   margin-block-end: 6px;
-  font-family: var(--admin-font-sans);
+  font-family: var(--admin-font-sans), sans-serif;
   font-size: 0.75rem;
   line-height: 1.3;
   font-weight: 800;
@@ -966,7 +966,7 @@ pre {
 }
 
 .auth-brand-title {
-  font-family: var(--admin-font-sans);
+  font-family: var(--admin-font-sans), sans-serif;
   font-size: 1.5rem;
   line-height: 1.2;
   font-weight: 800;
@@ -1422,7 +1422,7 @@ pre {
 }
 
 .filter-toolbar .filter-select .v-field--disabled {
-  background: rgba(var(--v-theme-surface-container-lowest), 0.5);
+  background: rgba(var(--v-theme-surface), 0.5);
   color: rgba(var(--v-theme-on-surface), 0.52);
 }
 
@@ -2074,18 +2074,27 @@ pre {
 }
 
 .log-list {
-  display: flex;
-  flex-direction: column;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
   gap: 12px;
 }
 
 .log-list .v-expansion-panel {
-  width: 100%;
+  width: 100% !important;
+  min-width: 0;
+  justify-self: stretch;
 }
 
 .log-panels .v-expansion-panel {
   border: 1px solid rgba(var(--v-theme-outline-variant), 0.58) !important;
   border-radius: var(--admin-radius-panel) !important;
+}
+
+.log-panels .v-expansion-panel::after {
+  display: none;
 }
 
 .log-panels .v-expansion-panel {
@@ -2134,7 +2143,9 @@ pre {
 }
 
 .log-text {
+  max-height: min(52vh, 480px);
   margin: 0;
+  overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 0.86rem;
@@ -2280,12 +2291,12 @@ pre {
 }
 
 .settings-item-control .v-field--disabled {
-  background: rgba(var(--v-theme-surface-container-lowest), 0.52);
+  background: rgba(var(--v-theme-surface), 0.52);
   color: rgba(var(--v-theme-on-surface), 0.52);
 }
 
 .settings-item-control .v-field--disabled:hover {
-  background: rgba(var(--v-theme-surface-container-lowest), 0.52);
+  background: rgba(var(--v-theme-surface), 0.52);
 }
 
 .settings-item-control .v-field--error {
@@ -2307,7 +2318,7 @@ pre {
 }
 
 .settings-item-control--number input[type='number'] {
-  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .settings-item-control--number input[type='number']::-webkit-inner-spin-button,
