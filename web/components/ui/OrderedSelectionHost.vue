@@ -39,7 +39,6 @@ withDefaults(defineProps<{
     :on-drag-start="modal.onDragStart"
     :on-drag-over="modal.onDragOver"
     :on-drag-end="modal.onDragEnd"
-    :on-move="modal.onMove"
     :item-label="itemLabel"
     :item-description="itemDescription"
     @close="modal.closeModal()"

@@ -644,11 +644,6 @@ watch(
       title="模型映射"
       icon="mdi-vector-arrange-above"
     >
-      <template #meta>
-        <AdminBadge tone="secondary" icon="mdi-vector-arrange-above">
-          {{ items.length }} 映射
-        </AdminBadge>
-      </template>
       <template #actions>
         <AdminButton prepend-icon="mdi-plus" @click="openCreateModal">新建映射</AdminButton>
       </template>
@@ -715,7 +710,7 @@ watch(
           variant="flat"
         >
           <VCardText class="pa-5 d-flex flex-column ga-3 model-card-body">
-            <div class="d-flex justify-space-between align-center">
+            <div class="d-flex justify-space-between align-start">
               <div class="model-card-title-row">
                 <VCheckboxBtn
                   v-if="batchSelectionEnabled"
@@ -863,6 +858,7 @@ watch(
             title: handler.label,
             value: handler.key,
           }))"
+          :menu-props="{ contentClass: 'admin-select-menu admin-select-menu--modal' }"
         />
         <VTextField
           class="model-order-field"
@@ -917,6 +913,7 @@ watch(
       :title="`${modelCatalogHandlerLabel} 模型列表`"
       description=""
       icon="mdi-format-list-bulleted"
+      surface="secondary"
       max-width="860"
       @close="closeModelCatalog"
     >
@@ -938,14 +935,18 @@ watch(
             >
               默认
             </AdminButton>
-            <AdminButton
-              variant="secondary"
-              prepend-icon="mdi-cached"
+            <VBtn
+              icon="mdi-cached"
+              color="secondary"
+              variant="tonal"
+              size="small"
+              width="40"
+              height="40"
+              class="hit-target-48"
+              aria-label="刷新模型目录"
               :loading="modelCatalogLoading"
               @click="fetchModelCatalog"
-            >
-              刷新
-            </AdminButton>
+            />
           </div>
         </div>
 
@@ -1165,6 +1166,7 @@ watch(
   padding: 12px 14px;
   border: var(--admin-border-subtle);
   border-radius: var(--admin-radius-panel);
+  background: rgb(var(--v-theme-surface-container-highest));
   color: rgba(var(--v-theme-on-surface), 0.9);
   text-align: left;
   cursor: pointer;
@@ -1300,7 +1302,7 @@ watch(
 
 .model-order-field :deep(input) {
   cursor: pointer;
-  font-weight: 400;
+  font-weight: 500;
 }
 
 .model-plugin-badge,

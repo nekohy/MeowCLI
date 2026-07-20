@@ -980,14 +980,6 @@ watch(
       title="凭据管理"
       icon="mdi-shield-key-outline"
     >
-      <template #meta>
-        <AdminBadge tone="secondary" icon="mdi-shield-key-outline">
-          总量 {{ total }}
-        </AdminBadge>
-        <AdminBadge v-if="selectedIds.length" tone="accent" icon="mdi-checkbox-multiple-marked-outline">
-          已选 {{ selectedIds.length }}
-        </AdminBadge>
-      </template>
       <template #actions>
         <AdminButton
           v-if="admin.activeHandler.value?.supports_credentials && supportsOAuth"
@@ -1165,8 +1157,8 @@ watch(
           </div>
 
           <div v-if="selectedIds.length" class="selection-bar">
-            <div class="text-body-1">已选择 {{ selectedIds.length }} 条凭据</div>
-            <div class="d-flex flex-wrap ga-2">
+            <div class="selection-bar__summary text-body-1">已选择 {{ selectedIds.length }} 条凭据</div>
+            <div class="selection-bar__actions">
               <AdminButton variant="secondary" size="sm" @click="batchSetStatus('enabled')">启用</AdminButton>
               <AdminButton variant="secondary" size="sm" @click="batchSetStatus('disabled')">停用</AdminButton>
               <AdminButton variant="danger" size="sm" @click="batchDelete">删除</AdminButton>

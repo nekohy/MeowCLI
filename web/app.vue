@@ -4,10 +4,9 @@ import {
   NAV_ITEMS,
   THEME_STORAGE_KEY,
   applyTheme,
-  colorForTone,
   copyText,
 } from '~/lib/admin'
-import type { ThemeMode } from '~/types/admin'
+import type { ThemeMode, UiTone } from '~/types/admin'
 
 const admin = useAdminApp()
 const route = useRoute()
@@ -75,7 +74,20 @@ const snackbarOpen = computed({
   },
 })
 
-const snackbarColor = computed(() => colorForTone(admin.toast.value?.tone))
+const snackbarTone = computed(() => {
+  const tone = admin.toast.value?.tone
+  const presentation: Record<UiTone, { icon: string; color: string; container: string; label: string }> = {
+    neutral: { icon: 'mdi-information-outline', color: 'secondary', container: 'secondary-container', label: '通知' },
+    success: { icon: 'mdi-check', color: 'success', container: 'primary-container', label: '成功' },
+    danger: { icon: 'mdi-alert-circle-outline', color: 'error', container: 'error-container', label: '错误' },
+    warning: { icon: 'mdi-alert-circle-outline', color: 'warning', container: 'tertiary-container', label: '警告' },
+    accent: { icon: 'mdi-information-outline', color: 'tertiary', container: 'tertiary-container', label: '提示' },
+    muted: { icon: 'mdi-information-outline', color: 'secondary', container: 'secondary-container', label: '通知' },
+    secondary: { icon: 'mdi-information-outline', color: 'secondary', container: 'secondary-container', label: '通知' },
+  }
+
+  return presentation[tone || 'neutral']
+})
 
 useHead(() => ({
   title: pageTitle.value,
@@ -217,15 +229,33 @@ onBeforeUnmount(() => {
     <VSnackbar
       :key="admin.toast.value?.id"
       v-model="snackbarOpen"
-      :color="snackbarColor"
-      location="bottom"
+      location="bottom end"
       timeout="2400"
+      color="surface-container-high"
+      variant="flat"
       class="app-snackbar"
     >
-      {{ admin.toast.value?.text }}
-      <template #actions>
-        <VBtn variant="text" @click="admin.dismissToast()">关闭</VBtn>
-      </template>
+      <div class="app-snackbar__content">
+        <VAvatar
+          :color="snackbarTone.container"
+          size="32"
+          rounded="lg"
+          class="app-snackbar__icon"
+          :aria-label="snackbarTone.label"
+        >
+          <VIcon :icon="snackbarTone.icon" :color="snackbarTone.color" size="18" aria-hidden="true" />
+        </VAvatar>
+        <span class="app-snackbar__message">{{ admin.toast.value?.text }}</span>
+        <VBtn
+          icon="mdi-close"
+          variant="text"
+          density="comfortable"
+          size="small"
+          class="app-snackbar__close"
+          aria-label="关闭通知"
+          @click="admin.dismissToast()"
+        />
+      </div>
     </VSnackbar>
 
     <!-- Loading state -->
@@ -266,8 +296,8 @@ onBeforeUnmount(() => {
                   <img :src="faviconPath" alt="" class="brand-image">
                 </VAvatar>
                 <div class="text-center">
-                  <div class="text-overline" style="color: rgb(var(--v-theme-primary))">MEOWCLI</div>
-                  <h1 class="text-h4 font-weight-bold">管理控制台</h1>
+                  <div class="auth-brand-eyebrow">MeowCLI</div>
+                  <h1 class="auth-brand-title">管理控制台</h1>
                   <div class="version-inline">当前版本 {{ displayVersion }}</div>
                 </div>
               </div>

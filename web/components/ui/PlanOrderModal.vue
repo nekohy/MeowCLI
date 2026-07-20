@@ -16,7 +16,6 @@ defineProps<{
   onDragStart: (idx: number) => void
   onDragOver: (e: DragEvent, idx: number) => void
   onDragEnd: () => void
-  onMove: (idx: number, direction: -1 | 1) => void
   itemLabel?: (item: string) => string
   itemDescription?: (item: string) => string
 }>()
@@ -33,6 +32,7 @@ defineEmits<{
     :description="description || '拖动排序，勾选启用'"
     :icon="icon || 'mdi-swap-vertical'"
     :max-width="maxWidth || 520"
+    surface="secondary"
     @close="$emit('close')"
   >
     <div class="plan-order-list">
@@ -68,26 +68,6 @@ defineEmits<{
           <span v-if="isSelected(item)" class="plan-order-rank text-medium-emphasis">
             #{{ rankOf(item) }}
           </span>
-          <span class="plan-order-move">
-            <VBtn
-              icon="mdi-arrow-up"
-              size="x-small"
-              variant="text"
-              class="hit-target-48"
-              :disabled="idx === 0"
-              :aria-label="`上移 ${itemLabel ? itemLabel(item) : planTypeText(item)}`"
-              @click.stop="onMove(idx, -1)"
-            />
-            <VBtn
-              icon="mdi-arrow-down"
-              size="x-small"
-              variant="text"
-              class="hit-target-48"
-              :disabled="idx === draft.length - 1"
-              :aria-label="`下移 ${itemLabel ? itemLabel(item) : planTypeText(item)}`"
-              @click.stop="onMove(idx, 1)"
-            />
-          </span>
         </span>
       </div>
     </div>
@@ -112,11 +92,12 @@ defineEmits<{
   grid-template-columns: 20px 28px minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 10px;
-  min-height: 48px;
-  padding: 8px 12px;
+  min-height: 56px;
+  padding: 10px 12px;
   border-radius: var(--admin-radius-panel);
-  background: rgba(var(--v-theme-on-surface), 0.04);
-  transition: background 0.15s, opacity 0.15s;
+  background: rgb(var(--v-theme-surface-container-highest));
+  border: 2px solid rgba(var(--v-theme-outline-variant), 0.5);
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
   user-select: none;
 }
 
@@ -167,12 +148,12 @@ defineEmits<{
 }
 
 .plan-order-check :deep(.v-selection-control) {
-  min-height: 32px;
+  min-height: 36px;
 }
 
 .plan-order-check :deep(.v-selection-control__wrapper) {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
 }
 
 .plan-order-label {
@@ -188,6 +169,10 @@ defineEmits<{
   font-size: 0.875rem;
   line-height: 1.25;
   overflow-wrap: anywhere;
+}
+
+.plan-order-item:not(.plan-order-item--with-description) .plan-order-label > span {
+  font-size: 0.95rem;
 }
 
 .plan-order-label > small {
@@ -208,13 +193,6 @@ defineEmits<{
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-/* 上移/下移按钮:拖拽的键盘替代,间距 12px 避免外扩命中区相互重叠 */
-.plan-order-move {
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 
 .plan-order-item--with-description .plan-order-rank {

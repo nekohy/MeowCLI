@@ -71,19 +71,6 @@ export function useOrderedSelectionModal(
     setSelected(ordered)
   }
 
-  // 拖拽的键盘替代:上移/下移按钮,提交逻辑与 onDragEnd 一致
-  function onMove(idx: number, direction: -1 | 1) {
-    const target = idx + direction
-    if (target < 0 || target >= draft.value.length) return
-    const list = [...draft.value]
-    const moved = list.splice(idx, 1)[0]
-    if (moved === undefined) return
-    list.splice(target, 0, moved)
-    draft.value = list
-    const selected = new Set(selectedItems.value)
-    setSelected(list.filter((item) => selected.has(item)))
-  }
-
   function closeModal() {
     open.value = false
   }
@@ -104,7 +91,6 @@ export function useOrderedSelectionModal(
     onDragStart,
     onDragOver,
     onDragEnd,
-    onMove,
     closeModal,
     preview,
     rankOf,

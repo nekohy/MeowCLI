@@ -197,16 +197,7 @@ onBeforeUnmount(() => {
     <PageHeader
       title="诊断日志"
       icon="mdi-text-box-search-outline"
-    >
-      <template #meta>
-        <AdminBadge tone="secondary" icon="mdi-file-document-outline">
-          {{ summary.total }} 条记录
-        </AdminBadge>
-        <AdminBadge tone="secondary" icon="mdi-list-status">
-          {{ summary.status_codes.length }} 种状态码
-        </AdminBadge>
-      </template>
-    </PageHeader>
+    />
 
     <SectionCard
       title="数据筛选"
@@ -282,9 +273,9 @@ onBeforeUnmount(() => {
             color="secondary"
             variant="tonal"
             size="small"
-            width="36"
-            height="36"
-            class="hit-target-48"
+            width="40"
+            height="40"
+            class="hit-target-48 log-refresh-button"
             aria-label="刷新日志"
             @click="loadLogs(page, pageSize)"
           >
@@ -299,27 +290,15 @@ onBeforeUnmount(() => {
             color="secondary"
             variant="tonal"
             size="small"
-            height="36"
+            height="40"
             aria-label="设置自动刷新间隔"
             @click="cycleAutoRefreshInterval"
           >
             <template #prepend>
-              <span
-                class="icon-swap"
-                :class="{ 'icon-swap--swapped': autoRefreshIntervalMs === 0 }"
-                aria-hidden="true"
-              >
-                <VIcon
-                  class="icon-swap__front"
-                  icon="mdi-timer-sand"
-                  size="18"
-                />
-                <VIcon
-                  class="icon-swap__back"
-                  icon="mdi-timer-off-outline"
-                  size="18"
-                />
-              </span>
+              <VIcon
+                :icon="autoRefreshIntervalMs === 0 ? 'mdi-timer-off-outline' : 'mdi-timer-sand'"
+                size="18"
+              />
             </template>
             {{ autoRefreshLabel }}
           </VBtn>

@@ -5,10 +5,12 @@ const props = withDefaults(defineProps<{
   description?: string
   icon?: string
   maxWidth?: number | string
+  surface?: 'default' | 'secondary'
 }>(), {
   description: undefined,
   icon: 'mdi-information-outline',
   maxWidth: 560,
+  surface: 'default',
 })
 
 defineEmits<{
@@ -23,7 +25,11 @@ defineEmits<{
     scrollable
     @update:model-value="(value) => !value && $emit('close')"
   >
-    <VCard color="surface-container-high" class="modal-card">
+    <VCard
+      :color="surface === 'secondary' ? 'surface-container-highest' : 'surface-container-high'"
+      class="modal-card"
+      :class="{ 'modal-card--secondary': surface === 'secondary' }"
+    >
       <VCardItem class="pa-5 pb-3">
         <VCardTitle class="text-h6 font-weight-bold modal-title">
           <VIcon :icon="icon" color="primary" size="20" />

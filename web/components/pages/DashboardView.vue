@@ -55,15 +55,18 @@ async function openPage(path: string) {
       icon="mdi-view-dashboard-outline"
     >
       <template #actions>
-        <AdminButton
-          variant="secondary"
+        <VBtn
+          icon="mdi-refresh"
+          color="secondary"
+          variant="tonal"
+          size="small"
+          width="48"
+          height="48"
+          class="hit-target-48 dashboard-refresh-button"
+          aria-label="刷新概览"
+          :loading="refreshing"
           @click="refreshOverview"
-        >
-          <template #prepend>
-            <VIcon icon="mdi-refresh" :class="{ 'is-spinning': refreshing }" />
-          </template>
-          刷新
-        </AdminButton>
+        />
       </template>
     </PageHeader>
 

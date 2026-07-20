@@ -210,14 +210,6 @@ useAuthReadyLoader(loadAuthKeys)
       title="API 密钥"
       icon="mdi-shield-lock-outline"
     >
-      <template #meta>
-        <AdminBadge tone="secondary" icon="mdi-shield-lock-outline">
-          共 {{ items.length }} 个密钥
-        </AdminBadge>
-        <AdminBadge v-if="changedCount" tone="warning" icon="mdi-content-save-alert-outline">
-          {{ changedCount }} 处未保存
-        </AdminBadge>
-      </template>
       <template #actions>
         <AdminButton prepend-icon="mdi-plus" @click="openCreateModal">新建密钥</AdminButton>
       </template>

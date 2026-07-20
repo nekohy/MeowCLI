@@ -54,7 +54,7 @@ function cyclePreference() {
   <VBtn
     variant="text"
     color="primary"
-    class="text-none"
+    class="text-none theme-toggle-btn"
     size="default"
     @click="cyclePreference"
   >

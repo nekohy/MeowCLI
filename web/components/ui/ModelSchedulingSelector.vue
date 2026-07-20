@@ -114,6 +114,7 @@ function handleFocusOut(event: FocusEvent) {
   min-width: 0;
   min-height: 0;
   padding: 14px 12px 12px;
+  font-weight: 400;
 }
 
 .model-scheduling-selector__description {

@@ -16,9 +16,6 @@ defineProps<{
         <div class="page-header-text">
           <div v-if="eyebrow" class="page-header-eyebrow">{{ eyebrow }}</div>
           <h1 class="page-header-title">{{ title }}</h1>
-          <div v-if="$slots.meta" class="page-header-meta">
-            <slot name="meta" />
-          </div>
         </div>
       </div>
       <div v-if="$slots.actions" class="page-header-actions">
