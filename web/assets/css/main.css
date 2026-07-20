@@ -1231,6 +1231,46 @@ pre {
   background: transparent;
 }
 
+/* 列表页工具条：左侧为全选 + 统计，右侧为分页，整体一个面板收边 */
+.pagination-bar__leading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.pagination-bar__leading .v-selection-control {
+  flex: 0 0 auto;
+}
+
+.pagination-bar--toolbar {
+  align-items: center;
+}
+
+/* 紧凑密度工具条：降低整体高度、缩小内部分页按钮 */
+.pagination-bar--density-compact {
+  padding-block: 8px;
+}
+
+.pagination-bar--density-compact > :first-child {
+  min-height: 32px;
+}
+
+.pagination-bar--density-compact .v-pagination .v-btn {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  font-size: 0.8125rem;
+}
+
+.pagination-bar--density-compact .v-pagination__prev .v-btn,
+.pagination-bar--density-compact .v-pagination__next .v-btn {
+  width: 32px;
+  min-width: 32px;
+}
+
 .credentials-inline-progress {
   position: absolute !important;
   top: 0;
@@ -2355,6 +2395,15 @@ pre {
   .pagination-bar {
     grid-template-columns: 1fr;
     justify-items: stretch;
+  }
+
+  /* 工具条变体：左侧组与分页上下排列，分页居中 */
+  .pagination-bar--toolbar {
+    justify-items: center;
+  }
+
+  .pagination-bar--toolbar .pagination-bar__leading {
+    justify-content: center;
   }
 
   .selection-bar {

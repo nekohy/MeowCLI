@@ -1173,24 +1173,32 @@ watch(
             </VChipGroup>
           </div>
 
-          <div v-if="selectedIds.length" class="selection-bar">
-            <div class="selection-bar__summary text-body-1">已选择 {{ selectedIds.length }} 条凭据</div>
-            <div class="selection-bar__actions">
-              <AdminButton variant="secondary" size="sm" @click="batchSetStatus('enabled')">启用</AdminButton>
-              <AdminButton variant="secondary" size="sm" @click="batchSetStatus('disabled')">停用</AdminButton>
-              <AdminButton variant="danger" size="sm" @click="batchDelete">删除</AdminButton>
-            </div>
-          </div>
-
           <div v-if="rows.length" class="d-grid ga-4">
-            <div class="d-flex align-center justify-space-between flex-wrap ga-3">
-              <VCheckboxBtn
-                :model-value="allVisibleSelected"
-                label="选中当前页全部结果"
-                @update:model-value="toggleSelectAll"
-              />
-              <div class="text-body-2 text-medium-emphasis">
-                共 {{ total }} 条，当前第 {{ page }} / {{ maxPage }} 页
+            <PaginationBar
+              class="pagination-bar--toolbar"
+              :total="total"
+              :page="page"
+              :max-page="maxPage"
+              :total-visible="7"
+              density="compact"
+              @change="(value) => loadCredentials(value, pageSize)"
+            >
+              <template #leading>
+                <VCheckboxBtn
+                  :model-value="allVisibleSelected"
+                  density="compact"
+                  aria-label="选中当前页全部结果"
+                  @update:model-value="toggleSelectAll"
+                />
+              </template>
+            </PaginationBar>
+
+            <div v-if="selectedIds.length" class="selection-bar">
+              <div class="selection-bar__summary text-body-1">已选择 {{ selectedIds.length }} 条凭据</div>
+              <div class="selection-bar__actions">
+                <AdminButton variant="secondary" size="sm" @click="batchSetStatus('enabled')">启用</AdminButton>
+                <AdminButton variant="secondary" size="sm" @click="batchSetStatus('disabled')">停用</AdminButton>
+                <AdminButton variant="danger" size="sm" @click="batchDelete">删除</AdminButton>
               </div>
             </div>
 
@@ -1380,14 +1388,6 @@ watch(
               </div>
             </template>
           </EmptyState>
-
-          <PaginationBar
-            :total="total"
-            :page="page"
-            :max-page="maxPage"
-            :total-visible="7"
-            @change="(value) => loadCredentials(value, pageSize)"
-          />
         </div>
 
         <EmptyState
