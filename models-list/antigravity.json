@@ -20,6 +20,11 @@
     "description": ""
   },
   {
+    "id": "gemini-3.6-flash-tiered",
+    "name": "Gemini 3.6 Flash",
+    "description": ""
+  },
+  {
     "id": "gemini-pro-agent",
     "name": "Gemini 3.1 Pro",
     "description": ""
@@ -63,5 +68,5 @@
     "id": "tab_flash_lite_preview",
     "name": "你应该去用tab_jump_flash_lite_preview接入",
     "description": ""
-  },
+  }
 ]
