@@ -1179,7 +1179,6 @@ watch(
               :total="total"
               :page="page"
               :max-page="maxPage"
-              :total-visible="7"
               density="compact"
               @change="(value) => loadCredentials(value, pageSize)"
             >

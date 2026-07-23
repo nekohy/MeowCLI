@@ -309,7 +309,6 @@ onBeforeUnmount(() => {
           :total="total"
           :page="page"
           :max-page="maxPage"
-          :total-visible="5"
           @change="(value) => loadLogs(value, pageSize)"
         />
 

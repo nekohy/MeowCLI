@@ -1204,6 +1204,8 @@ pre {
 
 .toolbar-panel {
   display: grid;
+  /* 约束隐式轨道宽度：chip 组（v-slide-group）可收缩并在内部横向滚动，而非被 overflow 裁切 */
+  grid-template-columns: minmax(0, 1fr);
   position: relative;
   overflow: hidden;
 }
@@ -1612,9 +1614,31 @@ pre {
   justify-self: end;
 }
 
+/* 自包含结构规则：不再依赖 VPagination 组件 CSS 被间接导入，
+   否则列表会退回 UA 竖排块级样式（v-pagination__list 竖排回归） */
+.pagination-bar .v-pagination {
+  max-width: 100%;
+}
+
 .pagination-bar .v-pagination__list {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  justify-content: center;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   gap: 4px;
   align-items: center;
+  /* 页码窗口过渡时离场项绝对定位的包含块 */
+  position: relative;
+}
+
+.pagination-bar .v-pagination__prev,
+.pagination-bar .v-pagination__next,
+.pagination-bar .v-pagination__item {
+  flex: 0 0 auto;
 }
 
 .pagination-bar .v-pagination .v-btn {
@@ -1636,6 +1660,45 @@ pre {
 .pagination-bar .v-pagination__item--is-active .v-btn {
   background: rgba(var(--v-theme-primary), 0.16);
   font-weight: 700;
+}
+
+/* 页码窗口平移过渡：仅 transform/opacity，不触碰布局与焦点；
+   prefers-reduced-motion 由全局规则压缩至 0.01ms，无需重复声明 */
+.pagination-bar .pager-forward-enter-active,
+.pagination-bar .pager-forward-leave-active,
+.pagination-bar .pager-forward-move,
+.pagination-bar .pager-backward-enter-active,
+.pagination-bar .pager-backward-leave-active,
+.pagination-bar .pager-backward-move {
+  transition:
+    transform 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pagination-bar .pager-forward-enter-from {
+  opacity: 0;
+  transform: translateX(10px);
+}
+
+.pagination-bar .pager-forward-leave-to {
+  opacity: 0;
+  transform: translateX(-10px);
+}
+
+.pagination-bar .pager-backward-enter-from {
+  opacity: 0;
+  transform: translateX(-10px);
+}
+
+.pagination-bar .pager-backward-leave-to {
+  opacity: 0;
+  transform: translateX(10px);
+}
+
+/* 离场页码脱离文档流原地淡出，兄弟按钮只走 FLIP transform，不发生重排抖动 */
+.pagination-bar .pager-forward-leave-active,
+.pagination-bar .pager-backward-leave-active {
+  position: absolute;
 }
 
 /* --- Card internals --- */
@@ -2441,6 +2504,19 @@ pre {
 }
 
 @media (max-width: 959px) {
+  /* 窄屏 chip 组：保持单行，在容器内横向滑动查看；
+     不撑宽页面（toolbar-panel 轨道已 minmax(0,1fr) 约束），不外溢页面级滚动条 */
+  .v-chip-group .v-slide-group__container {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .v-chip-group .v-slide-group__container::-webkit-scrollbar {
+    display: none;
+  }
+
   .app-bar .v-toolbar__content {
     padding-inline: 12px !important;
   }
