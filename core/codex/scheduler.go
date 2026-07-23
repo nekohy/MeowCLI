@@ -153,6 +153,7 @@ func (s *Scheduler) startScoreRefresh(ctx context.Context) {
 	scheduling.ScoreRefreshLoop{
 		Interval:        func() time.Duration { return s.settingsSnapshot().ScoreRefreshInterval() },
 		DefaultInterval: settings.DefaultSnapshot().ScoreRefreshInterval(),
+		SettingsChanged: func() <-chan struct{} { return settings.ChangeSignal(s.settings) },
 		Refresh:         s.refreshAvailableScores,
 	}.Start(ctx)
 }
@@ -162,7 +163,8 @@ func (s *Scheduler) quotaSyncer() scheduling.QuotaSyncer[db.ListAvailableCodexRo
 		SyncInterval: func() time.Duration {
 			return s.settingsSnapshot().QuotaSyncInterval()
 		},
-		List: s.store.ListAvailableCodex,
+		SettingsChanged: func() <-chan struct{} { return settings.ChangeSignal(s.settings) },
+		List:            s.store.ListAvailableCodex,
 		CacheRows: func(ctx context.Context, rows []db.ListAvailableCodexRow) {
 			s.refreshAvailableFromRows(ctx, rows)
 		},

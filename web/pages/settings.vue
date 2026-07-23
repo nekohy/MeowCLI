@@ -127,13 +127,6 @@ const numericFields = [
     suffix: '个',
   },
   {
-    key: 'refresh_before_seconds',
-    label: '预刷新窗口',
-    hint: '令牌到期前的刷新提前量',
-    min: 1,
-    suffix: '秒',
-  },
-  {
     key: 'quota_sync_interval_seconds',
     label: '配额同步',
     hint: '后台同步额度数据的周期',
@@ -199,7 +192,7 @@ const numericFieldLookup = new Map<NumericFieldKey, (typeof numericFields)[numbe
 const numericGroups = [
   {
     title: '调度策略',
-    fields: ['relay_max_retries', 'weighted_best_count', 'content_affinity_max_entries', 'import_concurrency', 'refresh_before_seconds'] as NumericFieldKey[],
+    fields: ['relay_max_retries', 'weighted_best_count', 'content_affinity_max_entries', 'import_concurrency'] as NumericFieldKey[],
   },
   {
     title: '数据保留',

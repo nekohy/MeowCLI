@@ -138,6 +138,7 @@ func (s *Scheduler) startScoreRefresh(ctx context.Context) {
 	scheduling.ScoreRefreshLoop{
 		Interval:        func() time.Duration { return s.settingsSnapshot().ScoreRefreshInterval() },
 		DefaultInterval: settings.DefaultSnapshot().ScoreRefreshInterval(),
+		SettingsChanged: func() <-chan struct{} { return settings.ChangeSignal(s.settings) },
 		Refresh:         s.refreshAvailableScores,
 	}.Start(ctx)
 }
@@ -147,7 +148,8 @@ func (s *Scheduler) quotaSyncer() scheduling.QuotaSyncer[db.ListAvailableAntigra
 		SyncInterval: func() time.Duration {
 			return s.settingsSnapshot().QuotaSyncInterval()
 		},
-		List: s.store.ListAvailableAntigravity,
+		SettingsChanged: func() <-chan struct{} { return settings.ChangeSignal(s.settings) },
+		List:            s.store.ListAvailableAntigravity,
 		CacheRows: func(ctx context.Context, rows []db.ListAvailableAntigravityRow) {
 			s.refreshAvailableFromRows(ctx, rows)
 		},

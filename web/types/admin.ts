@@ -126,7 +126,6 @@ export interface StatusResponse {
 
 export interface SettingsSnapshot {
   global_proxy: string
-  refresh_before_seconds: number
   quota_sync_interval_seconds: number
   score_refresh_interval_seconds: number
   throttle_base_seconds: number
@@ -159,7 +158,6 @@ export interface SettingsSnapshot {
 
 export interface SettingsForm {
   global_proxy: string
-  refresh_before_seconds: string
   quota_sync_interval_seconds: string
   score_refresh_interval_seconds: string
   throttle_base_seconds: string

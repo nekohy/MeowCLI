@@ -101,6 +101,7 @@ func (s *Scheduler) StartQuotaSyncer(ctx context.Context) {
 	scheduling.ScoreRefreshLoop{
 		Interval:        func() time.Duration { return s.settingsSnapshot().ScoreRefreshInterval() },
 		DefaultInterval: settings.DefaultSnapshot().ScoreRefreshInterval(),
+		SettingsChanged: func() <-chan struct{} { return settings.ChangeSignal(s.settings) },
 		Refresh:         s.refreshAvailableScores,
 	}.Start(ctx)
 	scheduling.StartThrottleDeadlineRefresh(ctx, scheduling.ThrottleDeadlineRefreshConfig{
@@ -117,8 +118,9 @@ func (s *Scheduler) StartQuotaSyncer(ctx context.Context) {
 
 func (s *Scheduler) quotaSyncer() scheduling.QuotaSyncer[db.ListAvailableOpenCodeGoRow] {
 	return scheduling.QuotaSyncer[db.ListAvailableOpenCodeGoRow]{
-		SyncInterval: func() time.Duration { return s.settingsSnapshot().QuotaSyncInterval() },
-		List:         s.store.ListAvailableOpenCodeGo,
+		SyncInterval:    func() time.Duration { return s.settingsSnapshot().QuotaSyncInterval() },
+		SettingsChanged: func() <-chan struct{} { return settings.ChangeSignal(s.settings) },
+		List:            s.store.ListAvailableOpenCodeGo,
 		CacheRows: func(ctx context.Context, rows []db.ListAvailableOpenCodeGoRow) {
 			s.refreshAvailableFromRows(ctx, rows)
 		},

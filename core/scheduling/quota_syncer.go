@@ -8,15 +8,16 @@ import (
 
 // QuotaSyncer 对具有独立 synced_at 时间戳的行执行配额同步，负责定时器调度和到期行过滤；调用方在 Sync 中维护处理器特定的令牌、配额获取和持久化逻辑
 type QuotaSyncer[T any] struct {
-	SyncInterval func() time.Duration
-	List         func(context.Context) ([]T, error)
-	CacheRows    func(context.Context, []T)
-	Sync         func(context.Context, T)
-	RowID        func(T) string
-	SyncedAt     func(T) time.Time
-	ResetAt      func(T) time.Time
-	WithSyncedAt func(T, time.Time) T
-	ReportError  func(error, string)
+	SyncInterval    func() time.Duration
+	SettingsChanged func() <-chan struct{}
+	List            func(context.Context) ([]T, error)
+	CacheRows       func(context.Context, []T)
+	Sync            func(context.Context, T)
+	RowID           func(T) string
+	SyncedAt        func(T) time.Time
+	ResetAt         func(T) time.Time
+	WithSyncedAt    func(T, time.Time) T
+	ReportError     func(error, string)
 
 	WarmErrorMessage    string
 	ListErrorMessage    string
@@ -30,11 +31,14 @@ func (q QuotaSyncer[T]) Start(ctx context.Context) {
 		rows := q.loadAndCacheRows(ctx, q.WarmErrorMessage)
 
 		for {
+			changed := q.settingsChanged()
 			timer := time.NewTimer(q.nextDelay(rows, time.Now()))
 			select {
 			case <-ctx.Done():
-				timer.Stop()
+				stopTimer(timer)
 				return
+			case <-changed:
+				stopTimer(timer)
 			case <-timer.C:
 				rows = q.syncDueRows(ctx)
 			}
@@ -180,6 +184,13 @@ func (q QuotaSyncer[T]) syncInterval() time.Duration {
 		return 0
 	}
 	return q.SyncInterval()
+}
+
+func (q QuotaSyncer[T]) settingsChanged() <-chan struct{} {
+	if q.SettingsChanged == nil {
+		return nil
+	}
+	return q.SettingsChanged()
 }
 
 func (q QuotaSyncer[T]) resetAt(row T) time.Time {

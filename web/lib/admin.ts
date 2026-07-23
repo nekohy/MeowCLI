@@ -77,7 +77,6 @@ export const ANTIGRAVITY_API_ENDPOINT_OPTIONS = GEMINI_BASE_URL_OPTIONS
 
 export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   global_proxy: '',
-  refresh_before_seconds: '30',
   quota_sync_interval_seconds: '900',
   score_refresh_interval_seconds: '60',
   throttle_base_seconds: '60',
@@ -413,7 +412,6 @@ export function antigravityAPIEndpointText(value: string) {
 export function settingsToForm(data: SettingsSnapshot): SettingsForm {
   const form: SettingsForm = {
     global_proxy: data.global_proxy,
-    refresh_before_seconds: String(data.refresh_before_seconds),
     quota_sync_interval_seconds: String(data.quota_sync_interval_seconds),
     score_refresh_interval_seconds: String(data.score_refresh_interval_seconds),
     throttle_base_seconds: String(data.throttle_base_seconds),
@@ -453,7 +451,6 @@ export function settingsToForm(data: SettingsSnapshot): SettingsForm {
 export function settingsToPayload(form: SettingsForm): SettingsSnapshot {
   const payload: SettingsSnapshot = {
     global_proxy: form.global_proxy.trim(),
-    refresh_before_seconds: Number(form.refresh_before_seconds),
     quota_sync_interval_seconds: Number(form.quota_sync_interval_seconds),
     score_refresh_interval_seconds: Number(form.score_refresh_interval_seconds),
     throttle_base_seconds: Number(form.throttle_base_seconds),

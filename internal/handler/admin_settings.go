@@ -19,7 +19,6 @@ import (
 type settingsUpdateRequest struct {
 	// Global runtime settings
 	GlobalProxy                 *string `json:"global_proxy"`
-	RefreshBeforeSeconds        *int    `json:"refresh_before_seconds"`
 	QuotaSyncIntervalSeconds    *int    `json:"quota_sync_interval_seconds"`
 	ScoreRefreshIntervalSeconds *int    `json:"score_refresh_interval_seconds"`
 	ThrottleBaseSeconds         *int    `json:"throttle_base_seconds"`
@@ -99,9 +98,6 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 	next := base
 
 	applyTrimmedStringSetting(req.GlobalProxy, &next.GlobalProxy)
-	if err := applyPositiveSetting("refresh_before_seconds", req.RefreshBeforeSeconds, &next.RefreshBeforeSeconds); err != nil {
-		return settings.Snapshot{}, err
-	}
 	if err := applyPositiveSetting("quota_sync_interval_seconds", req.QuotaSyncIntervalSeconds, &next.QuotaSyncIntervalSeconds); err != nil {
 		return settings.Snapshot{}, err
 	}
@@ -193,7 +189,6 @@ func buildSettingsUpdate(base settings.Snapshot, req settingsUpdateRequest) (set
 func buildSettingsResponse(snapshot settings.Snapshot) gin.H {
 	return gin.H{
 		"global_proxy":                   snapshot.GlobalProxy,
-		"refresh_before_seconds":         snapshot.RefreshBeforeSeconds,
 		"quota_sync_interval_seconds":    snapshot.QuotaSyncIntervalSeconds,
 		"score_refresh_interval_seconds": snapshot.ScoreRefreshIntervalSeconds,
 		"throttle_base_seconds":          snapshot.ThrottleBaseSeconds,

@@ -14,7 +14,6 @@ import (
 
 const (
 	KeyGlobalProxy                 = "global_proxy"
-	KeyRefreshBeforeSeconds        = "refresh_before_seconds"
 	KeyQuotaSyncIntervalSeconds    = "quota_sync_interval_seconds"
 	KeyScoreRefreshIntervalSeconds = "score_refresh_interval_seconds"
 	KeyThrottleBaseSeconds         = "throttle_base_seconds"
@@ -48,6 +47,7 @@ const (
 const (
 	defaultCodexUnauthorizedCheckTimeoutSeconds       = 30
 	defaultCodexImportedCheckTimeoutSeconds           = 30
+	defaultRefreshBeforeSeconds                       = 60
 	defaultCodexQuotaWindow5hSeconds            int64 = 5 * 60 * 60
 	defaultCodexQuotaWindow7dSeconds            int64 = 7 * 24 * 60 * 60
 	defaultPollIntervalMilliseconds                   = 200
@@ -71,7 +71,6 @@ const (
 
 type Snapshot struct {
 	GlobalProxy                 string `json:"global_proxy"`
-	RefreshBeforeSeconds        int    `json:"refresh_before_seconds"`
 	QuotaSyncIntervalSeconds    int    `json:"quota_sync_interval_seconds"`
 	ScoreRefreshIntervalSeconds int    `json:"score_refresh_interval_seconds"`
 	ThrottleBaseSeconds         int    `json:"throttle_base_seconds"`
@@ -106,6 +105,18 @@ type Provider interface {
 	Snapshot() Snapshot
 }
 
+type ChangeNotifier interface {
+	SettingsChanged() <-chan struct{}
+}
+
+func ChangeSignal(provider Provider) <-chan struct{} {
+	notifier, ok := provider.(ChangeNotifier)
+	if !ok || notifier == nil {
+		return nil
+	}
+	return notifier.SettingsChanged()
+}
+
 type Store interface {
 	ListSettings(ctx context.Context) ([]db.Setting, error)
 	UpsertSetting(ctx context.Context, arg db.UpsertSettingParams) (db.Setting, error)
@@ -116,12 +127,12 @@ type Service struct {
 
 	mu      sync.RWMutex
 	current Snapshot
+	changed chan struct{}
 }
 
 func DefaultSnapshot() Snapshot {
 	return Snapshot{
 		GlobalProxy:                 "",
-		RefreshBeforeSeconds:        5,
 		QuotaSyncIntervalSeconds:    6 * 60 * 60,
 		ScoreRefreshIntervalSeconds: 60,
 		ThrottleBaseSeconds:         60,
@@ -157,6 +168,7 @@ func NewService(ctx context.Context, store Store) (*Service, error) {
 	svc := &Service{
 		store:   store,
 		current: DefaultSnapshot(),
+		changed: make(chan struct{}),
 	}
 	if store == nil {
 		return svc, nil
@@ -174,6 +186,29 @@ func (s *Service) Snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.current
+}
+
+func (s *Service) SettingsChanged() <-chan struct{} {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.changed == nil {
+		s.changed = make(chan struct{})
+	}
+	return s.changed
+}
+
+func (s *Service) replaceCurrent(next Snapshot) {
+	s.mu.Lock()
+	previous := s.changed
+	s.current = next
+	s.changed = make(chan struct{})
+	if previous != nil {
+		close(previous)
+	}
+	s.mu.Unlock()
 }
 
 func (s *Service) Reload(ctx context.Context) (Snapshot, error) {
@@ -195,9 +230,7 @@ func (s *Service) Reload(ctx context.Context) (Snapshot, error) {
 	applyValues(&next, values)
 	next = next.Normalize()
 
-	s.mu.Lock()
-	s.current = next
-	s.mu.Unlock()
+	s.replaceCurrent(next)
 	return next, nil
 }
 
@@ -208,9 +241,7 @@ func (s *Service) Save(ctx context.Context, next Snapshot) (Snapshot, error) {
 
 	next = next.Normalize()
 	if s.store == nil {
-		s.mu.Lock()
-		s.current = next
-		s.mu.Unlock()
+		s.replaceCurrent(next)
 		return next, nil
 	}
 
@@ -220,9 +251,7 @@ func (s *Service) Save(ctx context.Context, next Snapshot) (Snapshot, error) {
 		}
 	}
 
-	s.mu.Lock()
-	s.current = next
-	s.mu.Unlock()
+	s.replaceCurrent(next)
 	return next, nil
 }
 
@@ -230,9 +259,6 @@ func (s Snapshot) Normalize() Snapshot {
 	defaults := DefaultSnapshot()
 
 	s.GlobalProxy = strings.TrimSpace(s.GlobalProxy)
-	if s.RefreshBeforeSeconds <= 0 {
-		s.RefreshBeforeSeconds = defaults.RefreshBeforeSeconds
-	}
 	if s.QuotaSyncIntervalSeconds <= 0 {
 		s.QuotaSyncIntervalSeconds = defaults.QuotaSyncIntervalSeconds
 	}
@@ -324,7 +350,7 @@ func (s Snapshot) EffectiveOpenCodeGoProxy() string {
 }
 
 func (s Snapshot) RefreshBefore() time.Duration {
-	return time.Duration(s.RefreshBeforeSeconds) * time.Second
+	return defaultRefreshBeforeSeconds * time.Second
 }
 
 func (s Snapshot) PollInterval() time.Duration {
@@ -392,7 +418,6 @@ func (s Snapshot) EffectiveAntigravityUserAgent() string {
 func (s Snapshot) SettingParams() []db.UpsertSettingParams {
 	return []db.UpsertSettingParams{
 		{Key: KeyGlobalProxy, Value: s.GlobalProxy},
-		{Key: KeyRefreshBeforeSeconds, Value: strconv.Itoa(s.RefreshBeforeSeconds)},
 		{Key: KeyQuotaSyncIntervalSeconds, Value: strconv.Itoa(s.QuotaSyncIntervalSeconds)},
 		{Key: KeyScoreRefreshIntervalSeconds, Value: strconv.Itoa(s.ScoreRefreshIntervalSeconds)},
 		{Key: KeyThrottleBaseSeconds, Value: strconv.Itoa(s.ThrottleBaseSeconds)},
@@ -427,9 +452,6 @@ func (s Snapshot) SettingParams() []db.UpsertSettingParams {
 func applyValues(target *Snapshot, values map[string]string) {
 	if value, ok := valueForKeys(values, KeyGlobalProxy); ok {
 		target.GlobalProxy = strings.TrimSpace(value)
-	}
-	if parsed, ok := intValueForKeys(values, KeyRefreshBeforeSeconds); ok {
-		target.RefreshBeforeSeconds = parsed
 	}
 	if parsed, ok := intValueForKeys(values, KeyQuotaSyncIntervalSeconds); ok {
 		target.QuotaSyncIntervalSeconds = parsed

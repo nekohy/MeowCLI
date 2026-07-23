@@ -8,6 +8,7 @@ import (
 type ScoreRefreshLoop struct {
 	Interval        func() time.Duration
 	DefaultInterval time.Duration
+	SettingsChanged func() <-chan struct{}
 	Refresh         func()
 }
 
@@ -17,12 +18,14 @@ func (l ScoreRefreshLoop) Start(ctx context.Context) {
 	}
 	go func() {
 		for {
-			interval := l.interval()
-			timer := time.NewTimer(interval)
+			changed := l.settingsChanged()
+			timer := time.NewTimer(l.interval())
 			select {
 			case <-ctx.Done():
-				timer.Stop()
+				stopTimer(timer)
 				return
+			case <-changed:
+				stopTimer(timer)
 			case <-timer.C:
 				l.Refresh()
 			}
@@ -40,6 +43,23 @@ func (l ScoreRefreshLoop) interval() time.Duration {
 		return l.DefaultInterval
 	}
 	return time.Minute
+}
+
+func (l ScoreRefreshLoop) settingsChanged() <-chan struct{} {
+	if l.SettingsChanged == nil {
+		return nil
+	}
+	return l.SettingsChanged()
+}
+
+func stopTimer(timer *time.Timer) {
+	if timer == nil || timer.Stop() {
+		return
+	}
+	select {
+	case <-timer.C:
+	default:
+	}
 }
 
 func RefreshRows[T any, S any](
