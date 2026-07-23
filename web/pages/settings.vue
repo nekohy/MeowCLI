@@ -57,6 +57,35 @@ const hasAntigravityCreditsOverageSetting = computed(() => (
   typeof form.value.antigravity_use_credits === 'boolean'
 ))
 
+type SettingsCategoryKey = 'global' | 'codex' | 'gemini' | 'antigravity' | 'opencode-go'
+
+const settingsCategories: Array<{ key: SettingsCategoryKey; label: string; icon: string }> = [
+  { key: 'global', label: '全局', icon: 'mdi-web' },
+  { key: 'codex', label: 'Codex', icon: handlerIcon('codex') },
+  { key: 'gemini', label: 'Gemini CLI', icon: handlerIcon('gemini') },
+  { key: 'antigravity', label: 'Antigravity', icon: handlerIcon('antigravity') },
+  { key: 'opencode-go', label: 'OpenCode Go', icon: handlerIcon('opencode-go') },
+]
+
+// 后端未下发 antigravity_use_credits 时说明该 handler 不可用,沿用旧行为整体隐藏该分类
+const visibleCategories = computed(() => (
+  settingsCategories.filter((category) => (
+    category.key !== 'antigravity' || hasAntigravityCreditsOverageSetting.value
+  ))
+))
+
+const selectedCategory = ref<SettingsCategoryKey>('global')
+
+// 只读校验 + 写入透传:当前分类被隐藏时回退到全局,切换分类不触碰共享表单
+const activeCategory = computed<SettingsCategoryKey>({
+  get: () => (
+    visibleCategories.value.some((category) => category.key === selectedCategory.value)
+      ? selectedCategory.value
+      : 'global'
+  ),
+  set: (value) => { selectedCategory.value = value },
+})
+
 function makeEndpointSelection(
   get: () => string | undefined,
   set: (value: string) => void,
@@ -289,187 +318,204 @@ useAuthReadyLoader(loadSettings)
 
     <VProgressLinear v-if="loading" indeterminate color="primary" rounded class="mb-2" />
 
-    <!-- Global -->
-    <SectionCard title="全局" icon="mdi-web">
-      <div class="setting-field-stack">
-        <div class="settings-item">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">全局代理</div>
-            <div class="settings-item-description text-medium-emphasis">所有上游请求使用的代理</div>
-          </div>
-          <VTextField
-            v-model="form.global_proxy"
-            placeholder="http://127.0.0.1:7890"
-            hide-details
-            class="settings-item-control"
-          />
-        </div>
+    <CategoryTabs
+      v-model="activeCategory"
+      :items="visibleCategories"
+      id-prefix="settings"
+    />
 
-        <template v-for="group in numericGroups" :key="group.title">
-          <div class="settings-group-divider">{{ group.title }}</div>
-          <div v-for="field in group.fields" :key="field!.key" class="settings-item">
-            <div class="settings-item-copy">
-              <div class="settings-item-title">{{ field!.label }}</div>
-              <div class="settings-item-description text-medium-emphasis">{{ field!.hint }}</div>
+    <div class="settings-panels">
+      <Transition name="handler-content-fade" mode="out-in">
+        <div
+          :key="activeCategory"
+          :id="`settings-panel-${activeCategory}`"
+          role="tabpanel"
+          :aria-labelledby="`settings-tab-${activeCategory}`"
+        >
+          <!-- Global -->
+          <SectionCard v-if="activeCategory === 'global'" title="全局" icon="mdi-web">
+            <div class="setting-field-stack">
+              <div class="settings-item">
+                <div class="settings-item-copy">
+                  <div class="settings-item-title">全局代理</div>
+                  <div class="settings-item-description text-medium-emphasis">所有上游请求使用的代理</div>
+                </div>
+                <VTextField
+                  v-model="form.global_proxy"
+                  placeholder="http://127.0.0.1:7890"
+                  hide-details
+                  class="settings-item-control"
+                />
+              </div>
+
+              <template v-for="group in numericGroups" :key="group.title">
+                <div class="settings-group-divider">{{ group.title }}</div>
+                <div v-for="field in group.fields" :key="field!.key" class="settings-item">
+                  <div class="settings-item-copy">
+                    <div class="settings-item-title">{{ field!.label }}</div>
+                    <div class="settings-item-description text-medium-emphasis">{{ field!.hint }}</div>
+                  </div>
+                  <VTextField
+                    v-model="form[field!.key]"
+                    type="number"
+                    :min="field!.min"
+                    :suffix="field!.suffix"
+                    hide-details
+                    class="settings-item-control settings-item-control--number"
+                  />
+                </div>
+              </template>
             </div>
-            <VTextField
-              v-model="form[field!.key]"
-              type="number"
-              :min="field!.min"
-              :suffix="field!.suffix"
-              hide-details
-              class="settings-item-control settings-item-control--number"
-            />
-          </div>
-        </template>
-      </div>
-    </SectionCard>
+          </SectionCard>
 
-    <!-- Codex -->
-    <SectionCard title="Codex" :icon="handlerIcon('codex')">
-      <div class="setting-field-stack">
-        <div class="settings-item">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">Codex 代理</div>
-            <div class="settings-item-description text-medium-emphasis">未设置时回退到全局代理</div>
-          </div>
-          <VTextField
-            v-model="form.codex_proxy"
-            placeholder="http://127.0.0.1:7890"
-            hide-details
-            class="settings-item-control"
-          />
+          <!-- Codex -->
+          <SectionCard v-else-if="activeCategory === 'codex'" title="Codex" :icon="handlerIcon('codex')">
+            <div class="setting-field-stack">
+              <div class="settings-item">
+                <div class="settings-item-copy">
+                  <div class="settings-item-title">Codex 代理</div>
+                  <div class="settings-item-description text-medium-emphasis">未设置时回退到全局代理</div>
+                </div>
+                <VTextField
+                  v-model="form.codex_proxy"
+                  placeholder="http://127.0.0.1:7890"
+                  hide-details
+                  class="settings-item-control"
+                />
+              </div>
+
+              <div class="settings-item">
+                <div class="settings-item-copy">
+                  <div class="settings-item-title">UA</div>
+                  <div class="settings-item-description text-medium-emphasis">自定义 UA，不懂别动</div>
+                </div>
+                <VTextField
+                  v-model="form.codex_user_agent"
+                  hide-details
+                  class="settings-item-control"
+                />
+              </div>
+
+              <SettingNavRow
+                title="调用套餐顺序"
+                :description="`优先使用的套餐类型及顺序：${codexPlanOrder.preview.value.length ? codexPlanOrder.preview.value.join(' → ') : '未配置'}`"
+                @activate="codexPlanOrder.openModal()"
+              />
+
+              <div class="settings-item settings-item--toggle">
+                <div class="settings-item-copy">
+                  <div class="settings-item-title">启用粘性对话</div>
+                  <div class="settings-item-description text-medium-emphasis">Codex 目前共享缓存，非必要不用启用，优先于内容粘性</div>
+                </div>
+                <VSwitch v-model="form.codex_enable_sticky_session" />
+              </div>
+
+            </div>
+          </SectionCard>
+
+          <SectionCard v-else-if="activeCategory === 'gemini'" title="Gemini CLI" :icon="handlerIcon('gemini')">
+            <div class="setting-field-stack">
+              <div class="settings-item">
+                <div class="settings-item-copy">
+                  <div class="settings-item-title">Gemini CLI 代理</div>
+                  <div class="settings-item-description text-medium-emphasis">未设置时回退到全局代理</div>
+                </div>
+                <VTextField
+                  v-model="form.gemini_proxy"
+                  placeholder="http://127.0.0.1:7890"
+                  hide-details
+                  class="settings-item-control"
+                />
+              </div>
+
+              <SettingNavRow
+                title="Gemini CLI 接口"
+                :description="`已启用：${geminiEndpoint.preview.value}`"
+                @activate="geminiEndpointOpen = true"
+              />
+
+              <SettingNavRow
+                title="调用套餐顺序"
+                :description="`优先使用的套餐类型及顺序：${geminiPlanOrder.preview.value.length ? geminiPlanOrder.preview.value.join(' → ') : '未配置'}`"
+                @activate="geminiPlanOrder.openModal()"
+              />
+
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            v-else-if="activeCategory === 'antigravity'"
+            title="Antigravity"
+            :icon="handlerIcon('antigravity')"
+          >
+            <div class="setting-field-stack">
+              <div class="settings-item">
+                <div class="settings-item-copy">
+                  <div class="settings-item-title">Antigravity 代理</div>
+                  <div class="settings-item-description text-medium-emphasis">未设置时回退到全局代理</div>
+                </div>
+                <VTextField
+                  v-model="form.antigravity_proxy"
+                  placeholder="http://127.0.0.1:7890"
+                  hide-details
+                  class="settings-item-control"
+                />
+              </div>
+
+              <div class="settings-item">
+                <div class="settings-item-copy">
+                  <div class="settings-item-title">UA</div>
+                  <div class="settings-item-description text-medium-emphasis">自定义 UA，不懂别动</div>
+                </div>
+                <VTextField
+                  v-model="form.antigravity_user_agent"
+                  hide-details
+                  class="settings-item-control"
+                />
+              </div>
+
+              <SettingNavRow
+                title="API 端点"
+                :description="`已启用：${antigravityEndpoint.preview.value}`"
+                @activate="antigravityEndpointOpen = true"
+              />
+
+              <div class="settings-item settings-item--toggle">
+                <div class="settings-item-copy">
+                  <div class="settings-item-title">配额耗尽后使用 Credits</div>
+                  <div class="settings-item-description text-medium-emphasis">仅作为 Antigravity 配额兜底，不会作为套餐类型参与调度筛选</div>
+                </div>
+                <VSwitch v-model="form.antigravity_use_credits" />
+              </div>
+
+              <SettingNavRow
+                title="调用套餐顺序"
+                :description="`优先使用的套餐类型及顺序：${antigravityPlanOrder.preview.value.length ? antigravityPlanOrder.preview.value.join(' → ') : '未配置'}`"
+                @activate="antigravityPlanOrder.openModal()"
+              />
+            </div>
+          </SectionCard>
+
+          <SectionCard v-else-if="activeCategory === 'opencode-go'" title="OpenCode Go" :icon="handlerIcon('opencode-go')">
+            <div class="setting-field-stack">
+              <div class="settings-item">
+                <div class="settings-item-copy">
+                  <div class="settings-item-title">OpenCode Go 代理</div>
+                  <div class="settings-item-description text-medium-emphasis">未设置时回退到全局代理</div>
+                </div>
+                <VTextField
+                  v-model="form.opencode_go_proxy"
+                  placeholder="http://127.0.0.1:7890"
+                  hide-details
+                  class="settings-item-control"
+                />
+              </div>
+
+            </div>
+          </SectionCard>
         </div>
-
-        <div class="settings-item">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">UA</div>
-            <div class="settings-item-description text-medium-emphasis">自定义 UA，不懂别动</div>
-          </div>
-          <VTextField
-            v-model="form.codex_user_agent"
-            hide-details
-            class="settings-item-control"
-          />
-        </div>
-
-        <SettingNavRow
-          title="调用套餐顺序"
-          :description="`优先使用的套餐类型及顺序：${codexPlanOrder.preview.value.length ? codexPlanOrder.preview.value.join(' → ') : '未配置'}`"
-          @activate="codexPlanOrder.openModal()"
-        />
-
-        <div class="settings-item settings-item--toggle">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">启用粘性对话</div>
-            <div class="settings-item-description text-medium-emphasis">Codex 目前共享缓存，非必要不用启用，优先于内容粘性</div>
-          </div>
-          <VSwitch v-model="form.codex_enable_sticky_session" />
-        </div>
-
-      </div>
-    </SectionCard>
-
-    <SectionCard title="Gemini CLI" :icon="handlerIcon('gemini')">
-      <div class="setting-field-stack">
-        <div class="settings-item">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">Gemini CLI 代理</div>
-            <div class="settings-item-description text-medium-emphasis">未设置时回退到全局代理</div>
-          </div>
-          <VTextField
-            v-model="form.gemini_proxy"
-            placeholder="http://127.0.0.1:7890"
-            hide-details
-            class="settings-item-control"
-          />
-        </div>
-
-        <SettingNavRow
-          title="Gemini CLI 接口"
-          :description="`已启用：${geminiEndpoint.preview.value}`"
-          @activate="geminiEndpointOpen = true"
-        />
-
-        <SettingNavRow
-          title="调用套餐顺序"
-          :description="`优先使用的套餐类型及顺序：${geminiPlanOrder.preview.value.length ? geminiPlanOrder.preview.value.join(' → ') : '未配置'}`"
-          @activate="geminiPlanOrder.openModal()"
-        />
-
-      </div>
-    </SectionCard>
-
-    <SectionCard
-      v-if="hasAntigravityCreditsOverageSetting"
-      title="Antigravity"
-      :icon="handlerIcon('antigravity')"
-    >
-      <div class="setting-field-stack">
-        <div class="settings-item">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">Antigravity 代理</div>
-            <div class="settings-item-description text-medium-emphasis">未设置时回退到全局代理</div>
-          </div>
-          <VTextField
-            v-model="form.antigravity_proxy"
-            placeholder="http://127.0.0.1:7890"
-            hide-details
-            class="settings-item-control"
-          />
-        </div>
-
-        <div class="settings-item">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">UA</div>
-            <div class="settings-item-description text-medium-emphasis">自定义 UA，不懂别动</div>
-          </div>
-          <VTextField
-            v-model="form.antigravity_user_agent"
-            hide-details
-            class="settings-item-control"
-          />
-        </div>
-
-        <SettingNavRow
-          title="API 端点"
-          :description="`已启用：${antigravityEndpoint.preview.value}`"
-          @activate="antigravityEndpointOpen = true"
-        />
-
-        <div class="settings-item settings-item--toggle">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">配额耗尽后使用 Credits</div>
-            <div class="settings-item-description text-medium-emphasis">仅作为 Antigravity 配额兜底，不会作为套餐类型参与调度筛选</div>
-          </div>
-          <VSwitch v-model="form.antigravity_use_credits" />
-        </div>
-
-        <SettingNavRow
-          title="调用套餐顺序"
-          :description="`优先使用的套餐类型及顺序：${antigravityPlanOrder.preview.value.length ? antigravityPlanOrder.preview.value.join(' → ') : '未配置'}`"
-          @activate="antigravityPlanOrder.openModal()"
-        />
-      </div>
-    </SectionCard>
-
-    <SectionCard title="OpenCode Go" :icon="handlerIcon('opencode-go')">
-      <div class="setting-field-stack">
-        <div class="settings-item">
-          <div class="settings-item-copy">
-            <div class="settings-item-title">OpenCode Go 代理</div>
-            <div class="settings-item-description text-medium-emphasis">未设置时回退到全局代理</div>
-          </div>
-          <VTextField
-            v-model="form.opencode_go_proxy"
-            placeholder="http://127.0.0.1:7890"
-            hide-details
-            class="settings-item-control"
-          />
-        </div>
-
-      </div>
-    </SectionCard>
+      </Transition>
+    </div>
 
     <!-- Plan Order Modals -->
     <OrderedSelectionHost :modal="codexPlanOrder" title="调用套餐顺序" />
