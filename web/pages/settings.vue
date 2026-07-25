@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { adminApi } from '~/composables/useAdminApi'
+// components 配置为 pathPrefix:false,显式 import 避免命名歧义
+import MaintenanceActions from '~/components/settings/MaintenanceActions.vue'
+import MaintenanceRow from '~/components/settings/MaintenanceRow.vue'
 import {
   ANTIGRAVITY_API_ENDPOINT_OPTIONS,
   DEFAULT_SETTINGS_FORM,
@@ -296,6 +299,76 @@ async function saveSettings() {
   }
 }
 
+/* --- 维护操作:独立于设置表单,立即生效,不参与保存 --- */
+
+type ProviderKey = Exclude<SettingsCategoryKey, 'global'>
+type Action = 'quota' | 'logs'
+type BusyKey = `${ProviderKey | 'all'}:${Action}`
+
+const confirm = useConfirmDialog()
+// 按 provider + 动作记录 busy:按钮各自转圈、互不阻塞,并防止重复请求
+const busy = ref<Partial<Record<BusyKey, boolean>>>({})
+
+function isBusy(provider: ProviderKey | 'all', action: Action) {
+  return Boolean(busy.value[`${provider}:${action}`])
+}
+
+function providerBusy(provider: ProviderKey) {
+  return isBusy(provider, 'quota') || isBusy(provider, 'logs')
+}
+
+const anyBusy = computed(() => Object.values(busy.value).some(Boolean))
+
+function providerLabel(provider: ProviderKey) {
+  return settingsCategories.find((category) => category.key === provider)?.label ?? provider
+}
+
+async function refreshQuota(provider: ProviderKey) {
+  if (providerBusy(provider)) {
+    return
+  }
+  const label = providerLabel(provider)
+  busy.value[`${provider}:quota`] = true
+  try {
+    const result = await adminApi.refreshQuota(admin.token.value, provider)
+    admin.notify(`已提交 ${label} 额度刷新，共 ${result.queued} 个任务`)
+  } catch (error) {
+    admin.notifyError(error, `${label} 额度刷新失败`)
+  } finally {
+    busy.value[`${provider}:quota`] = false
+  }
+}
+
+function confirmClearLogs(provider: ProviderKey | 'all') {
+  if (provider === 'all' ? anyBusy.value : providerBusy(provider)) {
+    return
+  }
+  const label = provider === 'all' ? '所有渠道' : providerLabel(provider)
+  confirm.show({
+    title: `清空 ${label} 请求日志`,
+    message: `将清空 ${label} 的请求日志，错误率统计随之重置并刷新调度状态，此操作不可恢复。确认继续吗？`,
+    confirmText: '确认清空',
+    action: async () => {
+      const key: BusyKey = `${provider}:logs`
+      busy.value[key] = true
+      try {
+        const result = await adminApi.clearLogs(admin.token.value, provider)
+        const detail = result.errors?.length ? `：${result.errors.join('；')}` : ''
+        if (result.refreshed && !detail) {
+          admin.notify(`已清空 ${label} 请求日志（${result.deleted} 条），调度状态已刷新`)
+        } else {
+          admin.notify(`已清空 ${label} 请求日志（${result.deleted} 条），但调度状态刷新失败${detail}`, 'warning')
+        }
+        await admin.loadOverview(admin.token.value, true)
+      } catch (error) {
+        admin.notifyError(error, '清空日志失败')
+      } finally {
+        busy.value[key] = false
+      }
+    },
+  })
+}
+
 useAuthReadyLoader(loadSettings)
 </script>
 
@@ -365,6 +438,18 @@ useAuthReadyLoader(loadSettings)
                   />
                 </div>
               </template>
+
+              <div class="settings-group-divider">维护操作</div>
+              <MaintenanceRow
+                label="请求日志"
+                description="立刻清空所有渠道请求日志"
+                action-text="清空所有日志"
+                icon="mdi-delete-outline"
+                variant="danger"
+                :loading="isBusy('all', 'logs')"
+                :disabled="anyBusy && !isBusy('all', 'logs')"
+                @activate="confirmClearLogs('all')"
+              />
             </div>
           </SectionCard>
 
@@ -410,6 +495,14 @@ useAuthReadyLoader(loadSettings)
                 <VSwitch v-model="form.codex_enable_sticky_session" />
               </div>
 
+              <div class="settings-group-divider">维护操作</div>
+              <MaintenanceActions
+                :quota-busy="isBusy('codex', 'quota')"
+                :logs-busy="isBusy('codex', 'logs')"
+                @refresh="refreshQuota('codex')"
+                @clear="confirmClearLogs('codex')"
+              />
+
             </div>
           </SectionCard>
 
@@ -438,6 +531,14 @@ useAuthReadyLoader(loadSettings)
                 title="调用套餐顺序"
                 :description="`优先使用的套餐类型及顺序：${geminiPlanOrder.preview.value.length ? geminiPlanOrder.preview.value.join(' → ') : '未配置'}`"
                 @activate="geminiPlanOrder.openModal()"
+              />
+
+              <div class="settings-group-divider">维护操作</div>
+              <MaintenanceActions
+                :quota-busy="isBusy('gemini', 'quota')"
+                :logs-busy="isBusy('gemini', 'logs')"
+                @refresh="refreshQuota('gemini')"
+                @clear="confirmClearLogs('gemini')"
               />
 
             </div>
@@ -493,6 +594,14 @@ useAuthReadyLoader(loadSettings)
                 :description="`优先使用的套餐类型及顺序：${antigravityPlanOrder.preview.value.length ? antigravityPlanOrder.preview.value.join(' → ') : '未配置'}`"
                 @activate="antigravityPlanOrder.openModal()"
               />
+
+              <div class="settings-group-divider">维护操作</div>
+              <MaintenanceActions
+                :quota-busy="isBusy('antigravity', 'quota')"
+                :logs-busy="isBusy('antigravity', 'logs')"
+                @refresh="refreshQuota('antigravity')"
+                @clear="confirmClearLogs('antigravity')"
+              />
             </div>
           </SectionCard>
 
@@ -510,6 +619,14 @@ useAuthReadyLoader(loadSettings)
                   class="settings-item-control"
                 />
               </div>
+
+              <div class="settings-group-divider">维护操作</div>
+              <MaintenanceActions
+                :quota-busy="isBusy('opencode-go', 'quota')"
+                :logs-busy="isBusy('opencode-go', 'logs')"
+                @refresh="refreshQuota('opencode-go')"
+                @clear="confirmClearLogs('opencode-go')"
+              />
 
             </div>
           </SectionCard>
@@ -539,6 +656,12 @@ useAuthReadyLoader(loadSettings)
       :is-selected="antigravityEndpoint.isSelected"
       :toggle="antigravityEndpoint.toggle"
       @close="antigravityEndpointOpen = false"
+    />
+
+    <ConfirmDialogHost
+      :confirm="confirm"
+      :action-busy="anyBusy"
+      icon="mdi-delete-outline"
     />
   </div>
 </template>

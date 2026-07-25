@@ -13,6 +13,7 @@ type ListLogsParams = db.ListLogsParams
 type LogStore interface {
 	QueryLogs(ctx context.Context, params db.ListLogsParams) (db.LogQueryResult, error)
 	ErrorRatesForCredentials(ctx context.Context, handler string, modelTier string, since []db.ErrorRateSince, minSamples int) (map[string]float64, error)
+	ClearLogs(ctx context.Context, handler string) (int, error)
 }
 
 func (a *AdminHandler) queryLogs(ctx context.Context, params ListLogsParams) (db.LogQueryResult, error) {

@@ -59,6 +59,36 @@ WHERE
     AND TRIM(a.plan_type) <> ''
 ORDER BY plan_type;
 
+-- name: ListAntigravity :many
+SELECT
+    a.id, a.status, a.access_token, a.refresh_token, a.expired,
+    a.email, a.project_id, a.plan_type, a.reason,
+    COALESCE(q.quota_claude, 1.0) AS quota_claude,
+    COALESCE(q.reset_claude, datetime('now')) AS reset_claude,
+    COALESCE(q.quota_pro, 1.0) AS quota_pro,
+    COALESCE(q.reset_pro, datetime('now')) AS reset_pro,
+    COALESCE(q.quota_flash, 1.0) AS quota_flash,
+    COALESCE(q.reset_flash, datetime('now')) AS reset_flash,
+    COALESCE(q.quota_flashlite, 1.0) AS quota_flashlite,
+    COALESCE(q.reset_flashlite, datetime('now')) AS reset_flashlite,
+    COALESCE(q.quota_tab, 1.0) AS quota_tab,
+    COALESCE(q.reset_tab, datetime('now', '+100 years')) AS reset_tab,
+    COALESCE(q.quota_image, 1.0) AS quota_image,
+    COALESCE(q.reset_image, datetime('now')) AS reset_image,
+    COALESCE(c.credits_amount, 0) AS credits_amount,
+    COALESCE(c.credit_types, '') AS credit_types,
+    COALESCE(q.throttled_until_claude, '') AS throttled_until_claude,
+    COALESCE(q.throttled_until_pro, '') AS throttled_until_pro,
+    COALESCE(q.throttled_until_flash, '') AS throttled_until_flash,
+    COALESCE(q.throttled_until_flashlite, '') AS throttled_until_flashlite,
+    COALESCE(q.throttled_until_tab, '') AS throttled_until_tab,
+    COALESCE(q.throttled_until_image, '') AS throttled_until_image,
+    COALESCE(q.synced_at, '') AS synced_at
+FROM antigravity a
+LEFT JOIN antigravity_quota q ON q.credential_id = a.id
+LEFT JOIN antigravity_credits c ON c.credential_id = a.id
+ORDER BY a.id;
+
 -- name: ListAntigravityPaged :many
 SELECT
     a.id, a.status, a.access_token, a.refresh_token, a.expired,

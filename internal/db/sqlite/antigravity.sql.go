@@ -113,6 +113,124 @@ func (q *Queries) GetAntigravity(ctx context.Context, id string) (Antigravity, e
 	return i, err
 }
 
+const listAntigravity = `-- name: ListAntigravity :many
+SELECT
+    a.id, a.status, a.access_token, a.refresh_token, a.expired,
+    a.email, a.project_id, a.plan_type, a.reason,
+    COALESCE(q.quota_claude, 1.0) AS quota_claude,
+    COALESCE(q.reset_claude, datetime('now')) AS reset_claude,
+    COALESCE(q.quota_pro, 1.0) AS quota_pro,
+    COALESCE(q.reset_pro, datetime('now')) AS reset_pro,
+    COALESCE(q.quota_flash, 1.0) AS quota_flash,
+    COALESCE(q.reset_flash, datetime('now')) AS reset_flash,
+    COALESCE(q.quota_flashlite, 1.0) AS quota_flashlite,
+    COALESCE(q.reset_flashlite, datetime('now')) AS reset_flashlite,
+    COALESCE(q.quota_tab, 1.0) AS quota_tab,
+    COALESCE(q.reset_tab, datetime('now', '+100 years')) AS reset_tab,
+    COALESCE(q.quota_image, 1.0) AS quota_image,
+    COALESCE(q.reset_image, datetime('now')) AS reset_image,
+    COALESCE(c.credits_amount, 0) AS credits_amount,
+    COALESCE(c.credit_types, '') AS credit_types,
+    COALESCE(q.throttled_until_claude, '') AS throttled_until_claude,
+    COALESCE(q.throttled_until_pro, '') AS throttled_until_pro,
+    COALESCE(q.throttled_until_flash, '') AS throttled_until_flash,
+    COALESCE(q.throttled_until_flashlite, '') AS throttled_until_flashlite,
+    COALESCE(q.throttled_until_tab, '') AS throttled_until_tab,
+    COALESCE(q.throttled_until_image, '') AS throttled_until_image,
+    COALESCE(q.synced_at, '') AS synced_at
+FROM antigravity a
+LEFT JOIN antigravity_quota q ON q.credential_id = a.id
+LEFT JOIN antigravity_credits c ON c.credential_id = a.id
+ORDER BY a.id
+`
+
+type ListAntigravityRow struct {
+	ID                      string  `json:"id"`
+	Status                  string  `json:"status"`
+	AccessToken             string  `json:"access_token"`
+	RefreshToken            string  `json:"refresh_token"`
+	Expired                 string  `json:"expired"`
+	Email                   string  `json:"email"`
+	ProjectID               string  `json:"project_id"`
+	PlanType                string  `json:"plan_type"`
+	Reason                  string  `json:"reason"`
+	QuotaClaude             float64 `json:"quota_claude"`
+	ResetClaude             string  `json:"reset_claude"`
+	QuotaPro                float64 `json:"quota_pro"`
+	ResetPro                string  `json:"reset_pro"`
+	QuotaFlash              float64 `json:"quota_flash"`
+	ResetFlash              string  `json:"reset_flash"`
+	QuotaFlashlite          float64 `json:"quota_flashlite"`
+	ResetFlashlite          string  `json:"reset_flashlite"`
+	QuotaTab                float64 `json:"quota_tab"`
+	ResetTab                string  `json:"reset_tab"`
+	QuotaImage              float64 `json:"quota_image"`
+	ResetImage              string  `json:"reset_image"`
+	CreditsAmount           float64 `json:"credits_amount"`
+	CreditTypes             string  `json:"credit_types"`
+	ThrottledUntilClaude    string  `json:"throttled_until_claude"`
+	ThrottledUntilPro       string  `json:"throttled_until_pro"`
+	ThrottledUntilFlash     string  `json:"throttled_until_flash"`
+	ThrottledUntilFlashlite string  `json:"throttled_until_flashlite"`
+	ThrottledUntilTab       string  `json:"throttled_until_tab"`
+	ThrottledUntilImage     string  `json:"throttled_until_image"`
+	SyncedAt                string  `json:"synced_at"`
+}
+
+func (q *Queries) ListAntigravity(ctx context.Context) ([]ListAntigravityRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAntigravity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAntigravityRow{}
+	for rows.Next() {
+		var i ListAntigravityRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.AccessToken,
+			&i.RefreshToken,
+			&i.Expired,
+			&i.Email,
+			&i.ProjectID,
+			&i.PlanType,
+			&i.Reason,
+			&i.QuotaClaude,
+			&i.ResetClaude,
+			&i.QuotaPro,
+			&i.ResetPro,
+			&i.QuotaFlash,
+			&i.ResetFlash,
+			&i.QuotaFlashlite,
+			&i.ResetFlashlite,
+			&i.QuotaTab,
+			&i.ResetTab,
+			&i.QuotaImage,
+			&i.ResetImage,
+			&i.CreditsAmount,
+			&i.CreditTypes,
+			&i.ThrottledUntilClaude,
+			&i.ThrottledUntilPro,
+			&i.ThrottledUntilFlash,
+			&i.ThrottledUntilFlashlite,
+			&i.ThrottledUntilTab,
+			&i.ThrottledUntilImage,
+			&i.SyncedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAntigravityPaged = `-- name: ListAntigravityPaged :many
 SELECT
     a.id, a.status, a.access_token, a.refresh_token, a.expired,

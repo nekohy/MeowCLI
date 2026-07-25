@@ -600,6 +600,7 @@ type Store interface {
 	NextGeminiThrottleDeadline(ctx context.Context) (time.Time, error)
 	GetAntigravity(ctx context.Context, id string) (AntigravityCredential, error)
 	UpdateAntigravityTokens(ctx context.Context, arg UpdateAntigravityTokensParams) (AntigravityCredential, error)
+	ListAntigravity(ctx context.Context) ([]ListAntigravityRow, error)
 	ListAntigravityPaged(ctx context.Context, arg ListCredentialPagedParams) ([]ListAntigravityRow, error)
 	ListAntigravityPlanTypes(ctx context.Context, filter CredentialFilterParams) ([]string, error)
 	UpsertAntigravity(ctx context.Context, arg UpsertAntigravityParams) (AntigravityCredential, error)

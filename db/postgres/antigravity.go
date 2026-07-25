@@ -51,6 +51,18 @@ func (s *Store) UpdateAntigravityTokens(ctx context.Context, arg db.UpdateAntigr
 	return antigravityCredentialTo(row), nil
 }
 
+func (s *Store) ListAntigravity(ctx context.Context) ([]db.ListAntigravityRow, error) {
+	rows, err := s.queries.ListAntigravity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resolved := make([]db.ListAntigravityRow, len(rows))
+	for i, row := range rows {
+		resolved[i] = antigravityListRowTo(sqlcpostgres.ListAntigravityPagedRow(row))
+	}
+	return resolved, nil
+}
+
 func (s *Store) ListAntigravityPaged(ctx context.Context, arg db.ListCredentialPagedParams) ([]db.ListAntigravityRow, error) {
 	rows, err := s.queries.ListAntigravityPaged(ctx, sqlcpostgres.ListAntigravityPagedParams{
 		Search:       postgresCodexSearchPattern(arg.Search),

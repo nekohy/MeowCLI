@@ -188,6 +188,16 @@ export interface SettingsForm {
   opencode_go_proxy: string
 }
 
+export interface RefreshQuotaResponse {
+  queued: number
+}
+
+export interface ClearLogsResponse {
+  deleted: number
+  refreshed: boolean
+  errors?: string[]
+}
+
 export interface CodexSchedulingMetric {
   available: boolean
   quota_5h: number

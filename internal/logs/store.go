@@ -190,6 +190,29 @@ func (s *Store) ErrorRatesForCredentials(ctx context.Context, handler string, mo
 	return result, nil
 }
 
+// ClearLogs removes retained request logs for handler. The "all" handler clears everything.
+func (s *Store) ClearLogs(ctx context.Context, handler string) (int, error) {
+	if err := contextErr(ctx); err != nil || s == nil {
+		return 0, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	remaining := make([]db.LogRow, 0, len(s.rows)-s.head)
+	deleted := 0
+	for _, row := range s.rows[s.head:] {
+		if handler == "all" || row.Handler == handler {
+			deleted++
+			continue
+		}
+		remaining = append(remaining, row)
+	}
+	s.rows = remaining
+	s.head = 0
+	return deleted, nil
+}
+
 func isLogError(statusCode int32) bool {
 	return statusCode >= 400 || statusCode == 0
 }

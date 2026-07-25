@@ -4,6 +4,7 @@ import type {
   BatchDeleteResponse,
   BatchModelUpdateResponse,
   BatchStatusResponse,
+  ClearLogsResponse,
   CodexRateLimitResetCredits,
   CredentialItem,
   CreateAuthKeyResponse,
@@ -18,6 +19,7 @@ import type {
   OpenCodeGoReferralRewards,
   OverviewResponse,
   PaginatedResponse,
+  RefreshQuotaResponse,
   SettingsSnapshot,
   SetupResult,
   StatusResponse,
@@ -49,8 +51,6 @@ interface RequestOptions {
 
 /** 默认请求超时:防止后端 hang 住时轮询请求无限堆积 */
 export const REQUEST_TIMEOUT_MS = 15_000
-
-type QueryOptions = NonNullable<RequestOptions['query']>
 
 function buildUrl(path: string, query?: RequestOptions['query']) {
   const url = new URL(`/admin/api${path}`, window.location.origin)
@@ -270,6 +270,18 @@ export const adminApi = {
   },
   listJobs(token: string) {
     return apiRequest<ImportJobListResponse>('/jobs', { token })
+  },
+  refreshQuota(token: string, provider: string) {
+    return apiRequest<RefreshQuotaResponse>(`/providers/${encodeURIComponent(provider)}/quota`, {
+      token,
+      method: 'POST',
+    })
+  },
+  clearLogs(token: string, provider: string) {
+    return apiRequest<ClearLogsResponse>(`/logs/${encodeURIComponent(provider)}`, {
+      token,
+      method: 'DELETE',
+    })
   },
   acknowledgeJob(token: string, id: string) {
     return apiRequest<{ ok: boolean }>(`/jobs/${encodeURIComponent(id)}`, {
