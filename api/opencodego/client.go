@@ -115,6 +115,9 @@ func (c *Client) APIType() []utils.APIType {
 }
 
 func (c *Client) ReplaceModel(body []byte, model string) []byte {
+	if model == "" {
+		return body
+	}
 	var root ast.Node
 	if err := root.UnmarshalJSON(body); err != nil {
 		return body

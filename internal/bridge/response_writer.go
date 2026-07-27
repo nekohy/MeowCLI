@@ -63,7 +63,10 @@ func (h *Handler) streamSSE(c *gin.Context, resp *http.Response, backend api.Bac
 		_ = Body.Close()
 	}(resp.Body)
 
-	normalizePayload := alias != "" || backend.HandlerType() == utils.HandlerGemini || backend.HandlerType() == utils.HandlerAntigravity
+	// opencode-go 上游在 usage 之后仍会推送额外 SSE 事件，部分客户端无法兼容，
+	// 因此转发完包含 usage 的分块后直接以 [DONE] 终止流。
+	stopAfterUsage := backend.HandlerType() == utils.HandlerOpenCodeGo
+	normalizePayload := alias != "" || stopAfterUsage || backend.HandlerType() == utils.HandlerGemini || backend.HandlerType() == utils.HandlerAntigravity
 	if !normalizePayload {
 		buf := make([]byte, 32*1024)
 		for {
@@ -93,6 +96,12 @@ func (h *Handler) streamSSE(c *gin.Context, resp *http.Response, backend api.Bac
 			if writeErr := writeSSELine(c.Writer, backend, alias, line); writeErr != nil {
 				return writeErr
 			}
+			if stopAfterUsage && sseLineHasUsage(line) {
+				if flusher != nil {
+					flusher.Flush()
+				}
+				return finishSSEStream(c.Writer, flusher)
+			}
 		}
 		if flusher != nil {
 			flusher.Flush()
@@ -104,6 +113,26 @@ func (h *Handler) streamSSE(c *gin.Context, resp *http.Response, backend api.Bac
 			return err
 		}
 	}
+}
+
+// finishSSEStream 在提前截断上游流时向客户端补齐事件结束空行和标准 [DONE] 标记。
+func finishSSEStream(w io.Writer, flusher http.Flusher) error {
+	if _, err := w.Write([]byte("\ndata: [DONE]\n\n")); err != nil {
+		return err
+	}
+	if flusher != nil {
+		flusher.Flush()
+	}
+	return nil
+}
+
+// sseLineHasUsage 判断 SSE data 行是否携带了真实的 usage 对象（忽略 "usage":null）。
+func sseLineHasUsage(line []byte) bool {
+	payload, ok := sseDataPayload(bytes.TrimRight(line, "\r\n"))
+	if !ok || len(payload) == 0 || payload[0] != '{' {
+		return false
+	}
+	return bytes.Contains(payload, []byte(`"usage":{`)) || bytes.Contains(payload, []byte(`"usage": {`))
 }
 
 func writeSSELine(w io.Writer, backend api.Backend, alias string, line []byte) error {
