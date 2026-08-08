@@ -109,7 +109,7 @@ func (h *Handler) SetSettingsProvider(provider settings.Provider) {
 func (h *Handler) Route(apiType utils.APIType) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		switch apiType {
-		case utils.APIResponses, utils.APIResponsesCompact, utils.APICompletion:
+		case utils.APIResponses, utils.APIResponsesCompact, utils.APICompletion, utils.APIMessages:
 			h.handleResponses(c, apiType)
 		case utils.APIGemini:
 			h.handleGemini(c)

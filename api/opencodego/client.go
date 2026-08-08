@@ -23,6 +23,8 @@ import (
 const (
 	BaseURL             = "https://opencode.ai/zen/go"
 	ChatCompletionsPath = "/v1/chat/completions"
+	ResponsesPath       = "/v1/responses"
+	MessagesPath        = "/v1/messages"
 
 	dashboardOrigin = "https://opencode.ai"
 	dashboardBase   = dashboardOrigin + "/workspace"
@@ -111,7 +113,7 @@ func (c *Client) HandlerType() utils.HandlerType {
 }
 
 func (c *Client) APIType() []utils.APIType {
-	return []utils.APIType{utils.APICompletion}
+	return []utils.APIType{utils.APICompletion, utils.APIResponses, utils.APIMessages}
 }
 
 func (c *Client) ReplaceModel(body []byte, model string) []byte {
@@ -136,7 +138,9 @@ func (c *Client) ReplaceModel(body []byte, model string) []byte {
 }
 
 func (c *Client) PrepareRequest(root *ast.Node, apiType utils.APIType, _ api.BackendOpts) (api.PreparedRequest, error) {
-	if apiType != utils.APICompletion {
+	switch apiType {
+	case utils.APICompletion, utils.APIResponses, utils.APIMessages:
+	default:
 		return api.PreparedRequest{}, fmt.Errorf("unsupported opencode go api type %q", apiType)
 	}
 	if root == nil {
@@ -149,11 +153,19 @@ func (c *Client) Chat(req *api.Request) (*http.Response, error) {
 	if req == nil {
 		return nil, errors.New("opencode go request is nil")
 	}
-	if req.APIType != utils.APICompletion {
+	var path string
+	switch req.APIType {
+	case utils.APICompletion:
+		path = ChatCompletionsPath
+	case utils.APIResponses:
+		path = ResponsesPath
+	case utils.APIMessages:
+		path = MessagesPath
+	default:
 		return nil, fmt.Errorf("unsupported opencode go api type %q", req.APIType)
 	}
 
-	httpReq, err := http.NewRequestWithContext(req.Ctx, http.MethodPost, strings.TrimRight(c.apiURL(), "/")+ChatCompletionsPath, bytes.NewReader(req.Body))
+	httpReq, err := http.NewRequestWithContext(req.Ctx, http.MethodPost, strings.TrimRight(c.apiURL(), "/")+path, bytes.NewReader(req.Body))
 	if err != nil {
 		return nil, err
 	}
