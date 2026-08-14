@@ -25,6 +25,11 @@
     "description": ""
   },
   {
+    "id": "gemini-3.7-flash-tiered",
+    "name": "Gemini 3.7 Flash",
+    "description": ""
+  },
+  {
     "id": "gemini-pro-agent",
     "name": "Gemini 3.1 Pro",
     "description": ""
