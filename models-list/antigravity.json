@@ -76,7 +76,7 @@
   },
   {
     "id": "tab_flash_lite_preview",
-    "name": "你应该去用tab_jump_flash_lite_preview接入",
-    "description": ""
+    "name": "tab_flash_lite_preview",
+    "description": "你应该去用tab_jump_flash_lite_preview接入"
   }
 ]
