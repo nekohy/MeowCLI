@@ -35,6 +35,11 @@
     "description": ""
   },
   {
+    "id": "gpt-6-astra",
+    "name": "GPT 6 Astra",
+    "description": ""
+  },
+  {
     "id": "codex-auto-review",
     "name": "Codex Auto Review",
     "description": ""
